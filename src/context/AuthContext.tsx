@@ -119,11 +119,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (finalUser.role === "ADMIN") {
       router.push("/admin/dashboard");
     } else if (finalUser.role === "SELLER") {
-      if (finalUser.sellerStatus === "APPROVED") {
-        router.push("/seller/dashboard");
-      } else {
-        router.push("/seller/verification");
-      }
+      router.push("/");
     } else {
       router.push("/marketplace");
     }
@@ -192,11 +188,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (role === "ADMIN") {
       router.push("/admin/dashboard");
     } else if (role === "SELLER") {
-      if (finalUser.sellerStatus === "APPROVED") {
-        router.push("/seller/dashboard");
-      } else {
-        router.push("/seller/verification");
-      }
+      router.push("/");
     } else {
       router.push("/marketplace");
     }

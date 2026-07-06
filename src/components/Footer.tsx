@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button, Input } from "@/components/ui/shared";
 import { Leaf, Mail, ShieldCheck, HelpCircle } from "lucide-react";
+import { Logo } from "@/components/Logo";
 
 export default function Footer() {
   const [email, setEmail] = useState("");
@@ -27,10 +28,7 @@ export default function Footer() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 lg:grid-cols-4 lg:gap-8 pb-12 border-b border-border/40">
           {/* Brand and Mission */}
           <div className="space-y-4">
-            <div className="flex items-center space-x-2 text-primary font-bold text-lg">
-              <Leaf className="h-5 w-5 fill-accent stroke-primary" />
-              <span className="font-semibold tracking-tight text-primary dark:text-foreground">EARTHCENTRIC</span>
-            </div>
+            <Logo hideTextOnMobile={false} />
             <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
               Connecting conscious consumers with verified ethical manufacturers, sustainable brands, and carbon-neutral suppliers.
             </p>

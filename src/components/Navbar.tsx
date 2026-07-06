@@ -8,6 +8,7 @@ import { useCart } from "@/context/CartContext";
 import { Button, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { ScaleHover, AnimatePresence } from "@/components/FramerComponents";
 import { motion } from "framer-motion";
+import { Logo } from "@/components/Logo";
 import {
   ShoppingBag,
   User as UserIcon,
@@ -26,6 +27,7 @@ import {
   Search,
   Heart,
   MapPin,
+  Home,
 } from "lucide-react";
 
 interface NavbarSearchProps {
@@ -129,13 +131,7 @@ export default function Navbar() {
           
           {/* Logo & Location Container */}
           <div className="flex items-center space-x-6 shrink-0">
-            {/* Logo */}
-            <Link href="/" className="flex items-center space-x-1.5 select-none cursor-pointer">
-              <div className="bg-[#0F6E56]/10 p-1.5 rounded-lg text-[#0F6E56]">
-                <Leaf className="h-6 w-6 fill-[#0F6E56] stroke-none" />
-              </div>
-              <span className="font-serif tracking-tight font-black text-xl text-slate-800 hidden sm:inline-block">Earth Centric</span>
-            </Link>
+            <Logo />
 
             {/* Location */}
             <div className="hidden lg:flex items-center space-x-1 select-none text-left">
@@ -168,8 +164,19 @@ export default function Navbar() {
           {/* Right Action Items */}
           <div className="flex items-center space-x-6 shrink-0">
             
+            {/* Seller Dashboard Button */}
+            {user?.role === "SELLER" && (
+              <Link 
+                href={user.sellerStatus === "APPROVED" ? "/seller/dashboard" : "/seller/verification"} 
+                className="hidden md:flex items-center space-x-2 bg-[#0F6E56] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0c5a46] transition-colors shadow-sm"
+              >
+                <Building className="h-4 w-4" />
+                <span>Seller Dashboard</span>
+              </Link>
+            )}
+
             {/* Wishlist Link */}
-            <Link href="/marketplace" className="hidden sm:flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none">
+            <Link href="/wishlist" className="hidden sm:flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none">
               <Heart className="h-5 w-5" />
               <span className="text-[10px] font-bold mt-1">Wishlist</span>
             </Link>
@@ -272,13 +279,6 @@ export default function Navbar() {
               )}
               <span className="text-[10px] font-bold mt-1">Cart</span>
             </button>
-
-            {/* Start Selling Button */}
-            <Link href="/seller/verification" className="hidden sm:inline-block">
-              <button className="bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer border-none shadow-sm">
-                Start Selling
-              </button>
-            </Link>
 
             {/* Mobile Menu Button */}
             <button

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
@@ -42,12 +43,17 @@ async function main() {
     create: {
       name: "Eco Home Goods",
       slug: "eco-home-goods",
-      description: "Timber and wood upcycled house accessories.",
+      description: "Furniture and tableware repurposed from architectural waste and reclaimed timber.",
     },
   });
 
-  // Create default Admin, Seller and Buyer users
-  const adminUser = await prisma.user.upsert({
+  // Common password
+  // Wait, if bcrypt is not available, just use plain strings for mock login. The credentials provider in NextAuth (if any) or our mock login checks plain passwords or just logs in.
+  // Actually, our mock AuthContext just skips password check, so we don't need bcrypt for demo users.
+  const password = "Seller@123";
+
+  // Create default Admin and Buyer users
+  await prisma.user.upsert({
     where: { email: "admin@earthcentric.com" },
     update: {},
     create: {
@@ -57,94 +63,133 @@ async function main() {
     },
   });
 
-  const sellerUser = await prisma.user.upsert({
-    where: { email: "contact@ecothreads.com" },
+  await prisma.user.upsert({
+    where: { email: "buyer@earthcentric.com" },
     update: {},
     create: {
-      name: "EcoThreads Inc",
-      email: "contact@ecothreads.com",
-      role: "SELLER",
+      name: "Alex Conscious",
+      email: "buyer@earthcentric.com",
+      role: "BUYER",
     },
   });
 
-  const sellerProfile = await prisma.seller.upsert({
-    where: { userId: sellerUser.id },
-    update: {},
-    create: {
-      userId: sellerUser.id,
-      companyName: "EcoThreads Apparel",
-      businessType: "Manufacturer",
-      description: "Ethical manufacturers of organic hemp and bamboo clothing sheets.",
-      website: "https://ecothreads.com",
-      verificationStatus: "APPROVED",
-      badges: ["Verified Business", "Verified Sustainable Manufacturer"],
+  const sellers = [
+    {
+      email: "seller1@earthcentric.com",
+      name: "Seller One",
+      company: "Green Earth Manufacturing",
+      desc: "Industrial-scale sustainable manufacturing processes with zero waste.",
+      logo: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400",
+      score: 95,
+      prodName: "Eco Factory Gadget",
+      prodDesc: "An eco-friendly gadget produced entirely with renewable energy.",
+      catId: cat3.id,
+      img: "https://images.unsplash.com/photo-1624996379697-f01d168b1a52?w=400"
     },
-  });
+    {
+      email: "seller2@earthcentric.com",
+      name: "Seller Two",
+      company: "EcoLife Products",
+      desc: "Daily essentials designed to minimize environmental impact.",
+      logo: "https://images.unsplash.com/photo-1531834685032-c34bf0d84c77?w=400",
+      score: 92,
+      prodName: "Bamboo Life Kit",
+      prodDesc: "A complete bamboo-based daily kit for a zero-waste lifestyle.",
+      catId: cat2.id,
+      img: "https://images.unsplash.com/photo-1607613009820-a29f7bb81c04?w=400"
+    },
+    {
+      email: "seller3@earthcentric.com",
+      name: "Seller Three",
+      company: "Sustainable Living Co.",
+      desc: "Creating sustainable living solutions for modern homes.",
+      logo: "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?w=400",
+      score: 88,
+      prodName: "Recycled Coaster Set",
+      prodDesc: "Coasters made from 100% recycled industrial materials.",
+      catId: cat4.id,
+      img: "https://images.unsplash.com/photo-1533038590840-1cde6b66b706?w=400"
+    },
+    {
+      email: "seller4@earthcentric.com",
+      name: "Seller Four",
+      company: "Pure Planet Goods",
+      desc: "Unadulterated organic apparel and accessories.",
+      logo: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=400",
+      score: 90,
+      prodName: "Organic Hemp Bag",
+      prodDesc: "Durable and sustainable bag made from 100% natural hemp fibers.",
+      catId: cat1.id,
+      img: "https://images.unsplash.com/photo-1544816155-12df9643f363?w=400"
+    },
+    {
+      email: "seller5@earthcentric.com",
+      name: "Seller Five",
+      company: "Green Future Industries",
+      desc: "Pioneering the future of eco-friendly building materials.",
+      logo: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=400",
+      score: 98,
+      prodName: "Upcycled Timber Frame",
+      prodDesc: "Premium home decor made from upcycled timber.",
+      catId: cat4.id,
+      img: "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=400"
+    }
+  ];
 
-  // Add default products
-  await prisma.product.upsert({
-    where: { slug: "organic-cotton-classic-tee" },
-    update: {},
-    create: {
-      name: "Organic Cotton Classic Tee",
-      slug: "organic-cotton-classic-tee",
-      description:
-        "Crafted from 100% GOTS-certified organic cotton, this t-shirt is dyed with non-toxic, eco-friendly pigments. Spun ethically in small batches by verified weavers. Zero microplastics, breathable, and designed for circular recycling.",
-      price: 1899,
-      stock: 45,
-      sustainabilityScore: 95,
-      sustainabilityDetail:
-        "Saves 2,000 liters of water compared to conventional cotton. GOTS certified organic, fair-trade manufacturing, colored using natural vegetable dyes.",
-      categoryId: cat1.id,
-      sellerId: sellerProfile.id,
-      isApproved: true,
-      images: {
-        create: [
-          {
-            url: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80",
-            sortOrder: 0,
-          },
-          {
-            url: "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=800&auto=format&fit=crop&q=80",
-            sortOrder: 1,
-          },
-        ],
+  for (const s of sellers) {
+    const user = await prisma.user.upsert({
+      where: { email: s.email },
+      update: {},
+      create: {
+        name: s.name,
+        email: s.email,
+        password: password,
+        role: "SELLER",
       },
-    },
-  });
+    });
 
-  await prisma.product.upsert({
-    where: { slug: "zero-waste-bamboo-cutlery" },
-    update: {},
-    create: {
-      name: "Zero-Waste Bamboo Cutlery Set",
-      slug: "zero-waste-bamboo-cutlery",
-      description:
-        "An elegant, reusable cutlery kit for dining on the go. Made of premium sustainably harvested Moso bamboo. Includes a fork, knife, spoon, bamboo straw, and cleaning brush, nested inside a washable organic canvas wrap.",
-      price: 699,
-      stock: 120,
-      sustainabilityScore: 90,
-      sustainabilityDetail:
-        "100% biodegradable bamboo. Pesticide-free farming. Eliminates single-use plastic waste from food takeout.",
-      categoryId: cat2.id,
-      sellerId: sellerProfile.id,
-      isApproved: true,
-      images: {
-        create: [
-          {
-            url: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800&auto=format&fit=crop&q=80",
-            sortOrder: 0,
-          },
-          {
-            url: "https://images.unsplash.com/photo-1610701596007-11502861dcfa?w=800&auto=format&fit=crop&q=80",
-            sortOrder: 1,
-          },
-        ],
+    const sellerProfile = await prisma.seller.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: {
+        userId: user.id,
+        companyName: s.company,
+        businessType: "Manufacturer",
+        description: s.desc,
+        logoUrl: s.logo,
+        verificationStatus: "APPROVED",
+        badges: ["Verified Business"],
       },
-    },
-  });
+    });
 
-  console.log("Database seeded successfully!");
+    const productSlug = s.prodName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+    await prisma.product.upsert({
+      where: { slug: productSlug },
+      update: {},
+      create: {
+        name: s.prodName,
+        slug: productSlug,
+        description: s.prodDesc,
+        price: 999,
+        stock: 50,
+        sustainabilityScore: s.score,
+        categoryId: s.catId,
+        sellerId: sellerProfile.id,
+        isApproved: true,
+        images: {
+          create: [
+            {
+              url: s.img,
+              sortOrder: 0,
+            }
+          ],
+        },
+      },
+    });
+  }
+
+  console.log("Database seeded successfully with 5 demo sellers!");
 }
 
 main()

@@ -668,3 +668,34 @@ export async function updateSellerBanner(sellerId: string, base64Image: string):
   
   return resultJson;
 }
+
+export async function getVerifiedSellers() {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      return mockSellers.filter(s => s.verificationStatus === "APPROVED");
+    }
+
+    const sellers = await db.seller.findMany({
+      where: { verificationStatus: "APPROVED" },
+      take: 8,
+      include: {
+        products: {
+          take: 1,
+        }
+      }
+    });
+
+    return sellers.map(seller => ({
+      id: seller.id,
+      userId: seller.userId,
+      companyName: seller.companyName,
+      description: seller.description || "",
+      logoUrl: getUrlFromDb(seller.logoUrl) || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400",
+      badges: seller.badges,
+      sustainabilityScore: seller.products.length > 0 ? seller.products[0].sustainabilityScore : 90
+    }));
+  } catch (e) {
+    console.error("Failed to fetch verified sellers", e);
+    return [];
+  }
+}

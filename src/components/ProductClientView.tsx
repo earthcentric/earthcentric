@@ -3,7 +3,10 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
 import { Input, Textarea } from "@/components/ui/shared";
 import { ProductItem, getProducts } from "@/actions/products";
 import {
@@ -27,6 +30,7 @@ interface ProductClientViewProps {
 
 export default function ProductClientView({ product }: ProductClientViewProps) {
   const { addToCart } = useCart();
+  const { user } = useAuth();
   const [activeImage, setActiveImage] = useState(product.images[0]);
   const [quantity, setQuantity] = useState(1);
   const [related, setRelated] = useState<ProductItem[]>([]);
@@ -95,9 +99,12 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
   // Wishlist
   useEffect(() => {
-    const list = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    setIsWishlisted(list.includes(product.id));
-  }, [product.id]);
+    if (user?.userId) {
+      getWishlistIds(user.userId).then((ids) => {
+        setIsWishlisted(ids.includes(product.id));
+      });
+    }
+  }, [user, product.id]);
 
   // Related products
   useEffect(() => {
@@ -134,16 +141,27 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     setTimeout(() => setAddedNotify(false), 2500);
   };
 
-  const toggleWishlist = () => {
-    const list = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    let updated: string[];
-    if (isWishlisted) {
-      updated = list.filter((id: string) => id !== product.id);
-    } else {
-      updated = [...list, product.id];
+  const handleToggleWishlist = async () => {
+    if (!user?.userId) {
+      toast.error("Please login to wishlist products");
+      return;
     }
-    localStorage.setItem("wishlist", JSON.stringify(updated));
+    
+    // Optimistic update
     setIsWishlisted(!isWishlisted);
+    
+    const res = await toggleWishlist(user.userId, product.id);
+    if (res.success) {
+      if (res.isWishlisted) {
+        toast.success("Added to wishlist");
+      } else {
+        toast.success("Removed from wishlist");
+      }
+      setIsWishlisted(res.isWishlisted);
+    } else {
+      setIsWishlisted(isWishlisted); // revert
+      toast.error("Failed to update wishlist");
+    }
   };
 
   const handleReviewSubmit = (e: React.FormEvent) => {
@@ -256,7 +274,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               </div>
               <div className="flex items-center space-x-3">
                 <button
-                  onClick={toggleWishlist}
+                  onClick={handleToggleWishlist}
                   className="h-10 w-10 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
                   aria-label="Add to wishlist"
                 >

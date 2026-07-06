@@ -6,39 +6,47 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Star, Leaf } from "lucide-react";
 import { ProductItem } from "@/actions/products";
+import { useAuth } from "@/context/AuthContext";
+import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
+import { toast } from "sonner";
 
 interface ProductCardProps {
   product: ProductItem;
   onAddToCart: (e: React.MouseEvent, p: ProductItem) => void;
   onQuickView?: (p: ProductItem) => void;
+  initialWishlisted?: boolean;
 }
 
-export default function ProductCard({ product, onAddToCart, onQuickView }: ProductCardProps) {
+export default function ProductCard({ product, onAddToCart, onQuickView, initialWishlisted = false }: ProductCardProps) {
   const router = useRouter();
-  const [isWishlisted, setIsWishlisted] = useState(false);
+  const { user } = useAuth();
+  const [isWishlisted, setIsWishlisted] = useState(initialWishlisted);
 
-  // Check wishlist state on mount
   useEffect(() => {
-    const wishlist = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    setIsWishlisted(wishlist.includes(product.id));
-  }, [product.id]);
+    setIsWishlisted(initialWishlisted);
+  }, [initialWishlisted]);
 
-  // Toggle wishlist state
-  const handleToggleWishlist = (e: React.MouseEvent) => {
+  const handleToggleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const wishlist = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    let updatedWishlist = [];
-    
-    if (isWishlisted) {
-      updatedWishlist = wishlist.filter((id: string) => id !== product.id);
-      setIsWishlisted(false);
-    } else {
-      updatedWishlist = [...wishlist, product.id];
-      setIsWishlisted(true);
+
+    if (!user?.userId) {
+      toast.error("Please login to wishlist products");
+      return;
     }
-    
-    localStorage.setItem("wishlist", JSON.stringify(updatedWishlist));
+
+    // Optimistic update
+    setIsWishlisted(!isWishlisted);
+
+    const res = await toggleWishlist(user.userId, product.id);
+    if (res.success) {
+      if (res.isWishlisted) toast.success("Added to wishlist");
+      else toast.success("Removed from wishlist");
+      setIsWishlisted(res.isWishlisted);
+    } else {
+      setIsWishlisted(isWishlisted); // revert on failure
+      toast.error("Failed to update wishlist");
+    }
   };
 
   // Compute pricing details

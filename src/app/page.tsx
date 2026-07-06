@@ -10,6 +10,7 @@ import DisplayCards from "@/components/ui/display-cards";
 import ScrollGlobe from "@/components/ui/scroll-globe";
 import { useCart } from "@/context/CartContext";
 import { getProducts, ProductItem } from "@/actions/products";
+import { getVerifiedSellers } from "@/actions/sellers";
 
 const CATEGORIES = [
   {
@@ -331,6 +332,7 @@ export default function Homepage() {
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
   const [selectedWowProduct, setSelectedWowProduct] = useState(SUSTAINABILITY_DATA[0]);
   const [purchaseQuantity, setPurchaseQuantity] = useState(50);
+  const [verifiedSellers, setVerifiedSellers] = useState<any[]>([]);
 
   // Convert FEATURED_PRODUCTS to a compatible format for initial rendering
   const initialProducts: ProductItem[] = FEATURED_PRODUCTS.map((p) => ({
@@ -360,17 +362,21 @@ export default function Homepage() {
   const [products, setProducts] = useState<ProductItem[]>(initialProducts);
 
   useEffect(() => {
-    async function loadProducts() {
+    async function loadData() {
       try {
-        const fetched = await getProducts();
-        if (fetched && fetched.length > 0) {
-          setProducts(fetched);
+        const fetchedProducts = await getProducts();
+        if (fetchedProducts && fetchedProducts.length > 0) {
+          setProducts(fetchedProducts);
+        }
+        const fetchedSellers = await getVerifiedSellers();
+        if (fetchedSellers && fetchedSellers.length > 0) {
+          setVerifiedSellers(fetchedSellers);
         }
       } catch (err) {
-        console.error("Failed to load products from DB:", err);
+        console.error("Failed to load data from DB:", err);
       }
     }
-    loadProducts();
+    loadData();
   }, []);
 
   const sections = [
@@ -666,6 +672,55 @@ export default function Homepage() {
               </div>
 
             </div>
+          </div>
+        </section>
+      )
+    },
+    {
+      id: "verified-sellers-section",
+      badge: "Sellers",
+      content: (
+        <section id="verified-sellers" className="w-full bg-slate-50 py-16 md:py-24 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-12 md:mt-24 border-t border-slate-200">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-12">
+            <div className="space-y-2">
+              <Badge variant="primary">Verified Network</Badge>
+              <h2 className="text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+                Verified Sellers
+              </h2>
+              <p className="text-sm text-muted-foreground max-w-2xl">
+                These brands have passed our rigorous 5-step verification process ensuring absolute sustainability and zero greenwashing.
+              </p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {verifiedSellers.map((seller) => (
+              <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1">
+                <div className="flex items-start justify-between">
+                  <img src={seller.logoUrl} alt={seller.companyName} className="h-16 w-16 rounded-full object-cover border border-border/40" />
+                  <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
+                    Score: {seller.sustainabilityScore}
+                  </Badge>
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-primary truncate" title={seller.companyName}>{seller.companyName}</h3>
+                  <div className="flex items-center space-x-1 mt-1 text-emerald-600">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Verified Business</span>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px]">
+                  {seller.description}
+                </p>
+                <div className="pt-2 border-t border-border/40">
+                  <Link href={`/marketplace?seller=${seller.id}`}>
+                    <Button variant="cool" size="sm" className="w-full text-xs">
+                      View Seller
+                    </Button>
+                  </Link>
+                </div>
+              </Card>
+            ))}
           </div>
         </section>
       )

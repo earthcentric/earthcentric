@@ -11,6 +11,7 @@ import { Button, Card, Badge, Table, TableHeader, TableBody, TableRow, TableCell
 import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { AdminAnalyticsCharts, AdminAnalyticsData } from "@/components/ui/admin-analytics-charts";
 import { AdminSellerDetailModal } from "@/components/ui/admin-seller-detail-modal";
+import { Logo } from "@/components/Logo";
 import {
   ShieldAlert,
   FileCheck,
@@ -169,10 +170,7 @@ export default function AdminDashboard() {
       <aside className="w-[260px] bg-[#1a3321] text-white flex flex-col h-full shrink-0 z-20 shadow-xl overflow-y-auto hidden md:flex">
         {/* Logo Area */}
         <div className="h-16 flex items-center px-6 border-b border-white/5 shrink-0">
-          <Link href="/" className="flex items-center space-x-2 text-white font-bold text-lg">
-            <Leaf className="h-5 w-5 fill-emerald-500 text-emerald-500" />
-            <span className="font-semibold tracking-tight">Earth Centric</span>
-          </Link>
+          <Logo light />
         </div>
 
         {/* Profile Card */}

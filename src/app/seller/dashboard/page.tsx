@@ -8,6 +8,7 @@ import { getOrdersBySeller, updateOrderStatus, OrderDetail } from "@/actions/ord
 import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
 import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, MetalButton } from "@/components/ui/shared";
 import { FadeIn } from "@/components/FramerComponents";
+import { Logo } from "@/components/Logo";
 import {
   LayoutDashboard,
   Package,
@@ -31,6 +32,7 @@ import {
   Leaf,
   Star,
   Mail,
+  Home,
 } from "lucide-react";
 import {
   BarChart,
@@ -225,10 +227,14 @@ export default function SellerDashboard() {
         {/* Top Header */}
         <div className="h-14 flex items-center justify-between px-8 sticky top-0 z-10 bg-[#f4f5f3]">
           <div className="flex items-center space-x-2 text-[#4a5d4e] font-bold text-sm tracking-tight">
-            <Leaf className="h-4 w-4" />
-            <span>Earth Centric Seller</span>
+            <Logo hideTextOnMobile={false} />
+            <span className="ml-2 text-xs font-semibold bg-[#2d4a36] text-white px-2 py-0.5 rounded-full">Seller</span>
           </div>
           <div className="flex items-center space-x-6">
+            <a href="/" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer flex items-center space-x-1">
+              <Home className="h-3.5 w-3.5" />
+              <span>Back to Home</span>
+            </a>
             <a href="/marketplace" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer">View Marketplace</a>
             <div className="flex items-center space-x-2 bg-white px-2.5 py-1 rounded-full shadow-sm border border-[#d8dcd3]">
               <div className="h-5 w-5 bg-primary/20 text-primary rounded-full flex items-center justify-center">
@@ -886,7 +892,10 @@ function OrdersView({ orders, handleUpdateFulfillment }: any) {
           <Card className="relative w-full max-w-lg p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center pb-2 border-b">
               <div>
-                <h3 className="font-extrabold text-sm text-[#2d4a36]">EarthCentric Sales Receipt</h3>
+                <div className="flex items-center space-x-1.5 mb-0.5">
+                  <Leaf className="h-4 w-4 text-[#2d4a36]" />
+                  <h3 className="font-extrabold text-sm text-[#2d4a36]">EarthCentric Sales Receipt</h3>
+                </div>
                 <p className="text-[10px] text-muted-foreground">Invoice #EC-INV-{selectedInvoice.id.substring(4, 10).toUpperCase()}</p>
               </div>
               <button onClick={() => setSelectedInvoice(null)} className="p-1 hover:bg-muted rounded-full"><X className="h-4 w-4" /></button>

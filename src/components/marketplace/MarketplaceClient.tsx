@@ -5,6 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { getProducts, ProductItem, ProductFilter } from "@/actions/products";
+import { getWishlistIds } from "@/actions/wishlist";
+import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { Button, Card, Badge, Input } from "@/components/ui/shared";
 import { FadeInStagger, FadeInStaggerItem, ScaleHover } from "@/components/FramerComponents";
@@ -224,11 +226,15 @@ export default function MarketplaceClient() {
     window.history.pushState({ path: url }, "", url);
   }, [category, search, pricePreset, minScore, verifiedOnly, sortBy]);
 
-  // Load wishlist from localStorage on mount
+  // Load wishlist from database on mount
+  const { user } = useAuth();
   useEffect(() => {
-    const list = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    setWishlistIds(list);
-  }, []);
+    if (user?.userId) {
+      getWishlistIds(user.userId).then((ids) => setWishlistIds(ids));
+    } else {
+      setWishlistIds([]);
+    }
+  }, [user]);
 
   // Fetch products from Prisma DB (or mock fallback) based on filters
   useEffect(() => {
@@ -316,16 +322,17 @@ export default function MarketplaceClient() {
     setTimeout(() => setAddedItemName(null), 2000);
   };
 
-  const handleToggleWishlistAction = (p: ProductItem) => {
-    const list = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    let updated = [];
-    if (list.includes(p.id)) {
-      updated = list.filter((id: string) => id !== p.id);
-    } else {
-      updated = [...list, p.id];
+  const handleToggleWishlistAction = async (p: ProductItem) => {
+    if (!user?.userId) return;
+    const { toggleWishlist } = await import("@/actions/wishlist");
+    const res = await toggleWishlist(user.userId, p.id);
+    if (res.success) {
+      if (res.isWishlisted) {
+        setWishlistIds([...wishlistIds, p.id]);
+      } else {
+        setWishlistIds(wishlistIds.filter(id => id !== p.id));
+      }
     }
-    localStorage.setItem("wishlist", JSON.stringify(updated));
-    setWishlistIds(updated);
   };
 
   const handleOpenQuickView = (p: ProductItem) => {
@@ -570,6 +577,7 @@ export default function MarketplaceClient() {
                         product={p}
                         onAddToCart={handleAddToCartAction}
                         onQuickView={handleOpenQuickView}
+                        initialWishlisted={wishlistIds.includes(p.id)}
                       />
                     </div>
                   ))}

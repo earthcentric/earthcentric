@@ -641,35 +641,6 @@ export async function createProduct(data: {
       })
     );
 
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const newProduct: ProductItem = {
-        id: `p-${Math.random().toString(36).substring(2, 9)}`,
-        name: data.name,
-        slug: data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        description: data.description,
-        price: Number(data.price),
-        stock: Number(data.stock),
-        sustainabilityScore: Number(data.sustainabilityScore),
-        sustainabilityDetail: data.sustainabilityDetail,
-        images: uploadedImages.map((img) => getUrlFromDb(img.url)),
-        category: data.categoryName,
-        categoryId: "c_custom",
-        isApproved: true, // Auto-approve mock creations for seller ease
-        sellerId: data.sellerId,
-        seller: {
-          id: data.sellerId,
-          companyName: data.sellerName,
-          badges: ["Verified Business"],
-        },
-        certifications: ["EarthCentric Verified"],
-        rating: 5.0,
-        reviewsCount: 0,
-      };
-
-      dynamicProducts.push(newProduct);
-      return newProduct;
-    }
-
     // Find seller by either sellerId or userId to prevent FK mismatches
     let seller = await db.seller.findUnique({ where: { id: data.sellerId } });
     if (!seller) {
@@ -739,39 +710,8 @@ export async function createProduct(data: {
       reviewsCount: 0,
     };
   } catch (error) {
-    console.error("Failed to create product in DB, creating mock:", error);
-    // Fall back to memory create with mock Cloudinary uploads
-    const parsedImages = await Promise.all(
-      data.imageUrls.map(async (url) => {
-        const secureUrl = await uploadImage(url, "product");
-        return getUrlFromDb(secureUrl);
-      })
-    );
-    const newProduct: ProductItem = {
-      id: `p-${Math.random().toString(36).substring(2, 9)}`,
-      name: data.name,
-      slug: data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-      description: data.description,
-      price: Number(data.price),
-      stock: Number(data.stock),
-      sustainabilityScore: Number(data.sustainabilityScore),
-      sustainabilityDetail: data.sustainabilityDetail,
-      images: parsedImages,
-      category: data.categoryName,
-      categoryId: "c_custom",
-      isApproved: true,
-      sellerId: data.sellerId,
-      seller: {
-        id: data.sellerId,
-        companyName: data.sellerName,
-        badges: ["Verified Business"],
-      },
-      certifications: ["EarthCentric Verified"],
-      rating: 5.0,
-      reviewsCount: 0,
-    };
-    dynamicProducts.push(newProduct);
-    return newProduct;
+    console.error("Failed to create product in DB:", error);
+    throw new Error("Failed to create product. Ensure your database is correctly configured.");
   }
 }
 
