@@ -41,9 +41,21 @@ export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig
   const [activeSection, setActiveSection] = useState(0);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [globeTransform, setGlobeTransform] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const animationFrameId = useRef<number | null>(null);
+
+  // Track window resizing to detect mobile view
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Pre-calculate positions for performance
   const calculatedPositions = useMemo(() => {
@@ -82,7 +94,10 @@ export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig
 
     // Apply the active transform based on section positioning
     const currentPos = calculatedPositions[newActiveSection] || calculatedPositions[0];
-    const transform = `translate3d(${currentPos.left}vw, ${currentPos.top}vh, 0) translate3d(-50%, -50%, 0) scale3d(${currentPos.scale}, ${currentPos.scale}, 1)`;
+    const isMob = typeof window !== "undefined" && window.innerWidth < 768;
+    const leftPos = isMob ? 50 : currentPos.left;
+    const scaleFactor = isMob ? currentPos.scale * 0.65 : currentPos.scale;
+    const transform = `translate3d(${leftPos}vw, ${currentPos.top}vh, 0) translate3d(-50%, -50%, 0) scale3d(${scaleFactor}, ${scaleFactor}, 1)`;
 
     setGlobeTransform(transform);
     setActiveSection(newActiveSection);
@@ -115,8 +130,11 @@ export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig
 
   // Initial positioning fallback
   useEffect(() => {
+    const isMob = typeof window !== "undefined" && window.innerWidth < 768;
     const initialPos = calculatedPositions[0];
-    const initialTransform = `translate3d(${initialPos.left}vw, ${initialPos.top}vh, 0) translate3d(-50%, -50%, 0) scale3d(${initialPos.scale}, ${initialPos.scale}, 1)`;
+    const leftPos = isMob ? 50 : initialPos.left;
+    const scaleFactor = isMob ? initialPos.scale * 0.65 : initialPos.scale;
+    const initialTransform = `translate3d(${leftPos}vw, ${initialPos.top}vh, 0) translate3d(-50%, -50%, 0) scale3d(${scaleFactor}, ${scaleFactor}, 1)`;
     setGlobeTransform(initialTransform);
   }, [calculatedPositions]);
 
@@ -190,15 +208,15 @@ export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig
         <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent -translate-x-1/2 -z-10" />
       </div>
 
-      {/* Fixed Background Globe container - hidden on mobile for performance & layout */}
+      {/* Fixed Background Globe container - visible on mobile as a subtle watermark backdrop */}
       <div
-        className="hidden md:block fixed z-10 pointer-events-none will-change-transform transition-all duration-[1400ms] ease-[cubic-bezier(0.23,1,0.32,1)]"
+        className="fixed z-10 pointer-events-none will-change-transform transition-all duration-[1400ms] ease-[cubic-bezier(0.23,1,0.32,1)]"
         style={{
           transform: globeTransform,
-          filter: `opacity(${activeSection === 3 ? 0.35 : 0.8})`,
+          filter: `opacity(${isMobile ? (activeSection === 3 ? 0.12 : 0.22) : (activeSection === 3 ? 0.35 : 0.8)})`,
         }}
       >
-        <div className="md:scale-90 lg:scale-100 opacity-90">
+        <div className="scale-75 md:scale-90 lg:scale-100 opacity-90">
           <Globe scrollProgress={scrollProgress} />
         </div>
       </div>
