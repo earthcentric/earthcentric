@@ -389,6 +389,66 @@ export default function Navbar() {
             >
               About
             </Link>
+
+            {/* Mobile Account Section */}
+            {user ? (
+              <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">My Account ({user.name.split(" ")[0]})</p>
+                {user.role === "SELLER" && (
+                  <Link
+                    href={user.sellerStatus === "APPROVED" ? "/seller/dashboard" : "/seller/verification"}
+                    className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Seller Dashboard
+                  </Link>
+                )}
+                {user.role === "ADMIN" && (
+                  <Link
+                    href="/admin/dashboard"
+                    className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Admin Dashboard
+                  </Link>
+                )}
+                {user.role === "BUYER" && (
+                  <Link
+                    href="/seller/verification"
+                    className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Become a Seller
+                  </Link>
+                )}
+                <Link
+                  href="/wishlist"
+                  className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  My Wishlist
+                </Link>
+                <button
+                  onClick={() => {
+                    logout();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="block w-full text-left text-base font-medium py-2 text-red-600 hover:text-red-800 cursor-pointer border-none bg-transparent"
+                >
+                  Log Out
+                </button>
+              </div>
+            ) : (
+              <div className="border-t border-slate-100 pt-3 mt-3">
+                <Link
+                  href="/auth/login"
+                  className="block text-base font-bold py-2 text-[#0F6E56] hover:text-[#0c5a46]"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Sign In / Login
+                </Link>
+              </div>
+            )}
           </div>
         )}
       </header>

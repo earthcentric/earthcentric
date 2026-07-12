@@ -40,6 +40,7 @@ import {
   Home,
   MessageSquare,
   Bell,
+  Menu,
 } from "lucide-react";
 import {
   BarChart,
@@ -62,6 +63,7 @@ interface ImagePreview {
 export default function SellerDashboard() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
@@ -180,8 +182,16 @@ export default function SellerDashboard() {
 
   return (
     <div className="flex min-h-screen bg-[#f4f5f3] font-sans text-foreground">
+      {/* Mobile Sidebar backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 z-25 md:hidden" 
+          onClick={() => setIsSidebarOpen(false)} 
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-64 bg-[#e9ece6] border-r border-[#d8dcd3] flex flex-col fixed h-full z-20">
+      <div className={`w-64 bg-[#e9ece6] border-r border-[#d8dcd3] flex flex-col fixed h-full z-30 transition-transform duration-300 md:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         
         {/* Profile Summary Card */}
         <div className="p-6 pt-10">
@@ -212,7 +222,10 @@ export default function SellerDashboard() {
           {navItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                setActiveTab(item.id);
+                setIsSidebarOpen(false);
+              }}
               className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === item.id 
                   ? "bg-[#d9e2d5] text-[#2d4a36]" 
@@ -228,8 +241,11 @@ export default function SellerDashboard() {
         {/* Logout */}
         <div className="p-4 border-t border-[#d8dcd3]">
           <button 
-            onClick={() => window.location.href = "/"}
-            className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+            onClick={() => {
+              setIsSidebarOpen(false);
+              window.location.href = "/";
+            }}
+            className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer border-none bg-transparent"
           >
             <LogOut className="h-4 w-4" />
             <span>Logout</span>
@@ -238,12 +254,19 @@ export default function SellerDashboard() {
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 ml-64 flex flex-col min-h-screen">
+      <div className="flex-1 md:ml-64 flex flex-col min-h-screen">
         {/* Top Header */}
-        <div className="h-14 flex items-center justify-between px-8 sticky top-0 z-10 bg-[#f4f5f3]">
+        <div className="h-14 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10 bg-[#f4f5f3] border-b border-[#d8dcd3]/40">
           <div className="flex items-center space-x-2 text-[#4a5d4e] font-bold text-sm tracking-tight">
-            <Logo hideTextOnMobile={false} />
-            <span className="ml-2 text-xs font-semibold bg-[#2d4a36] text-white px-2 py-0.5 rounded-full">Seller</span>
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1 text-[#4a5d4e] hover:text-[#2d4a36] md:hidden border-none bg-transparent cursor-pointer mr-2 flex items-center justify-center"
+              aria-label="Toggle Sidebar"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <Logo hideTextOnMobile={true} />
+            <span className="ml-1 text-[10px] sm:text-xs font-semibold bg-[#2d4a36] text-white px-2 py-0.5 rounded-full">Seller</span>
           </div>
           <div className="flex items-center space-x-6">
             <a href="/" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer flex items-center space-x-1">

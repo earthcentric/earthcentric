@@ -44,6 +44,7 @@ import {
   LogOut,
   ChevronDown,
   DollarSign,
+  Menu,
 } from "lucide-react";
 
 // Mock User Data for User Management View
@@ -80,6 +81,7 @@ export default function AdminDashboard() {
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [selectedBuyerId, setSelectedBuyerId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -161,7 +163,10 @@ export default function AdminDashboard() {
     const isActive = activeTab === value;
     return (
       <button
-        onClick={() => setActiveTab(value)}
+        onClick={() => {
+          setActiveTab(value);
+          setIsSidebarOpen(false);
+        }}
         className={`w-full flex items-center justify-between px-6 py-2.5 text-xs font-semibold transition-colors duration-200 ${
           isActive
             ? "bg-[#2d4a36] text-white border-l-4 border-emerald-400"
@@ -183,11 +188,18 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex h-screen bg-[#f1f4f2] text-foreground overflow-hidden font-sans">
+      {/* Mobile Sidebar backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-25 md:hidden" 
+          onClick={() => setIsSidebarOpen(false)} 
+        />
+      )}
       
       {/* --------------------------------------------------------------------------
           LEFT SIDEBAR
           -------------------------------------------------------------------------- */}
-      <aside className="w-[260px] bg-[#1a3321] text-white flex flex-col h-full shrink-0 z-20 shadow-xl overflow-y-auto hidden md:flex">
+      <aside className={`fixed inset-y-0 left-0 w-[260px] bg-[#1a3321] text-white flex flex-col h-full shrink-0 z-30 shadow-xl overflow-y-auto transition-transform duration-300 md:translate-x-0 md:static ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         {/* Logo Area */}
         <div className="h-16 flex items-center px-6 border-b border-white/5 shrink-0">
           <Logo light />
@@ -234,7 +246,7 @@ export default function AdminDashboard() {
         
         {/* Footer Area */}
         <div className="p-4 border-t border-white/5">
-          <button onClick={() => logout()} className="flex items-center space-x-2 text-xs font-semibold text-[#8ca193] hover:text-red-400 transition-colors w-full px-2 py-2">
+          <button onClick={() => { setIsSidebarOpen(false); logout(); }} className="flex items-center space-x-2 text-xs font-semibold text-[#8ca193] hover:text-red-400 transition-colors w-full px-2 py-2 cursor-pointer border-none bg-transparent">
             <LogOut className="h-4 w-4" />
             <span>Logout System</span>
           </button>
@@ -247,14 +259,23 @@ export default function AdminDashboard() {
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         
         {/* Sticky Top Header */}
-        <header className="h-16 shrink-0 flex items-center justify-between px-8 bg-white shadow-sm z-10">
-          <div className="flex-1 max-w-md relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
-            <input 
-              type="text" 
-              placeholder="Search anything..." 
-              className="w-full bg-[#f4f5f3] hover:bg-[#e9ece6] focus:bg-[#e9ece6] border-none rounded-full pl-10 pr-4 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 focus:outline-none transition-all"
-            />
+        <header className="h-16 shrink-0 flex items-center justify-between px-4 sm:px-8 bg-white shadow-sm z-10">
+          <div className="flex items-center flex-1 mr-4">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1.5 text-slate-500 hover:text-slate-800 md:hidden border-none bg-transparent cursor-pointer mr-3 flex items-center justify-center"
+              aria-label="Toggle Sidebar"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="flex-1 max-w-md relative hidden sm:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+              <input 
+                type="text" 
+                placeholder="Search anything..." 
+                className="w-full bg-[#f4f5f3] hover:bg-[#e9ece6] focus:bg-[#e9ece6] border-none rounded-full pl-10 pr-4 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 focus:outline-none transition-all"
+              />
+            </div>
           </div>
           <div className="flex items-center space-x-4">
             {/* Notifications Popover */}
