@@ -106,20 +106,21 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
 
     // 5. Textures loading
     const textureLoader = new THREE.TextureLoader();
+    textureLoader.setCrossOrigin("anonymous");
     
     // Day marble texture map
     const dayTexture = textureLoader.load(
-      "https://unpkg.com/three-globe@2.31.1/example/img/earth-day.jpg",
+      "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-day.jpg",
       () => renderer.render(scene, camera)
     );
     // Specular shine map
     const specularTexture = textureLoader.load(
-      "https://unpkg.com/three-globe@2.31.1/example/img/earth-water.png",
+      "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-water.png",
       () => renderer.render(scene, camera)
     );
     // Cloud layer map
     const cloudsTexture = textureLoader.load(
-      "https://unpkg.com/three-globe@2.31.1/example/img/earth-clouds.png",
+      "https://cdn.jsdelivr.net/npm/globe.gl/example/img/earth-clouds.png",
       () => renderer.render(scene, camera)
     );
 
