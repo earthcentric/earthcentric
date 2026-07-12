@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Toaster } from "sonner";
 import SmoothScroll from "@/components/SmoothScroll";
+import ChatbotWidget from "@/components/ChatbotWidget";
 
 export const metadata: Metadata = {
   title: "EarthCentric | Premium Sustainable Marketplace",
@@ -28,6 +29,7 @@ export default function RootLayout({
               <main className="flex-1 flex flex-col">{children}</main>
               <Footer />
               <Toaster position="bottom-right" richColors />
+              <ChatbotWidget />
             </SmoothScroll>
           </CartProvider>
         </AuthProvider>
