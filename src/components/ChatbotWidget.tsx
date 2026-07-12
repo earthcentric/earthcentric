@@ -197,7 +197,7 @@ export default function ChatbotWidget() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 50 }}
             transition={{ type: "spring", damping: 25, stiffness: 250 }}
-            className="w-96 h-[520px] rounded-3xl bg-white/95 dark:bg-[#121c15]/95 backdrop-blur-xl border border-slate-100 dark:border-emerald-950 shadow-2xl flex flex-col overflow-hidden mb-4"
+            className="w-96 h-[520px] rounded-3xl bg-white dark:bg-[#121c15] border border-slate-200 dark:border-emerald-950 shadow-2xl flex flex-col overflow-hidden mb-4"
           >
             {/* Header */}
             <div className="bg-[#0c3c26] text-white p-4 flex items-center justify-between shadow-md">
@@ -223,7 +223,7 @@ export default function ChatbotWidget() {
             </div>
 
             {/* Message Stream */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-black/10 scrollbar-thin">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-black/20 scrollbar-thin">
               {messages.map((msg, idx) => (
                 <div
                   key={idx}
@@ -233,7 +233,7 @@ export default function ChatbotWidget() {
                     className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs text-left leading-relaxed ${
                       msg.sender === "user"
                         ? "bg-[#0F6E56] text-white rounded-tr-none shadow-sm"
-                        : "bg-white dark:bg-emerald-990 border border-slate-100 dark:border-emerald-950 text-slate-800 dark:text-slate-100 rounded-tl-none shadow-sm whitespace-pre-line"
+                        : "bg-white dark:bg-emerald-950/60 border border-slate-200/50 dark:border-emerald-900/40 text-slate-800 dark:text-slate-100 rounded-tl-none shadow-sm whitespace-pre-line"
                     }`}
                   >
                     {msg.text}
@@ -244,12 +244,12 @@ export default function ChatbotWidget() {
             </div>
 
             {/* Quick Suggestions Shelf */}
-            <div className="px-4 py-2 border-t border-slate-100/60 dark:border-emerald-950/40 bg-white/70 dark:bg-transparent overflow-x-auto whitespace-nowrap scrollbar-none flex gap-2">
+            <div className="px-4 py-2 border-t border-slate-100 dark:border-emerald-950/40 bg-white dark:bg-[#121c15] overflow-x-auto whitespace-nowrap scrollbar-none flex gap-2">
               {sampleQuestions.map((q, idx) => (
                 <button
                   key={idx}
                   onClick={() => handleSendMessage(q)}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 text-[10px] font-bold text-slate-600 dark:text-emerald-400 rounded-full border border-slate-200/50 dark:border-emerald-950/30 transition-all cursor-pointer inline-block shrink-0"
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 text-[10px] font-bold text-slate-600 dark:text-emerald-300 rounded-full border border-slate-200 dark:border-emerald-900/30 transition-all cursor-pointer inline-block shrink-0 animate-fade-in"
                 >
                   {q}
                 </button>
@@ -262,14 +262,14 @@ export default function ChatbotWidget() {
                 e.preventDefault();
                 handleSendMessage();
               }}
-              className="p-3 border-t border-slate-150 dark:border-emerald-950/50 bg-white dark:bg-[#121c15] flex items-center space-x-2"
+              className="p-3 border-t border-slate-200 dark:border-emerald-950/60 bg-white dark:bg-[#121c15] flex items-center space-x-2"
             >
               <input
                 type="text"
                 placeholder="Ask Eco-Bot anything..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                className="flex-1 bg-slate-50 dark:bg-black/15 border border-slate-200 dark:border-emerald-950/50 rounded-full px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F6E56] dark:focus:ring-emerald-600 text-foreground"
+                className="flex-1 bg-slate-50 dark:bg-black/25 border border-slate-250 dark:border-emerald-900/30 rounded-full px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F6E56] dark:focus:ring-emerald-500 text-slate-850 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-emerald-700/60"
               />
               <button
                 type="submit"
