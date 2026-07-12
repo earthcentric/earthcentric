@@ -2,12 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { getSellerProfileById, getSellerDashboardStats, getSellerAnalyticsTimeSeries, SellerProfile } from "@/actions/sellers";
-import { approveSeller, rejectSeller } from "@/actions/admin";
+import { approveSeller, updateSellerVerificationStatus, updateSellerTrustScore } from "@/actions/admin";
 import { getProducts, ProductItem } from "@/actions/products";
 import { AnalyticsData, SellerAnalyticsCharts } from "@/components/ui/seller-analytics-charts";
-import { Button, Card, Badge, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/shared";
-import { X, Building, CheckCircle2, Star, Package, MapPin, ExternalLink, Activity } from "lucide-react";
+import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shared";
+import { Activity, Building, CheckCircle2, ExternalLink, MapPin, Package, Star, X } from "lucide-react";
 import { FadeIn } from "@/components/FramerComponents";
+import { AdminSellerMessenger } from "./admin-seller-messenger";
 
 export interface AdminSellerDetailModalProps {
   sellerId: string;
@@ -24,10 +25,33 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [badges, setBadges] = useState<string[]>(["Verified Business"]);
   const [rejectReason, setRejectReason] = useState("");
+  const [trustScore, setTrustScore] = useState<number>(0);
+  const [updatingTrust, setUpdatingTrust] = useState(false);
+
+  useEffect(() => {
+    if (profile) {
+      setTrustScore(profile.trustScore || 0);
+    }
+  }, [profile]);
+
+  const handleUpdateTrustScore = async () => {
+    if (!profile) return;
+    setUpdatingTrust(true);
+    try {
+      await updateSellerTrustScore(profile.id, trustScore);
+      // Update local profile state to reflect change
+      setProfile({ ...profile, trustScore });
+      // Optionally show a toast or success notification here
+    } catch (err) {
+      console.error("Failed to update trust score:", err);
+    } finally {
+      setUpdatingTrust(false);
+    }
+  };
 
   const handleApprove = async () => {
     try {
-      await approveSeller(profile?.userId || sellerId, badges, adminEmail || "admin@earthcentric.com");
+      await updateSellerVerificationStatus(profile?.userId || sellerId, "APPROVED", badges, "", adminEmail);
       if (onActionComplete) onActionComplete();
       onClose();
     } catch (err) {
@@ -37,11 +61,31 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
 
   const handleReject = async () => {
     try {
-      await rejectSeller(profile?.userId || sellerId, rejectReason || "Documents incomplete or invalid.", adminEmail || "admin@earthcentric.com");
+      await updateSellerVerificationStatus(profile?.userId || sellerId, "REJECTED", [], rejectReason || "Documents incomplete or invalid.", adminEmail);
       if (onActionComplete) onActionComplete();
       onClose();
     } catch (err) {
       console.error("Failed to reject seller:", err);
+    }
+  };
+
+  const handleNeedMoreDocs = async () => {
+    try {
+      await updateSellerVerificationStatus(profile?.userId || sellerId, "NEED_MORE_DOCS", [], rejectReason || "Please upload clear documents.", adminEmail);
+      if (onActionComplete) onActionComplete();
+      onClose();
+    } catch (err) {
+      console.error("Failed to request docs:", err);
+    }
+  };
+
+  const handleSuspend = async () => {
+    try {
+      await updateSellerVerificationStatus(profile?.userId || sellerId, "SUSPENDED", [], rejectReason || "Violation of terms.", adminEmail);
+      if (onActionComplete) onActionComplete();
+      onClose();
+    } catch (err) {
+      console.error("Failed to suspend seller:", err);
     }
   };
 
@@ -157,7 +201,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                         <p className="text-xs leading-relaxed text-muted-foreground line-clamp-3">{profile.description}</p>
                       </div>
                     )}
-                    {(profile.website || profile.gstNumber || profile.panNumber) && (
+                    {(profile.website || profile.gstNumber || profile.panNumber || profile.declaredRevenue) && (
                       <div className="pt-2 mt-2 border-t border-border/30 grid grid-cols-2 gap-3">
                         {profile.gstNumber && (
                           <div>
@@ -171,6 +215,12 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                             <p className="text-xs font-mono">{profile.panNumber}</p>
                           </div>
                         )}
+                        {profile.declaredRevenue && (
+                          <div>
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Declared Annual Revenue</span>
+                            <p className="text-xs font-semibold text-emerald-700">{profile.declaredRevenue}</p>
+                          </div>
+                        )}
                         {profile.website && (
                           <div className="col-span-2">
                             <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Website</span>
@@ -182,11 +232,11 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                       </div>
                     )}
 
-                    {profile.badges.length > 0 && (
+                    {(profile.badges || []).length > 0 && (
                       <div className="pt-2 mt-2 border-t border-border/30">
                         <span className="text-[10px] text-muted-foreground uppercase block mb-1.5">Assigned Badges</span>
                         <div className="flex flex-wrap gap-1.5">
-                          {profile.badges.map((b, i) => (
+                          {(profile.badges || []).map((b: any, i: number) => (
                             <Badge key={i} variant="outline" className="text-[9px] bg-primary/5 text-primary border-primary/20">
                               {b}
                             </Badge>
@@ -215,12 +265,29 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
 
                   <Card className="p-4 border-border/40 bg-card flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-2 text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Trust Score</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Super Admin Trust Score</span>
                       <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500/20" />
                     </div>
-                    <div className="flex items-baseline space-x-1">
-                      <h3 className="text-xl sm:text-2xl font-black text-foreground">{stats.rating}</h3>
-                      <span className="text-[10px] text-muted-foreground">/ 5.0</span>
+                    <div className="flex flex-col space-y-2 mt-2">
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="number" 
+                          min="0" max="5" step="0.1"
+                          value={trustScore}
+                          onChange={(e) => setTrustScore(parseFloat(e.target.value) || 0)}
+                          className="w-16 px-2 py-1 text-sm border rounded bg-transparent font-bold"
+                        />
+                        <span className="text-[10px] text-muted-foreground">/ 5.0</span>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="w-full text-[10px] h-7"
+                        onClick={handleUpdateTrustScore}
+                        disabled={updatingTrust}
+                      >
+                        {updatingTrust ? "Saving..." : "Update Score"}
+                      </Button>
                     </div>
                   </Card>
 
@@ -242,6 +309,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                   <TabsTrigger value="analytics" className="text-xs">Performance Charts</TabsTrigger>
                   <TabsTrigger value="catalog" className="text-xs">Product Catalog ({products.length})</TabsTrigger>
                   <TabsTrigger value="documents" className="text-xs">Verification Docs</TabsTrigger>
+                  <TabsTrigger value="messages" className="text-xs">Messages</TabsTrigger>
                 </TabsList>
 
                 {/* Tab: Analytics */}
@@ -329,81 +397,114 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                   </div>
                 </TabsContent>
 
+                {/* Tab: Messages */}
+                <TabsContent value="messages" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <AdminSellerMessenger sellerId={sellerId} adminId={adminEmail || "admin@earthcentric.com"} />
+                </TabsContent>
+
               </Tabs>
             </div>
           )}
         </div>
 
-        {/* Action Footer for Pending Status */}
-        {!loading && profile && profile.verificationStatus === "PENDING" && (
+        {/* Action Footer for Status updates */}
+        {!loading && profile && (
           <div className="px-6 py-4 border-t border-border/40 bg-muted/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* Badges selection */}
-            <div className="flex flex-col space-y-1.5 w-full sm:w-auto">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                Assign Seller Quality Badges
-              </span>
-              <div className="flex flex-wrap gap-4 text-xs font-medium">
-                <label className="flex items-center space-x-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={badges.includes("Verified Business")}
-                    onChange={(e) => {
-                      if (e.target.checked) setBadges([...badges, "Verified Business"]);
-                      else setBadges(badges.filter(b => b !== "Verified Business"));
-                    }}
-                    className="rounded text-primary border-border focus:ring-ring"
-                  />
-                  <span>Verified Business</span>
-                </label>
-                <label className="flex items-center space-x-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={badges.includes("Verified Sustainable Manufacturer")}
-                    onChange={(e) => {
-                      if (e.target.checked) setBadges([...badges, "Verified Sustainable Manufacturer"]);
-                      else setBadges(badges.filter(b => b !== "Verified Sustainable Manufacturer"));
-                    }}
-                    className="rounded text-primary border-border focus:ring-ring"
-                  />
-                  <span>Verified Sustainable Manufacturer</span>
-                </label>
-                <label className="flex items-center space-x-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={badges.includes("Gold Eco Rating")}
-                    onChange={(e) => {
-                      if (e.target.checked) setBadges([...badges, "Gold Eco Rating"]);
-                      else setBadges(badges.filter(b => b !== "Gold Eco Rating"));
-                    }}
-                    className="rounded text-primary border-border focus:ring-ring"
-                  />
-                  <span>Gold Eco Rating</span>
-                </label>
+            
+            {((profile.verificationStatus as string) === "PENDING" || (profile.verificationStatus as string) === "UNDER_REVIEW" || (profile.verificationStatus as string) === "APPROVED") && (
+              <div className="flex flex-col space-y-1.5 w-full sm:w-auto">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                  Assign Seller Quality Badges
+                </span>
+                <div className="flex flex-wrap gap-4 text-xs font-medium">
+                  <label className="flex items-center space-x-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={badges.includes("Verified Business")}
+                      onChange={(e) => {
+                        if (e.target.checked) setBadges([...badges, "Verified Business"]);
+                        else setBadges(badges.filter(b => b !== "Verified Business"));
+                      }}
+                      className="rounded text-primary border-border focus:ring-ring"
+                    />
+                    <span>Verified Business</span>
+                  </label>
+                  <label className="flex items-center space-x-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={badges.includes("Verified Sustainable Manufacturer")}
+                      onChange={(e) => {
+                        if (e.target.checked) setBadges([...badges, "Verified Sustainable Manufacturer"]);
+                        else setBadges(badges.filter(b => b !== "Verified Sustainable Manufacturer"));
+                      }}
+                      className="rounded text-primary border-border focus:ring-ring"
+                    />
+                    <span>Verified Sustainable Manufacturer</span>
+                  </label>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Rejection input and Action buttons */}
-            <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
+            <div className="flex items-center space-x-2 w-full sm:w-auto justify-end flex-wrap gap-y-2">
               <input
                 type="text"
-                placeholder="Rejection reason (optional)"
+                placeholder="Reason (optional)"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                className="bg-transparent border border-border/60 rounded-lg text-xs py-2 px-3 focus:outline-none focus:border-primary w-48 inline-block"
+                className="bg-transparent border border-border/60 rounded-lg text-xs py-2 px-3 focus:outline-none focus:border-primary w-40 inline-block"
               />
-              <Button
-                variant="ghost"
-                className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold px-4 py-2 h-9 rounded-lg"
-                onClick={handleReject}
-              >
-                Reject
-              </Button>
-              <Button
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 h-9 rounded-lg"
-                onClick={handleApprove}
-              >
-                Approve & Verify
-              </Button>
+              
+              {(profile.verificationStatus as string) !== "APPROVED" && (
+                <>
+                  <Button
+                    variant="ghost"
+                    className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
+                    onClick={handleReject}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="text-amber-600 border-amber-200 hover:bg-amber-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
+                    onClick={handleNeedMoreDocs}
+                  >
+                    Need More Docs
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
+                    onClick={handleApprove}
+                  >
+                    Approve
+                  </Button>
+                </>
+              )}
+              
+              {(profile.verificationStatus as string) === "APPROVED" && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="text-rose-600 border-rose-200 hover:bg-rose-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
+                    onClick={handleSuspend}
+                  >
+                    Suspend Seller
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
+                    onClick={handleApprove}
+                  >
+                    Update Badges
+                  </Button>
+                </>
+              )}
+              
+              {(profile.verificationStatus as string) === "SUSPENDED" && (
+                 <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
+                    onClick={handleApprove}
+                 >
+                    Reinstate Seller
+                 </Button>
+              )}
             </div>
           </div>
         )}

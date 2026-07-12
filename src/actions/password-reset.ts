@@ -2,6 +2,7 @@
 
 import { sendForgotPasswordOTPEmail } from "@/lib/email";
 import db from "@/lib/db";
+import crypto from "crypto";
 
 // ─── In-memory OTP store (for both mock and DB modes) ──────────────
 // In production, you'd use Redis or a database table for OTPs.
@@ -143,9 +144,10 @@ export async function resetPassword(
         return { success: false, error: "User not found." };
       }
 
+      const hashedPassword = crypto.createHash("sha256").update(newPassword).digest("hex");
       await db.user.update({
         where: { email: normalizedEmail },
-        data: { password: newPassword }
+        data: { password: hashedPassword }
       });
     }
 

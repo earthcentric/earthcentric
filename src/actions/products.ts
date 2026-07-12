@@ -2,6 +2,7 @@
 
 import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
+import { createAdminNotification } from "@/actions/notifications";
 
 export interface ProductFilter {
   category?: string;
@@ -19,6 +20,7 @@ export interface SellerInfo {
   companyName: string;
   badges: string[];
   logoUrl?: string;
+  trustScore?: number;
 }
 
 export interface ProductItem {
@@ -40,6 +42,8 @@ export interface ProductItem {
   rating: number;
   reviewsCount: number;
   badgeType?: "verified" | "bestseller" | "eco";
+  moq?: number;
+  wholesalePrice?: number;
 }
 
 // Global mock items for fallback mode
@@ -446,6 +450,24 @@ const MOCK_PRODUCTS: ProductItem[] = [
 // In-memory array to simulate newly added products during the demo session
 let dynamicProducts: ProductItem[] = [];
 
+export async function getDynamicProducts(): Promise<ProductItem[]> {
+  return dynamicProducts;
+}
+
+export async function approveDynamicProduct(productId: string): Promise<void> {
+  const prod = dynamicProducts.find((p) => p.id === productId);
+  if (prod) {
+    prod.isApproved = true;
+  }
+}
+
+export async function rejectDynamicProduct(productId: string): Promise<void> {
+  const prod = dynamicProducts.find((p) => p.id === productId);
+  if (prod) {
+    prod.isApproved = false;
+  }
+}
+
 export async function getProducts(filters: ProductFilter = {}): Promise<ProductItem[]> {
   try {
     // Check database connection. If DATABASE_URL is not set or is 'mock', trigger fallback
@@ -455,9 +477,14 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
 
     // Prisma DB Query
     const whereClause: any = {
-      isApproved: true,
       isArchived: false,
     };
+
+    // Public marketplace requests only show approved items.
+    // Seller dashboards bypass this to display pending/unapproved items too.
+    if (!filters.sellerId) {
+      whereClause.isApproved = true;
+    }
 
     // Use AND array to compose filters safely (avoids OR clause conflicts)
     const andConditions: any[] = [];
@@ -613,6 +640,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       certifications: [],
       rating,
       reviewsCount: p.reviews.length,
+      moq: p.moq || undefined,
+      wholesalePrice: p.wholesalePrice || undefined,
     };
   } catch (error) {
     console.warn("Database getProductById failed, using mock:", error);
@@ -631,6 +660,8 @@ export async function createProduct(data: {
   imageUrls: string[];
   sellerId: string;
   sellerName: string;
+  moq?: number;
+  wholesalePrice?: number;
 }): Promise<ProductItem> {
   try {
     // Process/upload all product images to Cloudinary (will return JSON strings)
@@ -641,6 +672,39 @@ export async function createProduct(data: {
       })
     );
 
+    const isMockDb = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (isMockDb) {
+      const isSellerApproved = data.sellerId === "seller-1" || data.sellerId === "seller-pkg" || data.sellerId.includes("seller");
+      const newProduct: ProductItem = {
+        id: `prod-${Math.floor(Math.random() * 10000)}`,
+        name: data.name,
+        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Math.floor(Math.random() * 1000)}`,
+        description: data.description,
+        price: Number(data.price),
+        stock: Number(data.stock),
+        sustainabilityScore: Number(data.sustainabilityScore),
+        sustainabilityDetail: data.sustainabilityDetail,
+        images: uploadedImages.map(img => getUrlFromDb(img.url)),
+        category: data.categoryName,
+        categoryId: `c_${data.categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        isApproved: isSellerApproved,
+        sellerId: data.sellerId,
+        seller: {
+          id: data.sellerId,
+          companyName: data.sellerName || "Seller",
+          badges: ["Verified Business"],
+        },
+        certifications: ["EarthCentric Verified"],
+        rating: 5.0,
+        reviewsCount: 0,
+        moq: data.moq ? Number(data.moq) : 1,
+        wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : undefined,
+      };
+      
+      dynamicProducts.push(newProduct);
+      return newProduct;
+    }
+
     // Find seller by either sellerId or userId to prevent FK mismatches
     let seller = await db.seller.findUnique({ where: { id: data.sellerId } });
     if (!seller) {
@@ -650,6 +714,7 @@ export async function createProduct(data: {
       throw new Error(`Seller profile not found for ID or User ID: ${data.sellerId}`);
     }
     const resolvedSellerId = seller.id;
+    const autoApprove = seller.verificationStatus === "APPROVED";
 
     // Handle Category look-up/creation
     let category = await db.category.findUnique({ where: { name: data.categoryName } });
@@ -662,7 +727,7 @@ export async function createProduct(data: {
       });
     }
 
-    const p = await db.product.create({
+    const p = (await db.product.create({
       data: {
         name: data.name,
         slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Math.floor(Math.random() * 1000)}`,
@@ -673,7 +738,9 @@ export async function createProduct(data: {
         sustainabilityDetail: data.sustainabilityDetail,
         categoryId: category.id,
         sellerId: resolvedSellerId,
-        isApproved: true, // For demo purposes, auto-approve seller's product creation
+        isApproved: autoApprove,
+        moq: data.moq ? Number(data.moq) : 1,
+        wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         images: {
           create: uploadedImages,
         },
@@ -683,7 +750,15 @@ export async function createProduct(data: {
         images: true,
         seller: true,
       },
-    });
+    })) as any;
+
+    if (!autoApprove) {
+      await createAdminNotification(
+        "Product Approval Required",
+        `Seller "${p.seller.companyName}" added a new product "${p.name}" which requires approval.`,
+        "products"
+      );
+    }
 
     return {
       id: p.id,
@@ -694,7 +769,7 @@ export async function createProduct(data: {
       stock: p.stock,
       sustainabilityScore: p.sustainabilityScore,
       sustainabilityDetail: p.sustainabilityDetail || "",
-      images: p.images.map((img) => getUrlFromDb(img.url)),
+      images: p.images.map((img: any) => getUrlFromDb(img.url)),
       category: p.category.name,
       categoryId: p.categoryId,
       isApproved: p.isApproved,
@@ -708,6 +783,8 @@ export async function createProduct(data: {
       certifications: ["EarthCentric Verified"],
       rating: 5.0,
       reviewsCount: 0,
+      moq: p.moq || undefined,
+      wholesalePrice: p.wholesalePrice || undefined,
     };
   } catch (error) {
     console.error("Failed to create product in DB:", error);
@@ -725,6 +802,8 @@ export async function updateProduct(
     categoryName: string;
     sustainabilityScore: number;
     sustainabilityDetail: string;
+    moq?: number;
+    wholesalePrice?: number;
   }
 ): Promise<boolean> {
   try {
@@ -784,6 +863,9 @@ export async function updateProduct(
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
         categoryId: category.id,
+        isApproved: false,
+        moq: data.moq ? Number(data.moq) : 1,
+        wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
       },
     });
 
@@ -937,4 +1019,79 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
   }
 
   return list;
+}
+
+export async function addProductReview(data: {
+  userId: string;
+  productId: string;
+  rating: number;
+  comment: string;
+  imageUrls?: string[];
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      return { success: true };
+    }
+
+    // Verify if this user has purchased and received this product
+    const deliveredOrders = await db.order.findMany({
+      where: {
+        userId: data.userId,
+        status: "DELIVERED",
+        items: {
+          some: {
+            productId: data.productId,
+          },
+        },
+      },
+    });
+
+    if (deliveredOrders.length === 0) {
+      return {
+        success: false,
+        error: "Only verified buyers who have received the product can submit reviews.",
+      };
+    }
+
+    // Create the review
+    await db.review.create({
+      data: {
+        userId: data.userId,
+        productId: data.productId,
+        rating: Number(data.rating),
+        comment: data.comment,
+        imageUrls: data.imageUrls || [],
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to submit review:", error);
+    return { success: false, error: "An unexpected error occurred while saving your review." };
+  }
+}
+
+export async function checkReviewEligibility(userId: string, productId: string): Promise<boolean> {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      return true; // Auto-allow in mock mode
+    }
+
+    const deliveredOrders = await db.order.findMany({
+      where: {
+        userId,
+        status: "DELIVERED",
+        items: {
+          some: {
+            productId,
+          },
+        },
+      },
+    });
+
+    return deliveredOrders.length > 0;
+  } catch (error) {
+    console.error("Failed to check review eligibility:", error);
+    return false;
+  }
 }

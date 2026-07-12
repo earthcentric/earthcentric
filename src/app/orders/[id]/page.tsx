@@ -162,7 +162,7 @@ export default async function OrderTrackingPage({ params }: PageProps) {
             <div key={item.productId} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
               <div className="flex items-center space-x-4">
                 <img
-                  src={item.image}
+                  src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
                   alt={item.name}
                   className="h-12 w-12 rounded-lg object-cover border border-border/20 shrink-0"
                 />

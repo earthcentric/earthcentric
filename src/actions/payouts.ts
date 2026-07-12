@@ -2,6 +2,7 @@
 
 import db from "@/lib/db";
 import { sendPayoutSettledEmail } from "@/lib/email";
+import { createNotification, createAdminNotification } from "@/actions/notifications";
 
 export type PayoutStatus = "PENDING" | "SETTLED" | "REJECTED";
 
@@ -15,6 +16,9 @@ export interface PayoutRequestInfo {
   settledAt?: Date | null;
   adminEmail?: string | null;
   notes?: string | null;
+  isUrgent?: boolean;
+  reason?: string | null;
+  transactionId?: string | null;
 }
 
 export interface SellerPayoutStats {
@@ -119,7 +123,31 @@ export async function getSellerPayoutStats(sellerId: string): Promise<SellerPayo
   }
 }
 
-export async function requestPayout(sellerId: string, amount: number): Promise<{ success: boolean; error?: string }> {
+function getCurrentCycleRange(): { start: Date; end: Date } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const date = now.getDate();
+
+  if (date <= 15) {
+    return {
+      start: new Date(year, month, 1, 0, 0, 0, 0),
+      end: new Date(year, month, 15, 23, 59, 59, 999),
+    };
+  } else {
+    return {
+      start: new Date(year, month, 16, 0, 0, 0, 0),
+      end: new Date(year, month + 1, 0, 23, 59, 59, 999),
+    };
+  }
+}
+
+export async function requestPayout(
+  sellerId: string,
+  amount: number,
+  isUrgent = false,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     if (amount <= 0) {
       return { success: false, error: "Withdrawal amount must be greater than zero." };
@@ -130,61 +158,80 @@ export async function requestPayout(sellerId: string, amount: number): Promise<{
       return { success: false, error: "Insufficient withdrawable balance." };
     }
 
+    if (isUrgent && (!reason || reason.trim() === "")) {
+      return { success: false, error: "Reason is required for urgent payout requests." };
+    }
+
+    const cycle = getCurrentCycleRange();
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      // Check twice a week rule (last 7 days rolling)
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      if (!isUrgent) {
+        const recentNormalRequests = mockPayoutRequests.filter(
+          (p) => p.sellerId === sellerId && !p.isUrgent && p.requestedAt >= cycle.start && p.requestedAt <= cycle.end
+        );
 
-      const recentRequests = mockPayoutRequests.filter(
-        (p) => p.sellerId === sellerId && p.requestedAt >= sevenDaysAgo
-      );
-
-      if (recentRequests.length >= 2) {
-        return { success: false, error: "Payout limit reached. You can only request payouts up to 2 times a week." };
+        if (recentNormalRequests.length >= 1) {
+          return {
+            success: false,
+            error: "Payout limit reached for this cycle. You can only request one normal payout per cycle (1st–15th and 16th–end of month).",
+          };
+        }
       }
 
       mockPayoutRequests.push({
         id: `pay-req-${Math.random().toString(36).substring(2, 9)}`,
         sellerId,
-        companyName: "EcoThreads Apparel", // Fallback company name for mock
+        companyName: "EcoThreads Apparel",
         amount,
         status: "PENDING",
         requestedAt: new Date(),
+        isUrgent,
+        reason: reason || null,
       });
 
       return { success: true };
     }
 
-    // Check twice a week rule (last 7 days rolling) in database
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const dbRecentRequestsCount = await db.payoutRequest.count({
-      where: {
-        sellerId,
-        requestedAt: {
-          gte: sevenDaysAgo,
+    if (!isUrgent) {
+      const normalRequestCount = await db.payoutRequest.count({
+        where: {
+          sellerId,
+          isUrgent: false,
+          requestedAt: {
+            gte: cycle.start,
+            lte: cycle.end,
+          },
         },
-      },
-    });
+      });
 
-    if (dbRecentRequestsCount >= 2) {
-      return { success: false, error: "Payout limit reached. You can only request payouts up to 2 times a week." };
+      if (normalRequestCount >= 1) {
+        return {
+          success: false,
+          error: "Payout limit reached for this cycle. You can only request one normal payout per cycle (1st–15th and 16th–end of month).",
+        };
+      }
     }
-
-    // Get seller profile to log company name
-    const seller = await db.seller.findUnique({
-      where: { id: sellerId },
-      select: { companyName: true },
-    });
 
     await db.payoutRequest.create({
       data: {
         sellerId,
         amount,
         status: "PENDING",
+        isUrgent,
+        reason: reason || null,
       },
     });
+    const sProfile = await db.seller.findFirst({
+      where: {
+        OR: [{ id: sellerId }, { userId: sellerId }]
+      }
+    });
+    const cName = sProfile?.companyName || "A seller";
+    await createAdminNotification(
+      "Payout Requested",
+      `Seller "${cName}" has requested a payout of ₹${amount}.`,
+      "payments"
+    );
 
     return { success: true };
   } catch (error) {
@@ -222,6 +269,9 @@ export async function getSellerPayoutRequests(sellerId: string): Promise<PayoutR
       requestedAt: r.requestedAt,
       settledAt: r.settledAt,
       adminEmail: r.adminEmail,
+      isUrgent: r.isUrgent,
+      reason: r.reason,
+      transactionId: r.transactionId,
       notes: r.notes,
     }));
   } catch (error) {
@@ -256,6 +306,9 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
       requestedAt: r.requestedAt,
       settledAt: r.settledAt,
       adminEmail: r.adminEmail,
+      isUrgent: r.isUrgent,
+      reason: r.reason,
+      transactionId: r.transactionId,
       notes: r.notes,
     }));
   } catch (error) {
@@ -267,7 +320,9 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
 export async function settlePayoutRequest(
   requestId: string,
   adminEmail: string,
-  notes?: string
+  notes?: string,
+  transactionId?: string,
+  status: "SETTLED" | "REJECTED" | "APPROVED" | "ON_HOLD" = "SETTLED"
 ): Promise<boolean> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
@@ -275,18 +330,18 @@ export async function settlePayoutRequest(
         if (p.id === requestId) {
           return {
             ...p,
-            status: "SETTLED",
-            settledAt: new Date(),
+            status: status as any,
+            settledAt: status === "SETTLED" ? new Date() : p.settledAt,
             adminEmail,
-            notes: notes || "Settled in demo mode.",
+            notes: notes || `Updated in demo mode. Status: ${status}`,
+            transactionId: transactionId || p.transactionId,
           };
         }
         return p;
       });
 
-      // Send payout settled email notification
       const settled = mockPayoutRequests.find((p) => p.id === requestId);
-      if (settled) {
+      if (settled && status === "SETTLED") {
         await sendPayoutSettledEmail(
           "seller@earthcentric.com",
           settled.companyName,
@@ -300,10 +355,11 @@ export async function settlePayoutRequest(
     const request = await db.payoutRequest.update({
       where: { id: requestId },
       data: {
-        status: "SETTLED",
-        settledAt: new Date(),
+        status: status as any,
+        settledAt: status === "SETTLED" ? new Date() : undefined,
         adminEmail,
         notes,
+        transactionId,
       },
       include: {
         seller: { select: { companyName: true } },
@@ -313,24 +369,29 @@ export async function settlePayoutRequest(
     // Log to Audit Log
     await db.auditLog.create({
       data: {
-        action: "SETTLE_PAYOUT",
+        action: `SETTLE_PAYOUT_${status}`,
         adminEmail,
-        details: `Settled payout request of ₹${request.amount} for seller ${request.seller.companyName} (${request.sellerId}). Notes: ${notes || "None"}`,
+        details: `Updated payout request status to ${status} for ₹${request.amount} for seller ${request.seller.companyName} (${request.sellerId}). TxId: ${transactionId || "None"}. Notes: ${notes || "None"}`,
       },
     });
 
-    // Send payout settled email to seller
-    const seller = await db.seller.findUnique({
-      where: { id: request.sellerId },
-      include: { user: { select: { email: true } } },
-    });
-    if (seller?.user?.email) {
-      await sendPayoutSettledEmail(
-        seller.user.email,
-        request.seller.companyName,
-        request.amount,
-        notes
-      ).catch((err) => console.error("Failed to send payout email:", err));
+    // Send payout settled email to seller if settled
+    if (status === "SETTLED") {
+      const seller = await db.seller.findUnique({
+        where: { id: request.sellerId },
+        include: { user: { select: { email: true, id: true } } },
+      });
+      if (seller?.user?.email) {
+        await sendPayoutSettledEmail(
+          seller.user.email,
+          request.seller.companyName,
+          request.amount,
+          notes
+        ).catch((err) => console.error("Failed to send payout email:", err));
+      }
+      if (seller?.user?.id) {
+        await createNotification(seller.user.id, "Payout Settled", `Your payout of ₹${request.amount.toLocaleString()} has been settled.`, "/seller/dashboard");
+      }
     }
 
     return true;

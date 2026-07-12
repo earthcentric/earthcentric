@@ -31,7 +31,7 @@ const STEPS = [
 ];
 
 export default function VerificationPage() {
-  const { user, updateSellerStatus } = useAuth();
+  const { user, isLoading, updateSellerStatus } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,60 +45,78 @@ export default function VerificationPage() {
   const [website, setWebsite] = useState("https://organicmills.co");
   const [gstNumber, setGstNumber] = useState("29GGGGG1234F1Z5");
   const [panNumber, setPanNumber] = useState("ABCDE1234F");
+  const [declaredRevenue, setDeclaredRevenue] = useState("");
+
+  // Onboarding Additional details
+  const [ownerName, setOwnerName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [companyAddress, setCompanyAddress] = useState("");
+  const [factoryAddress, setFactoryAddress] = useState("");
+  const [pickupAddress, setPickupAddress] = useState("");
+
+  // Bank Details state
+  const [bankAccountNo, setBankAccountNo] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankIfsc, setBankIfsc] = useState("");
 
   // File attachments state (Simulated as filename + mock base64 string)
   const [gstFile, setGstFile] = useState<{ name: string; base64: string } | null>(null);
   const [panFile, setPanFile] = useState<{ name: string; base64: string } | null>(null);
   const [regFile, setRegFile] = useState<{ name: string; base64: string } | null>(null);
   const [certFile, setCertFile] = useState<{ name: string; base64: string } | null>(null);
+  const [bankFile, setBankFile] = useState<{ name: string; base64: string } | null>(null);
 
   // Sync profile details if existing
   useEffect(() => {
     const fetchProfile = async () => {
       if (user) {
         setLoading(true);
-        const p = await getSellerProfile(user.id);
-        if (p) {
-          setProfile(p);
-          setCompanyName(p.companyName);
-          setBusinessType(p.businessType);
-          setDescription(p.description || "");
-          setWebsite(p.website || "");
-          setGstNumber(p.gstNumber || "");
-          setPanNumber(p.panNumber || "");
+        try {
+          const p = await getSellerProfile(user.id);
+          if (p) {
+            setProfile(p);
+            setCompanyName(p.companyName);
+            setBusinessType(p.businessType);
+            setDescription(p.description || "");
+            setWebsite(p.website || "");
+            setGstNumber(p.gstNumber || "");
+            setPanNumber(p.panNumber || "");
+            setDeclaredRevenue(p.declaredRevenue || "");
+            setOwnerName(p.ownerName || "");
+            setPhone(p.phone || "");
+            setCompanyAddress(p.companyAddress || "");
+            setFactoryAddress(p.factoryAddress || "");
+            setPickupAddress(p.pickupAddress || "");
+            setBankAccountNo(p.bankAccountNo || "");
+            setBankName(p.bankName || "");
+            setBankIfsc(p.bankIfsc || "");
+            
+            // Map existing docs to display names
+            const gstDoc = p.documents.find(d => d.type === "GST");
+            if (gstDoc) setGstFile({ name: gstDoc.fileName, base64: "existing" });
+            const panDoc = p.documents.find(d => d.type === "PAN");
+            if (panDoc) setPanFile({ name: panDoc.fileName, base64: "existing" });
+            const regDoc = p.documents.find(d => d.type === "BUSINESS_REGISTRATION");
+            if (regDoc) setRegFile({ name: regDoc.fileName, base64: "existing" });
+            const certDoc = p.documents.find(d => d.type === "SUSTAINABILITY_CERTIFICATE");
+            if (certDoc) setCertFile({ name: certDoc.fileName, base64: "existing" });
+            const bankDoc = p.documents.find(d => d.type === "BANK_PROOF");
+            if (bankDoc) setBankFile({ name: bankDoc.fileName, base64: "existing" });
+          }
+        } catch (err) {
+          console.error("Error loading seller profile:", err);
         }
+        setLoading(false);
+      } else if (!isLoading) {
         setLoading(false);
       }
     };
     fetchProfile();
-  }, [user]);
-
-  const handleSimulatedFileUpload = (stepNum: number, fileName: string) => {
-    // Inject a mock base64 file data string
-    const mockBase64 = "data:application/pdf;base64,JVBERi0xLjQKJcfsj6y...[MOCK]";
-    const fileObj = { name: fileName, base64: mockBase64 };
-
-    if (stepNum === 2) setGstFile(fileObj);
-    if (stepNum === 3) setPanFile(fileObj);
-    if (stepNum === 4) setRegFile(fileObj);
-    if (stepNum === 5) setCertFile(fileObj);
-  };
+  }, [user, isLoading]);
 
   const handleNextStep = () => {
     if (currentStep === 1) {
-      if (!companyName || !businessType) return;
-    }
-    if (currentStep === 2 && !gstFile) {
-      handleSimulatedFileUpload(2, "gst_certificate_2026.pdf");
-    }
-    if (currentStep === 3 && !panFile) {
-      handleSimulatedFileUpload(3, "pan_card_sign.jpg");
-    }
-    if (currentStep === 4 && !regFile) {
-      handleSimulatedFileUpload(4, "business_incorporation.pdf");
-    }
-    if (currentStep === 5 && !certFile) {
-      handleSimulatedFileUpload(5, "gots_sustainability_audit.pdf");
+      if (!companyName || !businessType || !ownerName || !phone) return;
     }
     setCurrentStep((prev) => Math.min(STEPS.length, prev + 1));
   };
@@ -126,11 +144,21 @@ export default function VerificationPage() {
         website,
         gstNumber,
         panNumber,
+        declaredRevenue,
+        ownerName,
+        phone,
+        companyAddress,
+        factoryAddress,
+        pickupAddress,
+        bankAccountNo,
+        bankName,
+        bankIfsc,
         documents: [
           { type: "GST", fileName: finalGst.name, fileBase64: finalGst.base64 },
           { type: "PAN", fileName: finalPan.name, fileBase64: finalPan.base64 },
           { type: "BUSINESS_REGISTRATION", fileName: finalReg.name, fileBase64: finalReg.base64 },
           { type: "SUSTAINABILITY_CERTIFICATE", fileName: finalCert.name, fileBase64: finalCert.base64 },
+          ...(bankFile ? [{ type: "BANK_PROOF" as const, fileName: bankFile.name, fileBase64: bankFile.base64 }] : []),
         ],
       });
 
@@ -341,6 +369,27 @@ export default function VerificationPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Owner Full Name</Label>
+                  <Input
+                    placeholder="e.g. Aarav Mehta"
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Contact Phone Number</Label>
+                  <Input
+                    placeholder="e.g. +91 98765 43210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <Label>Sustainability Statement</Label>
                 <Textarea
@@ -351,13 +400,53 @@ export default function VerificationPage() {
                 />
               </div>
 
+              <div className="space-y-1">
+                <Label>Company Registered Address</Label>
+                <Input
+                  placeholder="e.g. Suite 402, Eco-Business Park, Sector 62, Noida, UP"
+                  value={companyAddress}
+                  onChange={(e) => setCompanyAddress(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Factory / Manufacturing Plant Address</Label>
+                  <Input
+                    placeholder="e.g. Plot 12, Industrial Area Phase 1, Gurgaon, Haryana"
+                    value={factoryAddress}
+                    onChange={(e) => setFactoryAddress(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Default Order Pickup / Warehouse Address</Label>
+                  <Input
+                    placeholder="e.g. Same as Factory Address"
+                    value={pickupAddress}
+                    onChange={(e) => setPickupAddress(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2 space-y-1">
+                <div className="space-y-1">
                   <Label>Corporate Website</Label>
                   <Input
                     placeholder="e.g. https://ecothreads.com"
                     value={website}
                     onChange={(e) => setWebsite(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Estimated Annual Revenue</Label>
+                  <Input
+                    placeholder="e.g. ₹15,00,000"
+                    value={declaredRevenue}
+                    onChange={(e) => setDeclaredRevenue(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-1">
@@ -389,7 +478,7 @@ export default function VerificationPage() {
               title="Upload GST Registration Certificate"
               desc="Upload your GST Certificate (Form REG-06) issued by the tax department to verify tax eligibility."
               file={gstFile}
-              onUpload={() => handleSimulatedFileUpload(2, "gst_certificate_2026.pdf")}
+              onFileSelect={(name, b64) => setGstFile({ name, base64: b64 })}
             />
           )}
 
@@ -399,18 +488,68 @@ export default function VerificationPage() {
               title="Upload Corporate PAN Document"
               desc="Attach a clear scanned copy of your Business or Owner Permanent Account Number (PAN) Card."
               file={panFile}
-              onUpload={() => handleSimulatedFileUpload(3, "pan_card_sign.jpg")}
+              onFileSelect={(name, b64) => setPanFile({ name, base64: b64 })}
             />
           )}
 
           {/* STEP 4: BUSINESS REGISTRATION PROOF */}
           {currentStep === 4 && (
-            <FileUploadSection
-              title="Upload Business Registration Proof"
-              desc="Upload corporate proof like Certificate of Incorporation, Partnership Deed, or local Trade License."
-              file={regFile}
-              onUpload={() => handleSimulatedFileUpload(4, "business_incorporation.pdf")}
-            />
+            <div className="space-y-6">
+              <FileUploadSection
+                title="Upload Business Registration Proof"
+                desc="Upload corporate proof like Certificate of Incorporation, Partnership Deed, or local Trade License."
+                file={regFile}
+                onFileSelect={(name, b64) => setRegFile({ name, base64: b64 })}
+              />
+
+              <Card className="border-border/30 bg-muted/10 p-5 space-y-4">
+                <h4 className="font-bold text-sm text-primary border-b border-border/10 pb-2">
+                  Bank Account Details (For Payout Settlements)
+                </h4>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>Bank Name</Label>
+                    <Input
+                      placeholder="e.g. HDFC Bank"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Bank Account Number</Label>
+                    <Input
+                      placeholder="e.g. 50100234567890"
+                      value={bankAccountNo}
+                      onChange={(e) => setBankAccountNo(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>IFSC Code</Label>
+                    <Input
+                      placeholder="e.g. HDFC0000123"
+                      value={bankIfsc}
+                      onChange={(e) => setBankIfsc(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <FileUploadSection
+                    title="Upload Cancelled Check or Bank Passbook Proof"
+                    desc="Attach a clear scanned copy of a cancelled check or the front page of your bank passbook/statement containing account details."
+                    file={bankFile}
+                    onFileSelect={(name, b64) => setBankFile({ name, base64: b64 })}
+                  />
+                </div>
+              </Card>
+            </div>
           )}
 
           {/* STEP 5: SUSTAINABILITY CERTIFICATIONS */}
@@ -420,7 +559,7 @@ export default function VerificationPage() {
                 title="Upload Sustainability & Material Certificates"
                 desc="Upload third-party certificates backing up eco-claims (GOTS Organic, FSC Wood Sourcing, B-Corp, FairTrade, etc.)."
                 file={certFile}
-                onUpload={() => handleSimulatedFileUpload(5, "gots_sustainability_audit.pdf")}
+                onFileSelect={(name, b64) => setCertFile({ name, base64: b64 })}
               />
               
               <div className="bg-accent/10 border border-accent/30 rounded-xl p-4 flex items-start space-x-3 text-xs leading-relaxed text-primary">
@@ -471,10 +610,24 @@ interface FileUploadSectionProps {
   title: string;
   desc: string;
   file: { name: string } | null;
-  onUpload: () => void;
+  onFileSelect: (fileName: string, fileBase64: string) => void;
 }
 
-function FileUploadSection({ title, desc, file, onUpload }: FileUploadSectionProps) {
+function FileUploadSection({ title, desc, file, onFileSelect }: FileUploadSectionProps) {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      onFileSelect(selectedFile.name, base64String);
+    };
+    reader.readAsDataURL(selectedFile);
+  };
+
   return (
     <div className="space-y-4">
       <h3 className="font-bold text-base text-primary flex items-center space-x-2 pb-2 border-b border-border/10">
@@ -483,6 +636,14 @@ function FileUploadSection({ title, desc, file, onUpload }: FileUploadSectionPro
       </h3>
       <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
 
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+      />
+
       {file ? (
         <div className="border border-emerald-500/20 bg-emerald-500/5 rounded-2xl p-6 flex flex-col items-center justify-center text-center space-y-3">
           <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
@@ -490,23 +651,29 @@ function FileUploadSection({ title, desc, file, onUpload }: FileUploadSectionPro
           </div>
           <div>
             <h4 className="font-bold text-sm text-primary">{file.name}</h4>
-            <span className="text-[10px] text-muted-foreground">Ready for upload (Simulated)</span>
+            <span className="text-[10px] text-muted-foreground">Document attached successfully</span>
           </div>
-          <Button type="button" variant="cool" size="sm" onClick={onUpload} className="text-xs">
+          <Button
+            type="button"
+            variant="cool"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs"
+          >
             Re-attach Document
           </Button>
         </div>
       ) : (
         <div
-          onClick={onUpload}
+          onClick={() => fileInputRef.current?.click()}
           className="border-2 border-dashed border-border/60 hover:border-primary rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-3 cursor-pointer transition-colors duration-200 bg-muted/10"
         >
           <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
             <Upload className="h-5 w-5" />
           </div>
           <div>
-            <span className="font-bold text-xs text-primary">Simulate Attachment Upload</span>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Click to simulate dragging-and-dropping file</p>
+            <span className="font-bold text-xs text-primary">Upload Document</span>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Click to browse and select file</p>
           </div>
         </div>
       )}

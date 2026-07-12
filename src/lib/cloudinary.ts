@@ -1,10 +1,17 @@
 import { v2 as cloudinary } from "cloudinary";
+import { getCredential } from "./credentials";
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "mock",
-  api_key: process.env.CLOUDINARY_API_KEY || "mock",
-  api_secret: process.env.CLOUDINARY_API_SECRET || "mock",
-});
+async function configureCloudinary() {
+  const cloudName = await getCredential("CLOUDINARY_CLOUD_NAME", "mock");
+  const apiKey = await getCredential("CLOUDINARY_API_KEY", "mock");
+  const apiSecret = await getCredential("CLOUDINARY_API_SECRET", "mock");
+
+  cloudinary.config({
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
+  });
+}
 
 export interface CloudinaryUploadResponse {
   url: string;
@@ -12,10 +19,10 @@ export interface CloudinaryUploadResponse {
 }
 
 // Check if Cloudinary is running in mock mode
-export function isCloudinaryMock(): boolean {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  const apiKey = process.env.CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+export async function isCloudinaryMock(): Promise<boolean> {
+  const cloudName = await getCredential("CLOUDINARY_CLOUD_NAME");
+  const apiKey = await getCredential("CLOUDINARY_API_KEY");
+  const apiSecret = await getCredential("CLOUDINARY_API_SECRET");
   
   return !cloudName || cloudName === "mock" || !apiKey || apiKey === "mock" || !apiSecret || apiSecret === "mock";
 }
@@ -56,7 +63,7 @@ function isDocFolder(folder: string): boolean {
 
 // Extends uploadImage signature to remain backward compatible, but returns JSON response.
 export async function uploadImage(fileBase64: string, folderOrType: string = "products/images"): Promise<string> {
-  const isMock = isCloudinaryMock();
+  const isMock = await isCloudinaryMock();
   const folder = getFolderFromType(folderOrType);
   const isDoc = isDocFolder(folder);
   
@@ -108,16 +115,21 @@ export async function uploadImage(fileBase64: string, folderOrType: string = "pr
   }
 
   try {
-    // Reconstruct valid data URI if missing prefix
-    const uploadInput = fileBase64.startsWith("data:") 
-      ? fileBase64 
-      : `data:${mimeType || (isDoc ? "application/pdf" : "image/jpeg")};base64,${fileBase64}`;
+    // Reconstruct valid data URI if missing prefix, unless it's a remote URL
+    const isRemoteUrl = fileBase64.startsWith("http://") || fileBase64.startsWith("https://");
+    const uploadInput = isRemoteUrl
+      ? fileBase64
+      : fileBase64.startsWith("data:") 
+        ? fileBase64 
+        : `data:${mimeType || (isDoc ? "application/pdf" : "image/jpeg")};base64,${fileBase64}`;
 
+    await configureCloudinary();
     const uploadResponse = await cloudinary.uploader.upload(uploadInput, {
       folder: folder,
       resource_type: isDoc ? "auto" : "image",
     });
 
+    console.log(`[Cloudinary] Upload successful. Public ID: ${uploadResponse.public_id}, URL: ${uploadResponse.secure_url}`);
     return JSON.stringify({
       url: uploadResponse.secure_url,
       publicId: uploadResponse.public_id
@@ -138,10 +150,12 @@ export async function uploadImage(fileBase64: string, folderOrType: string = "pr
 
 // Delete helper to destroy files on Cloudinary
 export async function deleteImage(publicId: string): Promise<boolean> {
-  if (isCloudinaryMock() || publicId.startsWith("mock_")) {
+  const isMock = await isCloudinaryMock();
+  if (isMock || publicId.startsWith("mock_")) {
     return true;
   }
   try {
+    await configureCloudinary();
     const response = await cloudinary.uploader.destroy(publicId);
     return response.result === "ok";
   } catch (error) {

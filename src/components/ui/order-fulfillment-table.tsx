@@ -482,7 +482,7 @@ export function OrderFulfillmentTable({
                     {selectedOrder.items.map((it) => (
                       <div key={it.productId} className="flex justify-between items-center py-2.5 first:pt-0 last:pb-0">
                         <div className="flex items-center space-x-3">
-                          <img src={it.image} alt={it.name} className="w-10 h-10 object-cover rounded border" />
+                          <img src={it.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"} alt={it.name} className="w-10 h-10 object-cover rounded border" />
                           <div>
                             <h4 className="text-xs font-bold text-foreground">{it.name}</h4>
                             <span className="text-[10px] text-muted-foreground">Quantity: {it.quantity}</span>

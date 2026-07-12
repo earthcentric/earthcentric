@@ -17,7 +17,7 @@ export default function WishlistPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user?.userId) {
+    if (user?.id) {
       loadWishlist();
     } else {
       setLoading(false);
@@ -26,24 +26,33 @@ export default function WishlistPage() {
 
   const loadWishlist = async () => {
     setLoading(true);
-    if (user?.userId) {
-      const data = await getWishlist(user.userId);
+    if (user?.id) {
+      const data = await getWishlist(user.id);
       setItems(data);
     }
     setLoading(false);
   };
 
   const handleRemove = async (productId: string) => {
-    if (user?.userId) {
+    if (user?.id) {
       // Optimistic update
       setItems((prev) => prev.filter((i) => i.productId !== productId));
-      await toggleWishlist(user.userId, productId);
+      await toggleWishlist(user.id, productId);
       toast.success("Removed from wishlist");
     }
   };
 
   const handleAddToCart = (item: WishlistItemData) => {
-    addToCart(item.product);
+    const p = item.product;
+    addToCart({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      image: p.images[0] || "",
+      sustainabilityScore: p.sustainabilityScore,
+      sellerName: p.seller.companyName,
+      sellerId: p.sellerId,
+    });
     toast.success("Added to cart");
   };
 

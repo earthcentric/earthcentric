@@ -4,6 +4,8 @@ import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { sendSellerVerificationUpdateEmail } from "@/lib/email";
 import { getMockSellersInternal, updateMockSellerStatusInternal, SellerProfile } from "./sellers";
+import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct } from "./products";
+import { createNotification } from "./notifications";
 
 export interface PlatformStats {
   totalRevenue: number;
@@ -11,6 +13,12 @@ export interface PlatformStats {
   totalSellers: number;
   totalProducts: number;
   revenueByMonth: { month: string; amount: number }[];
+  orderSuccessRate: number;
+  sellerApprovalRate: number;
+  customerSatisfaction: number;
+  ecoCertifiedRate: number;
+  approvedToday: number;
+  rejectedToday: number;
 }
 
 export async function getPendingSellers(): Promise<SellerProfile[]> {
@@ -114,6 +122,7 @@ export async function approveSeller(
 
     // Send confirmation email
     await sendSellerVerificationUpdateEmail(userEmail, companyName, "APPROVED");
+    await createNotification(userId, "Seller Account Approved", "Congratulations! Your seller account has been approved.", "/seller/dashboard");
     return true;
   } catch (error) {
     console.error("Failed to approve seller in DB, trying mock approval:", error);
@@ -180,6 +189,7 @@ export async function rejectSeller(
     }
 
     await sendSellerVerificationUpdateEmail(userEmail, companyName, "REJECTED", reason);
+    await createNotification(userId, "Verification Status Updated", `Your seller verification status is now REJECTED.` + (reason ? ` Reason: ${reason}` : ""), "/seller/dashboard");
     return true;
   } catch (error) {
     console.error("Failed to reject seller in DB, trying mock rejection:", error);
@@ -203,6 +213,12 @@ export async function getPlatformStats(): Promise<PlatformStats> {
           { month: "Apr", amount: 55000 },
           { month: "May", amount: 89450 },
         ],
+        orderSuccessRate: 98.5,
+        sellerApprovalRate: 92.4,
+        customerSatisfaction: 4.8,
+        ecoCertifiedRate: 85.0,
+        approvedToday: 12,
+        rejectedToday: 2
       };
     }
 
@@ -247,6 +263,12 @@ export async function getPlatformStats(): Promise<PlatformStats> {
       totalSellers,
       totalProducts,
       revenueByMonth,
+      orderSuccessRate: 98.5,
+      sellerApprovalRate: 92.4,
+      customerSatisfaction: 4.8,
+      ecoCertifiedRate: 85.0,
+      approvedToday: 12,
+      rejectedToday: 2
     };
   } catch (e) {
     console.error("getPlatformStats failed, using mock:", e);
@@ -262,6 +284,12 @@ export async function getPlatformStats(): Promise<PlatformStats> {
         { month: "Apr", amount: 55000 },
         { month: "May", amount: 89450 },
       ],
+      orderSuccessRate: 98.5,
+      sellerApprovalRate: 92.4,
+      customerSatisfaction: 4.8,
+      ecoCertifiedRate: 85.0,
+      approvedToday: 12,
+      rejectedToday: 2
     };
   }
 }
@@ -511,52 +539,140 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
 }
 
 export async function getAdminAnalyticsTimeSeries() {
-  const dailyIncome = [];
-  const dailySellers = [];
-  const dailyProducts = [];
-  const monthlyIncome = [];
-  const monthlySellers = [];
-  const monthlyProducts = [];
-  const yearlyIncome = [];
-  const yearlySellers = [];
-  const yearlyProducts = [];
-
   const now = new Date();
+  
+  // Initialize data structures
+  const dailyIncome: { name: string; income: number }[] = [];
+  const dailySellers: { name: string; sellers: number }[] = [];
+  const dailyProducts: { name: string; products: number }[] = [];
+  
+  const monthlyIncome: { name: string; income: number }[] = [];
+  const monthlySellers: { name: string; sellers: number }[] = [];
+  const monthlyProducts: { name: string; products: number }[] = [];
+  
+  const yearlyIncome: { name: string; income: number }[] = [];
+  const yearlySellers: { name: string; sellers: number }[] = [];
+  const yearlyProducts: { name: string; products: number }[] = [];
 
-  // Daily (last 30 days)
+  // Pre-fill daily (last 30 days)
   for (let i = 29; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const fakeOrders = Math.floor(Math.random() * 20) + 5; 
-    const fakeIncome = fakeOrders * (Math.floor(Math.random() * 2000) + 500); 
-    dailyIncome.push({ name: dateStr, income: fakeIncome });
-    dailySellers.push({ name: dateStr, sellers: Math.floor(Math.random() * 3) });
-    dailyProducts.push({ name: dateStr, products: Math.floor(Math.random() * 5) + 1 });
+    dailyIncome.push({ name: dateStr, income: 0 });
+    dailySellers.push({ name: dateStr, sellers: 0 });
+    dailyProducts.push({ name: dateStr, products: 0 });
   }
 
-  // Monthly (last 12 months)
+  // Pre-fill monthly (last 12 months)
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now);
     d.setMonth(d.getMonth() - i);
     const dateStr = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-    const fakeOrders = Math.floor(Math.random() * 300) + 100; 
-    const fakeIncome = fakeOrders * (Math.floor(Math.random() * 2000) + 500);
-    monthlyIncome.push({ name: dateStr, income: fakeIncome });
-    monthlySellers.push({ name: dateStr, sellers: Math.floor(Math.random() * 10) + 2 });
-    monthlyProducts.push({ name: dateStr, products: Math.floor(Math.random() * 30) + 10 });
+    monthlyIncome.push({ name: dateStr, income: 0 });
+    monthlySellers.push({ name: dateStr, sellers: 0 });
+    monthlyProducts.push({ name: dateStr, products: 0 });
   }
 
-  // Yearly (last 5 years)
+  // Pre-fill yearly (last 5 years)
   for (let i = 4; i >= 0; i--) {
     const d = new Date(now);
     d.setFullYear(d.getFullYear() - i);
     const dateStr = d.getFullYear().toString();
-    const fakeOrders = Math.floor(Math.random() * 2000) + 500; 
-    const fakeIncome = fakeOrders * (Math.floor(Math.random() * 2000) + 500);
-    yearlyIncome.push({ name: dateStr, income: fakeIncome });
-    yearlySellers.push({ name: dateStr, sellers: Math.floor(Math.random() * 50) + 20 });
-    yearlyProducts.push({ name: dateStr, products: Math.floor(Math.random() * 200) + 50 });
+    yearlyIncome.push({ name: dateStr, income: 0 });
+    yearlySellers.push({ name: dateStr, sellers: 0 });
+    yearlyProducts.push({ name: dateStr, products: 0 });
+  }
+
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+  if (isMock) {
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const baseVal = (d.getDay() === 0 || d.getDay() === 6) ? 12000 : 7000;
+      const inc = Math.floor(baseVal + Math.random() * 5000);
+      
+      const dailyIncMatch = dailyIncome.find(t => t.name === dateStr);
+      if (dailyIncMatch) dailyIncMatch.income = inc;
+      
+      const dailySellersMatch = dailySellers.find(t => t.name === dateStr);
+      if (dailySellersMatch) dailySellersMatch.sellers = Math.floor(5 + (29 - i) / 6);
+      
+      const dailyProductsMatch = dailyProducts.find(t => t.name === dateStr);
+      if (dailyProductsMatch) dailyProductsMatch.products = Math.floor(20 + (29 - i) / 2);
+    }
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - i);
+      const dateStr = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+      const inc = Math.floor(180000 + Math.random() * 80000);
+      
+      const monthlyIncMatch = monthlyIncome.find(t => t.name === dateStr);
+      if (monthlyIncMatch) monthlyIncMatch.income = inc;
+      
+      const monthlySellersMatch = monthlySellers.find(t => t.name === dateStr);
+      if (monthlySellersMatch) monthlySellersMatch.sellers = Math.floor(4 + (11 - i) * 0.8);
+      
+      const monthlyProductsMatch = monthlyProducts.find(t => t.name === dateStr);
+      if (monthlyProductsMatch) monthlyProductsMatch.products = Math.floor(15 + (11 - i) * 3);
+    }
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(now);
+      d.setFullYear(d.getFullYear() - i);
+      const dateStr = d.getFullYear().toString();
+      const inc = Math.floor(2200000 + Math.random() * 800000);
+      
+      const yearlyIncMatch = yearlyIncome.find(t => t.name === dateStr);
+      if (yearlyIncMatch) yearlyIncMatch.income = inc;
+      
+      const yearlySellersMatch = yearlySellers.find(t => t.name === dateStr);
+      if (yearlySellersMatch) yearlySellersMatch.sellers = Math.floor(2 + (4 - i) * 2.5);
+      
+      const yearlyProductsMatch = yearlyProducts.find(t => t.name === dateStr);
+      if (yearlyProductsMatch) yearlyProductsMatch.products = Math.floor(10 + (4 - i) * 18);
+    }
+  } else {
+    try {
+      const payments = await db.payment.findMany({ where: { status: "COMPLETED" } });
+      const sellers = await db.seller.findMany();
+      const products = await db.product.findMany();
+
+      const aggregate = (
+        records: any[],
+        dateField: string,
+        valueField: string | null,
+        dailyTarget: any[],
+        monthlyTarget: any[],
+        yearlyTarget: any[],
+        targetKey: string
+      ) => {
+        records.forEach((record) => {
+          const date = new Date(record[dateField]);
+          const val = valueField ? record[valueField] : 1;
+          
+          const dName = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const mName = date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+          const yName = date.getFullYear().toString();
+
+          const dMatch = dailyTarget.find((t) => t.name === dName);
+          if (dMatch) dMatch[targetKey] += val;
+
+          const mMatch = monthlyTarget.find((t) => t.name === mName);
+          if (mMatch) mMatch[targetKey] += val;
+
+          const yMatch = yearlyTarget.find((t) => t.name === yName);
+          if (yMatch) yMatch[targetKey] += val;
+        });
+      };
+
+      aggregate(payments, "createdAt", "amount", dailyIncome, monthlyIncome, yearlyIncome, "income");
+      aggregate(sellers, "createdAt", null, dailySellers, monthlySellers, yearlySellers, "sellers");
+      aggregate(products, "createdAt", null, dailyProducts, monthlyProducts, yearlyProducts, "products");
+    } catch (e) {
+      console.error("Failed to fetch real time series analytics", e);
+    }
   }
 
   return {
@@ -702,7 +818,10 @@ let mockPendingProducts = [
 export async function getPendingProducts(): Promise<any[]> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return mockPendingProducts.filter(p => !p.isApproved && !p.isArchived);
+      const mockPending = mockPendingProducts.filter(p => !p.isApproved && !p.isArchived);
+      const dynProds = await getDynamicProducts();
+      const dynamicPending = dynProds.filter(p => !p.isApproved);
+      return [...mockPending, ...dynamicPending];
     }
     const dbProducts = await db.product.findMany({
       where: { isApproved: false, isArchived: false },
@@ -745,12 +864,14 @@ export async function approveProduct(productId: string, adminEmail: string): Pro
         }
         return p;
       });
+      await approveDynamicProduct(productId);
       return true;
     }
 
-    await db.product.update({
+    const product = await db.product.update({
       where: { id: productId },
-      data: { isApproved: true }
+      data: { isApproved: true },
+      include: { seller: true }
     });
 
     await db.auditLog.create({
@@ -760,6 +881,10 @@ export async function approveProduct(productId: string, adminEmail: string): Pro
         details: `Approved product ${productId}`
       }
     });
+
+    if (product.seller?.userId) {
+      await createNotification(product.seller.userId, "Product Approved", `Your product "${product.name}" has been approved and is now live.`, "/seller/dashboard");
+    }
 
     return true;
   } catch (e) {
@@ -783,12 +908,14 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
         }
         return p;
       });
+      await rejectDynamicProduct(productId);
       return true;
     }
 
-    await db.product.update({
+    const product = await db.product.update({
       where: { id: productId },
-      data: { isArchived: true }
+      data: { isArchived: true },
+      include: { seller: true }
     });
 
     await db.auditLog.create({
@@ -798,6 +925,10 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
         details: `Rejected product ${productId}. Reason: ${reason}`
       }
     });
+
+    if (product.seller?.userId) {
+      await createNotification(product.seller.userId, "Product Rejected", `Your product "${product.name}" was rejected. Reason: ${reason}`, "/seller/dashboard");
+    }
 
     return true;
   } catch (e) {
@@ -815,6 +946,201 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
 export async function uploadCategoryImage(base64Image: string): Promise<string> {
   const resultJson = await uploadImage(base64Image, "category");
   return resultJson;
+}
+
+export async function getAdminTransactions() {
+  return [];
+}
+
+export async function getBuyerProfileById(buyerId: string) {
+  try {
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const user = await db.user.findUnique({
+        where: { id: buyerId },
+        include: {
+          orders: {
+            include: {
+              items: true,
+              payment: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+          addresses: true,
+        }
+      });
+      if (!user) return null;
+
+      // Map orders to matching expected fields: o.id, o.date, o.itemsCount, o.totalAmount, o.status, o.paymentStatus
+      const mappedOrders = user.orders.map((o) => {
+        const totalItems = o.items.reduce((sum, item) => sum + item.quantity, 0);
+        return {
+          id: o.id,
+          date: o.createdAt.toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric"
+          }),
+          itemsCount: totalItems,
+          totalAmount: o.totalAmount,
+          status: o.status,
+          paymentStatus: o.payment?.status || "PENDING",
+        };
+      });
+
+      // Map addresses to match expected fields: isDefault, street, city, state, postalCode, country
+      const mappedAddresses = user.addresses.map((a) => ({
+        isDefault: a.isDefault,
+        street: a.street,
+        city: a.city,
+        state: a.state,
+        postalCode: a.postalCode,
+        country: a.country,
+      }));
+
+      return {
+        id: user.id,
+        name: user.name || "N/A",
+        email: user.email,
+        joinedDate: user.createdAt.toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric"
+        }),
+        orders: mappedOrders,
+        addresses: mappedAddresses,
+        status: "ACTIVE"
+      };
+    }
+  } catch (e) {
+    console.error("getBuyerProfileById failed:", e);
+  }
+
+  // Fallback / Mock Mode: return mock values matching the expected component properties
+  return {
+    id: buyerId,
+    name: "Mock Buyer",
+    email: "buyer@example.com",
+    joinedDate: new Date().toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    }),
+    orders: [
+      {
+        id: "mock-ord-1",
+        date: "12 May 2026",
+        itemsCount: 4,
+        totalAmount: 1200,
+        status: "DELIVERED",
+        paymentStatus: "COMPLETED",
+      },
+      {
+        id: "mock-ord-2",
+        date: "08 Jun 2026",
+        itemsCount: 2,
+        totalAmount: 500,
+        status: "PLACED",
+        paymentStatus: "PENDING",
+      }
+    ],
+    addresses: [
+      {
+        isDefault: true,
+        street: "123 Eco Blvd, Green Park",
+        city: "Mumbai",
+        state: "Maharashtra",
+        postalCode: "400001",
+        country: "India",
+      }
+    ],
+    status: "ACTIVE"
+  };
+}
+
+export async function updateSellerVerificationStatus(
+  sellerId: string,
+  status: string,
+  badges?: string[],
+  reason?: string,
+  adminEmail?: string
+) {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+    if (!isMock) {
+      // Find the seller using either seller profile ID or user ID
+      const seller = await db.seller.findFirst({
+        where: {
+          OR: [
+            { id: sellerId },
+            { userId: sellerId }
+          ]
+        }
+      });
+
+      if (!seller) {
+        console.error(`Seller not found for ID: ${sellerId}`);
+        return false;
+      }
+
+      // Update Seller table
+      await db.seller.update({
+        where: { id: seller.id },
+        data: {
+          verificationStatus: status as any,
+          rejectionReason: reason || null,
+          ...(badges ? { badges } : {})
+        }
+      });
+
+      // Update the User table role: if approved, ensure their role is SELLER; if rejected/suspended, they revert to BUYER
+      let finalRole = "BUYER";
+      if (status === "APPROVED" || status === "UNDER_REVIEW" || status === "PENDING") {
+        finalRole = "SELLER";
+      }
+
+      await db.user.update({
+        where: { id: seller.userId },
+        data: {
+          role: finalRole as any
+        }
+      });
+      
+      console.log(`Successfully updated seller ${seller.id} in DB to status ${status}`);
+    } else {
+      // In Mock Mode: find the userId corresponding to the sellerId if needed
+      let targetUserId = sellerId;
+      const mockSellers = await getMockSellersInternal();
+      const mockSeller = mockSellers.find(s => s.id === sellerId || s.userId === sellerId);
+      if (mockSeller) {
+        targetUserId = mockSeller.userId;
+      }
+      
+      // Call mock update
+      await updateMockSellerStatusInternal(targetUserId, status as any, badges || [], reason);
+      console.log(`Successfully updated mock seller ${targetUserId} to status ${status}`);
+    }
+
+    return true;
+  } catch (e) {
+    console.error("updateSellerVerificationStatus failed:", e);
+    return false;
+  }
+}
+
+export async function updateSellerTrustScore(sellerId: string, trustScore: number) {
+  try {
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      await db.seller.update({
+        where: { id: sellerId },
+        data: { trustScore }
+      });
+    }
+    return true;
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
 }
 
 export async function uploadAdBanner(base64Image: string): Promise<string> {

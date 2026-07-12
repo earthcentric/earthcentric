@@ -4,12 +4,13 @@ import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Input, Label, Badge } from "@/components/ui/shared";
-import { Leaf, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { Leaf, Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -61,13 +62,24 @@ export default function LoginPage() {
             <div className="relative">
               <Lock className="absolute left-3 top-3 h-4.5 w-4.5 text-muted-foreground/50" />
               <Input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="pl-10 text-xs"
+                className="pl-10 pr-10 text-xs"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3 text-muted-foreground/50 hover:text-foreground transition-colors"
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4.5 w-4.5" />
+                ) : (
+                  <Eye className="h-4.5 w-4.5" />
+                )}
+              </button>
             </div>
           </div>
 

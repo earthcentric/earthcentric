@@ -46,7 +46,7 @@ export default function CartPage() {
             {cart.map((item) => (
               <Card key={item.id} className="border-border/40 bg-card p-5 flex flex-col sm:flex-row items-center gap-5">
                 <img
-                  src={item.image}
+                  src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
                   alt={item.name}
                   className="h-20 w-20 rounded-xl object-cover border border-border/20 shrink-0"
                 />

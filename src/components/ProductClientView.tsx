@@ -8,7 +8,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
 import { Input, Textarea } from "@/components/ui/shared";
-import { ProductItem, getProducts } from "@/actions/products";
+import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
+import { createEnquiry } from "@/actions/enquiries";
 import {
   Star,
   Heart,
@@ -22,6 +23,8 @@ import {
   Leaf,
   ChevronRight,
   Sparkles,
+  MessageSquare,
+  Loader2,
 } from "lucide-react";
 
 interface ProductClientViewProps {
@@ -32,11 +35,43 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const { addToCart } = useCart();
   const { user } = useAuth();
   const [activeImage, setActiveImage] = useState(product.images[0]);
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(product.moq || 1);
   const [related, setRelated] = useState<ProductItem[]>([]);
   const [addedNotify, setAddedNotify] = useState(false);
   const [isWishlisted, setIsWishlisted] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
+  const [isEligibleToReview, setIsEligibleToReview] = useState(false);
+
+  // Bulk Enquiry form state
+  const [showEnquiryModal, setShowEnquiryModal] = useState(false);
+  const [enquiryQty, setEnquiryQty] = useState(100);
+  const [enquiryPrice, setEnquiryPrice] = useState("");
+  const [enquiryLocation, setEnquiryLocation] = useState("");
+  const [enquiryDate, setEnquiryDate] = useState("");
+  const [enquiryName, setEnquiryName] = useState("");
+  const [enquiryEmail, setEnquiryEmail] = useState("");
+  const [enquiryPhone, setEnquiryPhone] = useState("");
+  const [enquiryMessage, setEnquiryMessage] = useState("");
+  const [enquiryPending, setEnquiryPending] = useState(false);
+
+  // Sync user for enquiry
+  useEffect(() => {
+    if (user) {
+      setEnquiryName(user.name || "");
+      setEnquiryEmail(user.email || "");
+    }
+  }, [user]);
+
+  // Check review eligibility
+  useEffect(() => {
+    if (user?.id) {
+      checkReviewEligibility(user.id, product.id).then((res) => {
+        setIsEligibleToReview(res);
+      });
+    } else {
+      setIsEligibleToReview(false);
+    }
+  }, [user, product.id]);
 
   // Review state
   const [reviews, setReviews] = useState([
@@ -99,8 +134,8 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
   // Wishlist
   useEffect(() => {
-    if (user?.userId) {
-      getWishlistIds(user.userId).then((ids) => {
+    if (user?.id) {
+      getWishlistIds(user.id).then((ids) => {
         setIsWishlisted(ids.includes(product.id));
       });
     }
@@ -132,8 +167,9 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
         price: product.price,
         image: product.images[0] || "",
         sustainabilityScore: product.sustainabilityScore,
-        sellerName: product.seller.companyName,
+        sellerName: product.seller?.companyName || "EarthCentric",
         sellerId: product.sellerId,
+        moq: product.moq,
       },
       quantity
     );
@@ -142,7 +178,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   };
 
   const handleToggleWishlist = async () => {
-    if (!user?.userId) {
+    if (!user?.id) {
       toast.error("Please login to wishlist products");
       return;
     }
@@ -150,7 +186,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     // Optimistic update
     setIsWishlisted(!isWishlisted);
     
-    const res = await toggleWishlist(user.userId, product.id);
+    const res = await toggleWishlist(user.id, product.id);
     if (res.success) {
       if (res.isWishlisted) {
         toast.success("Added to wishlist");
@@ -164,22 +200,35 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newReviewName || !newReviewComment) return;
-    setReviews([
-      {
-        id: `r-${Date.now()}`,
-        userName: newReviewName,
-        rating: newReviewRating,
-        comment: newReviewComment,
-        date: new Date().toISOString().split("T")[0],
-      },
-      ...reviews,
-    ]);
-    setNewReviewName("");
-    setNewReviewComment("");
-    setNewReviewRating(5);
+    if (!user || !newReviewName || !newReviewComment) return;
+
+    const res = await addProductReview({
+      userId: user.id,
+      productId: product.id,
+      rating: newReviewRating,
+      comment: newReviewComment,
+    });
+
+    if (res.success) {
+      toast.success("Review submitted successfully!");
+      setReviews([
+        {
+          id: `r-${Date.now()}`,
+          userName: newReviewName,
+          rating: newReviewRating,
+          comment: newReviewComment,
+          date: new Date().toISOString().split("T")[0],
+        },
+        ...reviews,
+      ]);
+      setNewReviewName("");
+      setNewReviewComment("");
+      setNewReviewRating(5);
+    } else {
+      toast.error(res.error || "Failed to submit review.");
+    }
   };
 
   return (
@@ -318,17 +367,40 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <Leaf className="h-4 w-4 text-[#0F6E56]" />
                 <span className="font-medium">Sustainably Sourced</span>
               </div>
+              {product.seller?.trustScore && product.seller.trustScore > 4 ? (
+                <div className="flex items-center space-x-1 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm">
+                  <Star className="h-3 w-3 fill-amber-500 text-amber-500" />
+                  <span>Trusted Seller</span>
+                </div>
+              ) : null}
             </div>
 
             {/* Price */}
-            <div className="space-y-1">
-              <div className="flex items-baseline space-x-3">
-                <span className="text-4xl font-black text-slate-900">₹{product.price}</span>
-                <span className="text-lg text-slate-400 line-through font-semibold">₹{originalPrice}</span>
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-baseline space-x-3">
+                  <span className="text-4xl font-black text-slate-900">₹{product.price}</span>
+                  <span className="text-lg text-slate-400 line-through font-semibold">₹{originalPrice}</span>
+                  <span className="text-sm text-slate-500 font-semibold">(Retail Price)</span>
+                </div>
+                <p className="text-sm text-slate-500 font-medium mt-1">
+                  Inclusive of all taxes • Free Shipping available
+                </p>
               </div>
-              <p className="text-sm text-slate-500 font-medium">
-                Inclusive of all taxes • Free Shipping available
-              </p>
+
+              {/* B2B Pricing */}
+              {(product.wholesalePrice || product.moq) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col space-y-1">
+                  <span className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1">Wholesale / B2B Pricing</span>
+                  <div className="flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-amber-900">₹{product.wholesalePrice || Math.round(product.price * 0.8)}</span>
+                    <span className="text-sm text-amber-700 font-semibold">/ unit</span>
+                  </div>
+                  <span className="text-sm text-amber-700 font-medium">
+                    Minimum Order Quantity (MOQ): <strong>{product.moq || 100} units</strong>
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* ===== Eco Score Card ===== */}
@@ -390,33 +462,45 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
             {/* ===== Quantity + Add to Cart ===== */}
             {product.stock > 0 && (
-              <div className="flex items-center space-x-4 pt-2">
-                {/* Quantity */}
-                <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden">
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center space-x-4">
+                  {/* Quantity */}
+                  <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setQuantity(Math.max(product.moq || 1, quantity - 1))}
+                      className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-r border-slate-200"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                    <span className="h-12 w-12 flex items-center justify-center text-base font-bold text-slate-900 bg-slate-50">
+                      {quantity}
+                    </span>
+                    <button
+                      onClick={() => setQuantity(quantity + 1)}
+                      className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-l border-slate-200"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Add to Cart */}
                   <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-r border-slate-200"
+                    onClick={handleAddToCart}
+                    className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
                   >
-                    <Minus className="h-4 w-4" />
-                  </button>
-                  <span className="h-12 w-12 flex items-center justify-center text-base font-bold text-slate-900 bg-slate-50">
-                    {quantity}
-                  </span>
-                  <button
-                    onClick={() => setQuantity(quantity + 1)}
-                    className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-l border-slate-200"
-                  >
-                    <Plus className="h-4 w-4" />
+                    <ShoppingCart className="h-5 w-5" />
+                    <span>Add to Cart — ₹{(product.price * quantity).toLocaleString()}</span>
                   </button>
                 </div>
 
-                {/* Add to Cart */}
+                {/* Bulk Quote Request Button */}
                 <button
-                  onClick={handleAddToCart}
-                  className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
+                  type="button"
+                  onClick={() => setShowEnquiryModal(true)}
+                  className="w-full h-12 bg-white hover:bg-slate-50 text-[#0c3c26] font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-all cursor-pointer border-2 border-[#0c3c26] shadow-sm"
                 >
-                  <ShoppingCart className="h-5 w-5" />
-                  <span>Add to Cart — ₹{(product.price * quantity).toLocaleString()}</span>
+                  <MessageSquare className="h-5 w-5" />
+                  <span>Request Wholesale Bulk Quote</span>
                 </button>
               </div>
             )}
@@ -502,55 +586,67 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <Sparkles className="h-4 w-4 text-[#0F6E56]" />
                 <span>Leave a Review</span>
               </h4>
-              <form onSubmit={handleReviewSubmit} className="space-y-4">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Your Name</span>
-                  <Input
-                    placeholder="e.g. Priya Sharma"
-                    value={newReviewName}
-                    onChange={(e) => setNewReviewName(e.target.value)}
-                    required
-                    className="text-xs bg-white border-slate-200"
-                  />
+              {!user ? (
+                <p className="text-xs text-slate-500 text-center py-6">Please log in to submit a review.</p>
+              ) : !isEligibleToReview ? (
+                <div className="bg-amber-50/50 border border-amber-200/40 rounded-xl p-4 text-center space-y-2">
+                  <ShieldCheck className="h-5 w-5 text-amber-600 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700">Verified Purchase Required</p>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Only customers who have purchased and received this product can write a review.
+                  </p>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Rating</span>
-                  <div className="flex space-x-1">
-                    {[1, 2, 3, 4, 5].map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => setNewReviewRating(val)}
-                        className="focus:outline-none cursor-pointer"
-                      >
-                        <Star
-                          className={`h-5 w-5 ${
-                            val <= newReviewRating
-                              ? "fill-amber-400 text-amber-400"
-                              : "text-slate-200"
-                          }`}
-                        />
-                      </button>
-                    ))}
+              ) : (
+                <form onSubmit={handleReviewSubmit} className="space-y-4">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Your Name</span>
+                    <Input
+                      placeholder="e.g. Priya Sharma"
+                      value={newReviewName}
+                      onChange={(e) => setNewReviewName(e.target.value)}
+                      required
+                      className="text-xs bg-white border-slate-200"
+                    />
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Comment</span>
-                  <Textarea
-                    placeholder="Share your experience with this product..."
-                    value={newReviewComment}
-                    onChange={(e) => setNewReviewComment(e.target.value)}
-                    required
-                    className="text-xs bg-white border-slate-200 min-h-[80px]"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full h-10 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl transition-colors cursor-pointer border-none"
-                >
-                  Submit Review
-                </button>
-              </form>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Rating</span>
+                    <div className="flex space-x-1">
+                      {[1, 2, 3, 4, 5].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setNewReviewRating(val)}
+                          className="focus:outline-none cursor-pointer"
+                        >
+                          <Star
+                            className={`h-5 w-5 ${
+                              val <= newReviewRating
+                                ? "fill-amber-400 text-amber-400"
+                                : "text-slate-200"
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Comment</span>
+                    <Textarea
+                      placeholder="Share your experience with this product..."
+                      value={newReviewComment}
+                      onChange={(e) => setNewReviewComment(e.target.value)}
+                      required
+                      className="text-xs bg-white border-slate-200 min-h-[80px]"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full h-10 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl transition-colors cursor-pointer border-none"
+                  >
+                    Submit Review
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         </section>
@@ -564,7 +660,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <Link href={`/products/${item.id}`} key={item.id} className="group">
                   <div className="bg-[#f5f5f5] rounded-2xl overflow-hidden aspect-square relative p-4 flex items-center justify-center border border-slate-100 group-hover:shadow-md transition-shadow">
                     <Image
-                      src={item.images[0] || ""}
+                      src={item.images[0] || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
                       alt={item.name}
                       fill
                       sizes="(max-width: 768px) 50vw, 25vw"
@@ -601,7 +697,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           <div className="flex items-center space-x-3 min-w-0">
             <div className="h-10 w-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
               <Image
-                src={product.images[0] || ""}
+                src={product.images[0] || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
                 alt={product.name}
                 width={40}
                 height={40}
@@ -620,7 +716,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           <div className="flex items-center space-x-3 shrink-0">
             <div className="hidden sm:flex items-center border border-slate-200 rounded-lg overflow-hidden">
               <button
-                onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                onClick={() => setQuantity(Math.max(product.moq || 1, quantity - 1))}
                 className="h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-50 cursor-pointer border-r border-slate-200"
               >
                 <Minus className="h-3.5 w-3.5" />
@@ -644,6 +740,183 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           </div>
         </div>
       </div>
+
+      {/* BULK ENQUIRY MODAL */}
+      {showEnquiryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 relative space-y-4 border border-slate-100">
+            {/* Close Button */}
+            <button
+              onClick={() => setShowEnquiryModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 cursor-pointer border-none bg-transparent text-lg font-bold"
+            >
+              ✕
+            </button>
+
+            <div className="space-y-1.5 pr-6">
+              <span className="bg-[#f0faf5] text-[#0F6E56] text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider">
+                Wholesale Enquiry
+              </span>
+              <h3 className="font-extrabold text-xl text-slate-900 font-serif leading-snug">
+                Request Custom Quote
+              </h3>
+              <p className="text-xs text-slate-500">
+                Submit bulk requirements for <strong>{product.name}</strong> to the manufacturer.
+              </p>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!enquiryQty || !enquiryLocation || !enquiryName || !enquiryEmail || !enquiryPhone) {
+                toast.error("Please fill in all required fields.");
+                return;
+              }
+
+              setEnquiryPending(true);
+              const res = await createEnquiry({
+                productId: product.id,
+                buyerId: user?.id,
+                quantity: enquiryQty,
+                targetPrice: enquiryPrice ? Number(enquiryPrice) : undefined,
+                location: enquiryLocation,
+                expectedDate: enquiryDate ? new Date(enquiryDate) : undefined,
+                name: enquiryName,
+                email: enquiryEmail,
+                phone: enquiryPhone,
+                message: enquiryMessage,
+              });
+
+              setEnquiryPending(false);
+              if (res.success) {
+                toast.success("Bulk quote enquiry sent successfully!");
+                setShowEnquiryModal(false);
+                setEnquiryQty(100);
+                setEnquiryPrice("");
+                setEnquiryLocation("");
+                setEnquiryDate("");
+                setEnquiryPhone("");
+                setEnquiryMessage("");
+              } else {
+                toast.error(res.error || "Failed to submit bulk quote enquiry.");
+              }
+            }} className="space-y-4 pt-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Quantity Required (Units) *</span>
+                  <Input
+                    type="number"
+                    min="10"
+                    placeholder="e.g. 500"
+                    value={enquiryQty}
+                    onChange={(e) => setEnquiryQty(Number(e.target.value))}
+                    required
+                    className="text-xs bg-slate-50 border-slate-200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Target Price (Per Unit ₹)</span>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 150"
+                    value={enquiryPrice}
+                    onChange={(e) => setEnquiryPrice(e.target.value)}
+                    className="text-xs bg-slate-50 border-slate-200"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Delivery Location *</span>
+                  <Input
+                    placeholder="e.g. Mumbai, Maharashtra"
+                    value={enquiryLocation}
+                    onChange={(e) => setEnquiryLocation(e.target.value)}
+                    required
+                    className="text-xs bg-slate-50 border-slate-200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Expected By Date</span>
+                  <Input
+                    type="date"
+                    value={enquiryDate}
+                    onChange={(e) => setEnquiryDate(e.target.value)}
+                    className="text-xs bg-slate-50 border-slate-200 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-3 space-y-3">
+                <h4 className="text-[11px] font-bold text-slate-700 uppercase">Contact Information</h4>
+                
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Full Name *</span>
+                  <Input
+                    placeholder="e.g. Priyesh Shah"
+                    value={enquiryName}
+                    onChange={(e) => setEnquiryName(e.target.value)}
+                    required
+                    className="text-xs bg-slate-50 border-slate-200"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Email Address *</span>
+                    <Input
+                      type="email"
+                      placeholder="e.g. buyer@company.com"
+                      value={enquiryEmail}
+                      onChange={(e) => setEnquiryEmail(e.target.value)}
+                      required
+                      className="text-xs bg-slate-50 border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Mobile Number *</span>
+                    <Input
+                      placeholder="e.g. +91 98230 45678"
+                      value={enquiryPhone}
+                      onChange={(e) => setEnquiryPhone(e.target.value)}
+                      required
+                      className="text-xs bg-slate-50 border-slate-200"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Product Specifications / Message</span>
+                <Textarea
+                  placeholder="Share detail specifications (size, thickness, certification needs, etc.)"
+                  value={enquiryMessage}
+                  onChange={(e) => setEnquiryMessage(e.target.value)}
+                  className="text-xs bg-slate-50 border-slate-200 min-h-[60px]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={enquiryPending}
+                className="w-full h-11 bg-[#0F6E56] hover:bg-[#0c5a46] disabled:bg-slate-300 text-white font-bold text-xs rounded-xl transition-all cursor-pointer border-none flex items-center justify-center space-x-2 shadow-md"
+              >
+                {enquiryPending ? (
+                  <>
+                    <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                    <span>Submitting Enquiry...</span>
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="h-4.5 w-4.5" />
+                    <span>Submit Quote Request</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

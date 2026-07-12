@@ -3,6 +3,128 @@
 import db from "@/lib/db";
 import { sendWelcomeEmail } from "@/lib/email";
 import { uploadImage, deleteImage, getPublicIdFromDb } from "@/lib/cloudinary";
+import crypto from "crypto";
+import { cookies } from "next/headers";
+
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+export async function loginUser(email: string, password?: string): Promise<{ success: boolean; user?: any; error?: string }> {
+  try {
+    if (!password) {
+      return { success: false, error: "Password is required" };
+    }
+
+    const user = await db.user.findUnique({
+      where: { email: email.toLowerCase() },
+      include: { seller: true }
+    });
+
+    if (!user) {
+      return { success: false, error: "Invalid email or password" };
+    }
+
+    if (user.password) {
+      const hashedInput = hashPassword(password);
+      if (user.password !== hashedInput) {
+        return { success: false, error: "Invalid email or password" };
+      }
+    } else {
+      return { success: false, error: "Credentials login not set for this account" };
+    }
+
+
+    
+    const finalUser = {
+      id: user.id,
+      name: user.name || "",
+      email: user.email,
+      role: user.role,
+      sellerStatus: user.seller?.verificationStatus,
+      sellerId: user.seller?.id,
+      badges: user.seller?.badges || [],
+    };
+    
+    // Await the cookies() call in Next.js 15+
+    const cookieStore = await cookies();
+    cookieStore.set('earthcentric_session', JSON.stringify({
+      id: user.id,
+      role: user.role,
+      sellerStatus: user.seller?.verificationStatus
+    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+
+    return {
+      success: true,
+      user: finalUser
+    };
+  } catch (error) {
+    console.error("Login server action failed:", error);
+    return { success: false, error: "An unexpected error occurred during login." };
+  }
+}
+
+export async function signupUser(name: string, email: string, role: string, password?: string): Promise<{ success: boolean; user?: any; error?: string }> {
+  try {
+    const existing = await db.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (existing) {
+      return { success: false, error: "User with this email already exists" };
+    }
+
+    const userId = `u-${Math.random().toString(36).substring(2, 10)}`;
+    const hashedPassword = password ? hashPassword(password) : null;
+
+    const user = await db.user.create({
+      data: {
+        id: userId,
+        name,
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        role: role as any,
+      }
+    });
+
+    // Send welcome email in background
+    sendWelcomeEmail(user.email, user.name || name).catch((err) =>
+      console.error("Failed to send welcome email:", err)
+    );
+
+
+    
+    const finalUser = {
+      id: user.id,
+      name: user.name || "",
+      email: user.email,
+      role: user.role,
+      sellerStatus: undefined,
+      sellerId: undefined,
+      badges: [],
+    };
+    
+    // Await the cookies() call in Next.js 15+
+    const cookieStore = await cookies();
+    cookieStore.set('earthcentric_session', JSON.stringify({
+      id: user.id,
+      role: user.role
+    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+
+    return {
+      success: true,
+      user: finalUser
+    };
+  } catch (error) {
+    console.error("Signup server action failed:", error);
+    return { success: false, error: "An unexpected error occurred during registration." };
+  }
+}
+
+export async function logoutUser() {
+  const cookieStore = await cookies();
+  cookieStore.delete('earthcentric_session');
+}
 
 export async function syncUserInDb(userData: {
   id: string;
@@ -49,7 +171,7 @@ export async function syncUserInDb(userData: {
       );
     }
 
-    return {
+    const finalUser = {
       id: user.id,
       name: user.name || "",
       email: user.email,
@@ -58,6 +180,15 @@ export async function syncUserInDb(userData: {
       sellerId: user.seller?.id,
       badges: user.seller?.badges || [],
     };
+    
+    const cookieStore = await cookies();
+    cookieStore.set('earthcentric_session', JSON.stringify({
+      id: user.id,
+      role: user.role,
+      sellerStatus: user.seller?.verificationStatus
+    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+
+    return finalUser;
   } catch (error) {
     console.error("Failed to sync user in database:", error);
     return null;

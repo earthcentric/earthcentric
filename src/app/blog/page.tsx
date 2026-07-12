@@ -74,7 +74,7 @@ export default function BlogPage() {
               <div>
                 <div className="aspect-video relative overflow-hidden bg-muted/20">
                   <img
-                    src={article.image}
+                    src={article.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
                     alt={article.title}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />

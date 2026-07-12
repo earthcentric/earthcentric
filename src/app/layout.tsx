@@ -4,6 +4,8 @@ import { AuthProvider } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { Toaster } from "sonner";
+import SmoothScroll from "@/components/SmoothScroll";
 
 export const metadata: Metadata = {
   title: "EarthCentric | Premium Sustainable Marketplace",
@@ -21,9 +23,12 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <AuthProvider>
           <CartProvider>
-            <Navbar />
-            <main className="flex-1 flex flex-col">{children}</main>
-            <Footer />
+            <SmoothScroll>
+              <Navbar />
+              <main className="flex-1 flex flex-col">{children}</main>
+              <Footer />
+              <Toaster position="bottom-right" richColors />
+            </SmoothScroll>
           </CartProvider>
         </AuthProvider>
       </body>

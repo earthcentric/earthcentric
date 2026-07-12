@@ -13,6 +13,8 @@ import {
   Bar,
 } from "recharts";
 import { Card } from "@/components/ui/shared";
+import { Download } from "lucide-react";
+import * as XLSX from "xlsx";
 
 type TimeFrame = "daily" | "monthly" | "yearly";
 
@@ -45,11 +47,44 @@ export function AdminAnalyticsCharts({ data }: AdminAnalyticsChartsProps) {
   const currentSellersData = data[timeframe].sellers;
   const currentProductsData = data[timeframe].products;
 
+  const exportToExcel = () => {
+    // 1. Create a new workbook
+    const wb = XLSX.utils.book_new();
+    
+    // 2. Add Revenue sheet
+    const revenueData = currentIncomeData.map(item => ({
+      "Time Period": item.name,
+      "Revenue (INR)": item.income
+    }));
+    const wsRevenue = XLSX.utils.json_to_sheet(revenueData);
+    XLSX.utils.book_append_sheet(wb, wsRevenue, "Revenue");
+    
+    // 3. Add Sellers sheet
+    const sellersData = currentSellersData.map(item => ({
+      "Time Period": item.name,
+      "Sellers Count": item.sellers
+    }));
+    const wsSellers = XLSX.utils.json_to_sheet(sellersData);
+    XLSX.utils.book_append_sheet(wb, wsSellers, "Sellers");
+    
+    // 4. Add Products sheet
+    const productsData = currentProductsData.map(item => ({
+      "Time Period": item.name,
+      "Products Count": item.products
+    }));
+    const wsProducts = XLSX.utils.json_to_sheet(productsData);
+    XLSX.utils.book_append_sheet(wb, wsProducts, "Products");
+    
+    // 5. Write and download native Excel workbook
+    const fileName = `earthcentric_analytics_${timeframe}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   const CustomTooltip = ({ active, payload, label, prefix, suffix }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-card/90 backdrop-blur-md border border-border/50 p-3 rounded-lg shadow-xl">
-          <p className="text-sm font-bold text-foreground mb-1">{label}</p>
+        <div className="bg-[#FFFDF8] border border-[#D0C6B8]/70 p-3 rounded-lg shadow-xl text-[#173528]">
+          <p className="text-sm font-bold mb-1">{label}</p>
           <p className="text-sm font-semibold flex items-center gap-1" style={{ color: payload[0].stroke || payload[0].fill }}>
             <span
               className="inline-block w-2 h-2 rounded-full"
@@ -72,20 +107,30 @@ export function AdminAnalyticsCharts({ data }: AdminAnalyticsChartsProps) {
             Global metrics for all sellers, products, and revenue over time.
           </p>
         </div>
-        <div className="flex bg-muted/50 p-1 rounded-lg">
-          {(["daily", "monthly", "yearly"] as TimeFrame[]).map((tf) => (
-            <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-                timeframe === tf
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tf.charAt(0).toUpperCase() + tf.slice(1)}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex bg-muted/50 p-1 rounded-lg">
+            {(["daily", "monthly", "yearly"] as TimeFrame[]).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  timeframe === tf
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tf.charAt(0).toUpperCase() + tf.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={exportToExcel}
+            className="flex items-center justify-center space-x-1.5 px-4 py-2.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Export Excel</span>
+          </button>
         </div>
       </div>
 
@@ -109,23 +154,23 @@ export function AdminAnalyticsCharts({ data }: AdminAnalyticsChartsProps) {
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" opacity={0.4} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.4} />
                 <XAxis
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
                   dy={10}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
                   tickFormatter={(value) => `₹${value / 1000}k`}
                   dx={-10}
                   width={40}
                 />
-                <Tooltip content={<CustomTooltip prefix="₹" suffix="" />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1, strokeDasharray: "3 3" }} />
+                <Tooltip content={<CustomTooltip prefix="₹" suffix="" />} cursor={{ stroke: "var(--border)", strokeWidth: 1, strokeDasharray: "3 3" }} />
                 <Area
                   type="monotone"
                   dataKey="income"
@@ -153,22 +198,22 @@ export function AdminAnalyticsCharts({ data }: AdminAnalyticsChartsProps) {
           <div className="h-[250px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={currentSellersData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" opacity={0.4} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.4} />
                 <XAxis
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
                   dy={10}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
                   dx={-10}
                   width={30}
                 />
-                <Tooltip content={<CustomTooltip prefix="" suffix=" Sellers" />} cursor={{ fill: "var(--color-muted)", opacity: 0.2 }} />
+                <Tooltip content={<CustomTooltip prefix="" suffix=" Sellers" />} cursor={{ fill: "var(--muted)", opacity: 0.2 }} />
                 <Bar
                   dataKey="sellers"
                   fill="#f59e0b"
@@ -193,22 +238,22 @@ export function AdminAnalyticsCharts({ data }: AdminAnalyticsChartsProps) {
           <div className="h-[250px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={currentProductsData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" opacity={0.4} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.4} />
                 <XAxis
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
                   dy={10}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
                   dx={-10}
                   width={30}
                 />
-                <Tooltip content={<CustomTooltip prefix="" suffix=" Products" />} cursor={{ fill: "var(--color-muted)", opacity: 0.2 }} />
+                <Tooltip content={<CustomTooltip prefix="" suffix=" Products" />} cursor={{ fill: "var(--muted)", opacity: 0.2 }} />
                 <Bar
                   dataKey="products"
                   fill="#a855f7"

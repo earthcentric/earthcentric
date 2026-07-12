@@ -7,6 +7,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
+import { getRazorpayKeyId } from "@/actions/credentials";
 import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2 } from "lucide-react";
 
 export default function CheckoutPage() {
@@ -44,6 +45,7 @@ export default function CheckoutPage() {
         price: item.price,
         quantity: item.quantity,
         image: item.image,
+        sellerId: item.sellerId,
       }));
 
       // Call server action to create Order & Razorpay ID
@@ -67,14 +69,15 @@ export default function CheckoutPage() {
       if (res.razorpayOrderId.startsWith("order_mock_")) {
         setShowMockGateway(true);
       } else {
-        openRealRazorpaySDK(res.order.id, res.razorpayOrderId);
+        await openRealRazorpaySDK(res.order.id, res.razorpayOrderId);
       }
     });
   };
 
-  const openRealRazorpaySDK = (orderId: string, razorpayOrderId: string) => {
+  const openRealRazorpaySDK = async (orderId: string, razorpayOrderId: string) => {
+    const razorpayKeyId = await getRazorpayKeyId();
     const options = {
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_mock",
+      key: razorpayKeyId,
       amount: cartTotal * 100,
       currency: "INR",
       name: "EarthCentric",

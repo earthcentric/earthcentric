@@ -30,7 +30,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
     e.preventDefault();
     e.stopPropagation();
 
-    if (!user?.userId) {
+    if (!user?.id) {
       toast.error("Please login to wishlist products");
       return;
     }
@@ -38,7 +38,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
     // Optimistic update
     setIsWishlisted(!isWishlisted);
 
-    const res = await toggleWishlist(user.userId, product.id);
+    const res = await toggleWishlist(user.id, product.id);
     if (res.success) {
       if (res.isWishlisted) toast.success("Added to wishlist");
       else toast.success("Removed from wishlist");
@@ -116,9 +116,16 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
         {/* Details Section */}
         <div className="space-y-2 text-left">
           {/* Category • Seller Label */}
-          <p className="text-[10px] font-extrabold text-[#0F6E56] uppercase tracking-wider">
-            {product.category} • {product.seller.companyName}
-          </p>
+          <div className="flex items-center space-x-1.5 flex-wrap">
+            <p className="text-[10px] font-extrabold text-[#0F6E56] uppercase tracking-wider">
+              {product.category} • {product.seller.companyName}
+            </p>
+            {product.seller.trustScore && product.seller.trustScore > 4 ? (
+              <span className="bg-amber-100 text-amber-800 text-[8px] px-1 py-0.5 rounded uppercase font-bold flex items-center">
+                <Star className="h-2 w-2 mr-0.5 fill-amber-500 text-amber-500" /> Trusted
+              </span>
+            ) : null}
+          </div>
 
           {/* Product Title */}
           <Link href={`/products/${product.id}`} className="block" onClick={(e) => e.stopPropagation()}>

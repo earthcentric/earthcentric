@@ -1,18 +1,25 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
+import { getCredential } from "./credentials";
 
-const razorpayKeyId = process.env.RAZORPAY_KEY_ID || "";
-const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET || "";
+export async function isRazorpayConfigured(): Promise<boolean> {
+  const key = await getCredential("RAZORPAY_KEY_ID");
+  const secret = await getCredential("RAZORPAY_KEY_SECRET");
+  return !!(key && secret);
+}
 
-export const isRazorpayConfigured = !!(razorpayKeyId && razorpayKeySecret);
+// Initialize Razorpay client dynamically on-demand
+async function getRazorpayClient(): Promise<Razorpay | null> {
+  const razorpayKeyId = await getCredential("RAZORPAY_KEY_ID");
+  const razorpayKeySecret = await getCredential("RAZORPAY_KEY_SECRET");
 
-// Initialize Razorpay client. If not configured, we'll use null and execute mock branches
-const razorpay = isRazorpayConfigured
-  ? new Razorpay({
-      key_id: razorpayKeyId,
-      key_secret: razorpayKeySecret,
-    })
-  : null;
+  if (!razorpayKeyId || !razorpayKeySecret) return null;
+
+  return new Razorpay({
+    key_id: razorpayKeyId,
+    key_secret: razorpayKeySecret,
+  });
+}
 
 export interface RazorpayOrderParams {
   amount: number; // in paise (e.g. 500 Rs = 50000 paise)
@@ -31,6 +38,7 @@ export interface RazorpayOrderResult {
 
 export async function createRazorpayOrder(params: RazorpayOrderParams): Promise<RazorpayOrderResult> {
   const currency = params.currency || "INR";
+  const razorpay = await getRazorpayClient();
   
   if (!razorpay) {
     // Simulated order creation
@@ -73,17 +81,20 @@ export async function createRazorpayOrder(params: RazorpayOrderParams): Promise<
   }
 }
 
-export function verifyPaymentSignature(
+export async function verifyPaymentSignature(
   orderId: string,
   paymentId: string,
   signature: string
-): boolean {
+): Promise<boolean> {
   if (orderId.startsWith("order_mock_")) {
     // If it's a mock order, verify if the payment ID and signature are present
     return !!(paymentId && signature);
   }
 
-  if (!isRazorpayConfigured) return false;
+  const configured = await isRazorpayConfigured();
+  if (!configured) return false;
+
+  const razorpayKeySecret = await getCredential("RAZORPAY_KEY_SECRET");
 
   try {
     const shasum = crypto.createHmac("sha256", razorpayKeySecret);
@@ -95,3 +106,4 @@ export function verifyPaymentSignature(
     return false;
   }
 }
+

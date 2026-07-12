@@ -2,6 +2,8 @@
 
 import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
+import { createAdminNotification } from "@/actions/notifications";
+import { cookies } from "next/headers";
 
 export interface SellerProfile {
   id: string;
@@ -13,9 +15,20 @@ export interface SellerProfile {
   website?: string;
   gstNumber?: string;
   panNumber?: string;
-  verificationStatus: "PENDING" | "APPROVED" | "REJECTED";
-  badges: string[];
+  verificationStatus: "PENDING" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  declaredRevenue?: string;
   rejectionReason?: string;
+  trustScore?: number;
+  badges?: string[];
+  phone?: string;
+  ownerName?: string;
+  factoryAddress?: string;
+  pickupAddress?: string;
+  companyAddress?: string;
+  bankAccountNo?: string;
+  bankName?: string;
+  bankIfsc?: string;
+  bankProofUrl?: string;
   documents: {
     id: string;
     type: string;
@@ -154,9 +167,20 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       website: seller.website || undefined,
       gstNumber: seller.gstNumber || undefined,
       panNumber: seller.panNumber || undefined,
+      declaredRevenue: seller.declaredRevenue || undefined,
       verificationStatus: seller.verificationStatus as any,
       badges: seller.badges,
       rejectionReason: seller.rejectionReason || undefined,
+      trustScore: seller.trustScore,
+      phone: seller.phone || undefined,
+      ownerName: seller.ownerName || undefined,
+      factoryAddress: seller.factoryAddress || undefined,
+      pickupAddress: seller.pickupAddress || undefined,
+      companyAddress: seller.companyAddress || undefined,
+      bankAccountNo: seller.bankAccountNo || undefined,
+      bankName: seller.bankName || undefined,
+      bankIfsc: seller.bankIfsc || undefined,
+      bankProofUrl: getUrlFromDb(seller.bankProofUrl) || undefined,
       documents: seller.documents.map((doc) => ({
         id: doc.id,
         type: doc.type,
@@ -192,9 +216,20 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       website: seller.website || undefined,
       gstNumber: seller.gstNumber || undefined,
       panNumber: seller.panNumber || undefined,
+      declaredRevenue: seller.declaredRevenue || undefined,
       verificationStatus: seller.verificationStatus as any,
       badges: seller.badges,
       rejectionReason: seller.rejectionReason || undefined,
+      trustScore: seller.trustScore,
+      phone: seller.phone || undefined,
+      ownerName: seller.ownerName || undefined,
+      factoryAddress: seller.factoryAddress || undefined,
+      pickupAddress: seller.pickupAddress || undefined,
+      companyAddress: seller.companyAddress || undefined,
+      bankAccountNo: seller.bankAccountNo || undefined,
+      bankName: seller.bankName || undefined,
+      bankIfsc: seller.bankIfsc || undefined,
+      bankProofUrl: getUrlFromDb(seller.bankProofUrl) || undefined,
       documents: seller.documents.map((doc) => ({
         id: doc.id,
         type: doc.type,
@@ -203,7 +238,7 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       })),
     };
   } catch (e) {
-    return mockSellers.find((s) => s.id === id) || null;
+    return mockSellers.find((s) => s.userId === id) || null;
   }
 }
 
@@ -215,8 +250,17 @@ export async function submitSellerVerification(data: {
   website: string;
   gstNumber: string;
   panNumber: string;
+  declaredRevenue?: string;
+  phone?: string;
+  ownerName?: string;
+  factoryAddress?: string;
+  pickupAddress?: string;
+  companyAddress?: string;
+  bankAccountNo?: string;
+  bankName?: string;
+  bankIfsc?: string;
   documents: {
-    type: "GST" | "PAN" | "BUSINESS_REGISTRATION" | "SUSTAINABILITY_CERTIFICATE";
+    type: "GST" | "PAN" | "BUSINESS_REGISTRATION" | "SUSTAINABILITY_CERTIFICATE" | "MANUFACTURING_PROOF" | "BANK_PROOF";
     fileName: string;
     fileBase64: string; // Base64 representation of file
   }[];
@@ -236,6 +280,18 @@ export async function submitSellerVerification(data: {
 
   const sellerId = `sel-${Math.random().toString(36).substring(2, 9)}`;
 
+  // Set the session cookie to update the user's role to SELLER and status to PENDING
+  try {
+    const cookieStore = await cookies();
+    cookieStore.set('earthcentric_session', JSON.stringify({
+      id: data.userId,
+      role: 'SELLER',
+      sellerStatus: 'PENDING'
+    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+  } catch (cookieErr) {
+    console.warn("Failed to set session cookie inside submitSellerVerification:", cookieErr);
+  }
+
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const existing = mockSellers.find((s) => s.userId === data.userId);
@@ -254,6 +310,7 @@ export async function submitSellerVerification(data: {
         existing.website = data.website;
         existing.gstNumber = data.gstNumber;
         existing.panNumber = data.panNumber;
+        existing.declaredRevenue = data.declaredRevenue;
         existing.verificationStatus = "PENDING";
         existing.documents = uploadedDocs.map((doc, index) => ({
           id: `doc-${index}-${Math.random().toString(36).substring(2, 6)}`,
@@ -276,6 +333,7 @@ export async function submitSellerVerification(data: {
         website: data.website,
         gstNumber: data.gstNumber,
         panNumber: data.panNumber,
+        declaredRevenue: data.declaredRevenue,
         verificationStatus: "PENDING",
         badges: [],
         documents: uploadedDocs.map((doc, index) => ({
@@ -310,6 +368,9 @@ export async function submitSellerVerification(data: {
       console.error("Error cleaning up old seller verification documents:", dbErr);
     }
 
+    // Find bank proof if uploaded
+    const bankProofDoc = uploadedDocs.find(d => d.type === "BANK_PROOF");
+
     // Database Insert/Upsert
     const seller = await db.seller.upsert({
       where: { userId: data.userId },
@@ -322,10 +383,20 @@ export async function submitSellerVerification(data: {
         website: data.website,
         gstNumber: data.gstNumber,
         panNumber: data.panNumber,
+        declaredRevenue: data.declaredRevenue,
         verificationStatus: "PENDING",
+        phone: data.phone,
+        ownerName: data.ownerName,
+        factoryAddress: data.factoryAddress,
+        pickupAddress: data.pickupAddress,
+        companyAddress: data.companyAddress,
+        bankAccountNo: data.bankAccountNo,
+        bankName: data.bankName,
+        bankIfsc: data.bankIfsc,
+        bankProofUrl: bankProofDoc?.fileUrl,
         documents: {
           create: uploadedDocs.map((d) => ({
-            type: d.type,
+            type: d.type as any,
             fileName: d.fileName,
             fileUrl: d.fileUrl,
           })),
@@ -338,11 +409,21 @@ export async function submitSellerVerification(data: {
         website: data.website,
         gstNumber: data.gstNumber,
         panNumber: data.panNumber,
+        declaredRevenue: data.declaredRevenue,
         verificationStatus: "PENDING",
+        phone: data.phone,
+        ownerName: data.ownerName,
+        factoryAddress: data.factoryAddress,
+        pickupAddress: data.pickupAddress,
+        companyAddress: data.companyAddress,
+        bankAccountNo: data.bankAccountNo,
+        bankName: data.bankName,
+        bankIfsc: data.bankIfsc,
+        bankProofUrl: bankProofDoc?.fileUrl || null,
         documents: {
           deleteMany: {}, // Clear old documents
           create: uploadedDocs.map((d) => ({
-            type: d.type,
+            type: d.type as any,
             fileName: d.fileName,
             fileUrl: d.fileUrl,
           })),
@@ -359,14 +440,31 @@ export async function submitSellerVerification(data: {
       data: { role: "SELLER" },
     });
 
+    await createAdminNotification(
+      "New Seller Verification",
+      `Seller "${data.companyName}" submitted their verification documents for review.`,
+      "sellers"
+    );
+
     return {
       id: seller.id,
       userId: seller.userId,
       companyName: seller.companyName,
       businessType: seller.businessType,
       description: seller.description || undefined,
+      declaredRevenue: seller.declaredRevenue || undefined,
       verificationStatus: seller.verificationStatus as any,
       badges: seller.badges,
+      trustScore: seller.trustScore,
+      phone: seller.phone || undefined,
+      ownerName: seller.ownerName || undefined,
+      factoryAddress: seller.factoryAddress || undefined,
+      pickupAddress: seller.pickupAddress || undefined,
+      companyAddress: seller.companyAddress || undefined,
+      bankAccountNo: seller.bankAccountNo || undefined,
+      bankName: seller.bankName || undefined,
+      bankIfsc: seller.bankIfsc || undefined,
+      bankProofUrl: getUrlFromDb(seller.bankProofUrl) || undefined,
       documents: seller.documents.map((d) => ({
         id: d.id,
         type: d.type,
@@ -410,7 +508,7 @@ export async function getSellerDashboardStats(sellerId: string) {
         mostSoldProduct: "Bamboo Fiber Sheets",
         salesConversion: 3.4,
         averageOrderValue: 525,
-        totalStoreVisits: 24840,
+        totalStoreVisits: 1118, // 38 / 0.034 = 1118
         environmentalImpact: {
           carbonOffset: 1420,
           plasticAvoided: 182,
@@ -478,7 +576,7 @@ export async function getSellerDashboardStats(sellerId: string) {
     }
 
     const salesConversion = 3.4; // mocked for now
-    const totalStoreVisits = 24840; // mocked
+    const totalStoreVisits = ordersCount > 0 ? Math.round(ordersCount / (salesConversion / 100)) : 150;
     const averageOrderValue = ordersCount > 0 ? Math.round(revenue / ordersCount) : 0;
     
     // Calculate category breakdown based on order items
@@ -520,30 +618,21 @@ export async function getSellerDashboardStats(sellerId: string) {
     };
   } catch (e) {
     return {
-      revenue: 156900,
-      ordersCount: 38,
-      productsCount: 6,
-      rating: 4.8,
-      mostSoldProduct: "Bamboo Fiber Sheets",
-      salesConversion: 3.4,
-      averageOrderValue: 525,
-      totalStoreVisits: 24840,
+      revenue: 0,
+      ordersCount: 0,
+      productsCount: 0,
+      rating: 0,
+      mostSoldProduct: "N/A",
+      salesConversion: 0,
+      averageOrderValue: 0,
+      totalStoreVisits: 0,
       environmentalImpact: {
-        carbonOffset: 1420,
-        plasticAvoided: 182,
-        ecoTreePoints: 56,
+        carbonOffset: 0,
+        plasticAvoided: 0,
+        ecoTreePoints: 0,
       },
-      categoryBreakdown: [
-        { name: "Disposables", percentage: 45 },
-        { name: "Kitchenware", percentage: 30 },
-        { name: "Personal Care", percentage: 25 },
-      ],
-      productSalesMap: {
-        "p1": 142,
-        "p2": 98,
-        "p3": 67,
-        "p4": 234,
-      },
+      categoryBreakdown: [],
+      productSalesMap: {},
     };
   }
 }
@@ -568,26 +657,99 @@ export async function updateMockSellerStatusInternal(userId: string, status: "AP
 }
 
 export async function getSellerAnalyticsTimeSeries(sellerId: string) {
-  // Try to generate realistic mock data since the live database was just seeded
-  // and has no historical orders
   const dailyIncome = [];
   const dailyOrders = [];
   const monthlyIncome = [];
   const monthlyOrders = [];
   const yearlyIncome = [];
   const yearlyOrders = [];
-
   const now = new Date();
+
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+  if (isMock) {
+    // Generate realistic mock data
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+      const base = isWeekend ? 5000 : 2500;
+      const val = Math.floor(base + Math.random() * 3000);
+      const ords = Math.floor(val / 800) + 1;
+      dailyIncome.push({ name: dateStr, income: val });
+      dailyOrders.push({ name: dateStr, orders: ords });
+    }
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - i);
+      const dateStr = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+      const val = Math.floor(75000 + Math.random() * 45000);
+      const ords = Math.floor(val / 750) + 1;
+      monthlyIncome.push({ name: dateStr, income: val });
+      monthlyOrders.push({ name: dateStr, orders: ords });
+    }
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(now);
+      d.setFullYear(d.getFullYear() - i);
+      const dateStr = d.getFullYear().toString();
+      const val = Math.floor(950000 + Math.random() * 400000);
+      const ords = Math.floor(val / 750) + 1;
+      yearlyIncome.push({ name: dateStr, income: val });
+      yearlyOrders.push({ name: dateStr, orders: ords });
+    }
+    return {
+      daily: { income: dailyIncome, orders: dailyOrders },
+      monthly: { income: monthlyIncome, orders: monthlyOrders },
+      yearly: { income: yearlyIncome, orders: yearlyOrders },
+    };
+  }
+
+  let payments: any[] = [];
+  let orders: any[] = [];
+
+  try {
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const seller = await db.seller.findFirst({
+        where: { OR: [{ id: sellerId }, { userId: sellerId }] }
+      });
+      if (seller) {
+        const orderItems = await db.orderItem.findMany({
+          where: { product: { sellerId: seller.id }, order: { payment: { status: "COMPLETED" } } },
+          include: { order: { select: { createdAt: true } } }
+        });
+        
+        const uniqueOrders = new Set<string>();
+        orderItems.forEach(item => {
+          if (!uniqueOrders.has(item.orderId)) {
+            uniqueOrders.add(item.orderId);
+            orders.push({ createdAt: item.order.createdAt });
+          }
+          payments.push({ amount: item.price * item.quantity, createdAt: item.order.createdAt });
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching seller analytics:", e);
+  }
+
+  // Helper to aggregate data
+  const aggregate = (datePredicate: (d: Date) => boolean) => {
+    let income = 0;
+    let ordersCount = 0;
+    payments.forEach(p => { if (datePredicate(new Date(p.createdAt))) income += p.amount; });
+    orders.forEach(o => { if (datePredicate(new Date(o.createdAt))) ordersCount += 1; });
+    return { income, orders: ordersCount };
+  };
 
   // Daily (last 30 days)
   for (let i = 29; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const fakeOrders = Math.floor(Math.random() * 5) + 1; // 1-5 orders
-    const fakeIncome = fakeOrders * (Math.floor(Math.random() * 2000) + 500); // 500-2500 per order
-    dailyIncome.push({ name: dateStr, income: fakeIncome });
-    dailyOrders.push({ name: dateStr, orders: fakeOrders });
+    const agg = aggregate(date => date.toDateString() === d.toDateString());
+    dailyIncome.push({ name: dateStr, income: agg.income });
+    dailyOrders.push({ name: dateStr, orders: agg.orders });
   }
 
   // Monthly (last 12 months)
@@ -595,10 +757,9 @@ export async function getSellerAnalyticsTimeSeries(sellerId: string) {
     const d = new Date(now);
     d.setMonth(d.getMonth() - i);
     const dateStr = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-    const fakeOrders = Math.floor(Math.random() * 80) + 20; // 20-100 orders
-    const fakeIncome = fakeOrders * (Math.floor(Math.random() * 2000) + 500);
-    monthlyIncome.push({ name: dateStr, income: fakeIncome });
-    monthlyOrders.push({ name: dateStr, orders: fakeOrders });
+    const agg = aggregate(date => date.getMonth() === d.getMonth() && date.getFullYear() === d.getFullYear());
+    monthlyIncome.push({ name: dateStr, income: agg.income });
+    monthlyOrders.push({ name: dateStr, orders: agg.orders });
   }
 
   // Yearly (last 5 years)
@@ -606,10 +767,9 @@ export async function getSellerAnalyticsTimeSeries(sellerId: string) {
     const d = new Date(now);
     d.setFullYear(d.getFullYear() - i);
     const dateStr = d.getFullYear().toString();
-    const fakeOrders = Math.floor(Math.random() * 500) + 100; // 100-600 orders
-    const fakeIncome = fakeOrders * (Math.floor(Math.random() * 2000) + 500);
-    yearlyIncome.push({ name: dateStr, income: fakeIncome });
-    yearlyOrders.push({ name: dateStr, orders: fakeOrders });
+    const agg = aggregate(date => date.getFullYear() === d.getFullYear());
+    yearlyIncome.push({ name: dateStr, income: agg.income });
+    yearlyOrders.push({ name: dateStr, orders: agg.orders });
   }
 
   return {

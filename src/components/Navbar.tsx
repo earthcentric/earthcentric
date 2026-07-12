@@ -549,7 +549,7 @@ export default function Navbar() {
                   cart.map((item) => (
                     <div key={item.id} className="flex items-center space-x-4 border-b border-border/30 pb-4 last:border-b-0">
                       <img
-                        src={item.image}
+                        src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
                         alt={item.name}
                         className="h-16 w-16 rounded-md object-cover border border-border/40"
                       />

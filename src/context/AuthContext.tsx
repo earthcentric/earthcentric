@@ -2,7 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { syncUserInDb } from "@/actions/auth";
+import { syncUserInDb, loginUser, signupUser, logoutUser } from "@/actions/auth";
+import { toast } from "sonner";
 
 export type Role = "BUYER" | "SELLER" | "ADMIN";
 
@@ -60,66 +61,62 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const cachedUser = localStorage.getItem("earthcentric_user");
-    let current: User = DEMO_USERS.BUYER;
+    let current: User | null = null;
     if (cachedUser) {
       try {
         current = JSON.parse(cachedUser);
       } catch (e) {
-        current = DEMO_USERS.BUYER;
+        current = null;
       }
-    } else {
-      localStorage.setItem("earthcentric_user", JSON.stringify(DEMO_USERS.BUYER));
     }
     setUser(current);
     setIsLoading(false);
 
-    // Sync in background to update status/badges from database
-    syncUserInDb({
-      id: current.id,
-      name: current.name,
-      email: current.email,
-      role: current.role,
-    }).then((synced) => {
-      if (synced) {
-        setUser(synced);
-        localStorage.setItem("earthcentric_user", JSON.stringify(synced));
-      }
-    }).catch((err) => console.error("Error background syncing user:", err));
+    if (current) {
+      // Sync in background to update status/badges from database
+      syncUserInDb({
+        id: current.id,
+        name: current.name,
+        email: current.email,
+        role: current.role,
+      }).then((synced) => {
+        if (synced) {
+          setUser(synced);
+          localStorage.setItem("earthcentric_user", JSON.stringify(synced));
+        }
+      }).catch((err) => console.error("Error background syncing user:", err));
+    } else {
+      // Ensure server session is cleared if local state is empty
+      logoutUser().catch(console.error);
+    }
   }, []);
 
   const login = async (email: string, password?: string) => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    const res = await loginUser(email, password);
     
-    let matchedUser: User;
-    if (email.toLowerCase().includes("admin")) {
-      matchedUser = { ...DEMO_USERS.ADMIN, email };
-    } else if (email.toLowerCase().includes("seller")) {
-      matchedUser = { ...DEMO_USERS.SELLER, email };
-    } else {
-      matchedUser = { ...DEMO_USERS.BUYER, email };
+    if (!res.success) {
+      toast.error(res.error || "Login failed");
+      setIsLoading(false);
+      return false;
     }
 
-    // Sync with DB
-    const synced = await syncUserInDb({
-      id: matchedUser.id,
-      name: matchedUser.name,
-      email: matchedUser.email,
-      role: matchedUser.role,
-    });
-
-    const finalUser = synced || matchedUser;
-    
+    const finalUser = res.user;
     setUser(finalUser);
     localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
     setIsLoading(false);
     
+    toast.success("Successfully logged in!");
+
     // Redirect based on role
     if (finalUser.role === "ADMIN") {
       router.push("/admin/dashboard");
     } else if (finalUser.role === "SELLER") {
-      router.push("/");
+      if (finalUser.sellerStatus === "APPROVED") {
+        router.push("/seller/dashboard");
+      } else {
+        router.push("/seller/verification");
+      }
     } else {
       router.push("/marketplace");
     }
@@ -129,30 +126,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signup = async (name: string, email: string, role: Role, password?: string) => {
     setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    
-    const newUser: User = {
-      id: `u-${Math.random().toString(36).substring(2, 10)}`,
-      name,
-      email,
-      role,
-      sellerStatus: role === "SELLER" ? "PENDING" : undefined,
-    };
+    const res = await signupUser(name, email, role, password);
 
-    // Sync with DB
-    const synced = await syncUserInDb({
-      id: newUser.id,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-    });
+    if (!res.success) {
+      toast.error(res.error || "Registration failed");
+      setIsLoading(false);
+      return false;
+    }
 
-    const finalUser = synced || newUser;
-    
+    const finalUser = res.user;
     setUser(finalUser);
     localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
     setIsLoading(false);
     
+    toast.success("Successfully registered!");
+
     if (finalUser.role === "SELLER") {
       router.push("/seller/verification");
     } else {
@@ -162,10 +150,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return true;
   };
 
-  const logout = () => {
+  const logout = async () => {
     setUser(null);
     localStorage.removeItem("earthcentric_user");
-    router.push("/");
+    await logoutUser();
+    router.push("/auth/login");
   };
 
   const switchRole = async (role: Role) => {

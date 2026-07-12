@@ -2,10 +2,15 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { toast } from "sonner";
+import { AdminSellerMessenger } from "@/components/ui/admin-seller-messenger";
 import { getSellerDashboardStats, getSellerProfile, SellerProfile, getSellerAnalyticsTimeSeries } from "@/actions/sellers";
+import { getUserNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getProducts, createProduct, archiveProduct, ProductItem, updateProductStock, updateProduct } from "@/actions/products";
 import { getOrdersBySeller, updateOrderStatus, OrderDetail } from "@/actions/orders";
 import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
+import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
+import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
 import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, MetalButton } from "@/components/ui/shared";
 import { FadeIn } from "@/components/FramerComponents";
 import { Logo } from "@/components/Logo";
@@ -33,6 +38,8 @@ import {
   Star,
   Mail,
   Home,
+  MessageSquare,
+  Bell,
 } from "lucide-react";
 import {
   BarChart,
@@ -65,6 +72,8 @@ export default function SellerDashboard() {
   // Payout states
   const [payoutStats, setPayoutStats] = useState<SellerPayoutStats | null>(null);
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequestInfo[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
   // Sync data on load
   const loadDashboardData = async () => {
@@ -93,6 +102,9 @@ export default function SellerDashboard() {
 
     const pRequests = await getSellerPayoutRequests(sellerId);
     setPayoutRequests(pRequests);
+
+    const userNotifs = await getUserNotifications(user.id);
+    setNotifications(userNotifs);
 
     setLoading(false);
   };
@@ -157,7 +169,10 @@ export default function SellerDashboard() {
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "products", label: "Products", icon: Package },
     { id: "orders", label: "Orders", icon: ShoppingBag },
+    { id: "enquiries", label: "Enquiries", icon: MessageSquare },
+    { id: "complaints", label: "Complaints", icon: AlertCircle },
     { id: "analytics", label: "Analytics", icon: BarChart2 },
+    { id: "messages", label: "Messages", icon: Mail },
     { id: "verification", label: "Verification", icon: ShieldCheck },
     { id: "payments", label: "Payments", icon: Wallet },
     { id: "settings", label: "Settings", icon: Settings },
@@ -236,6 +251,81 @@ export default function SellerDashboard() {
               <span>Back to Home</span>
             </a>
             <a href="/marketplace" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer">View Marketplace</a>
+            
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                className="text-muted-foreground hover:text-foreground relative h-8 w-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors"
+              >
+                <Bell className="h-4 w-4" />
+                {notifications.filter(n => !n.isRead).length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full animate-pulse"></span>
+                )}
+              </button>
+
+              {showNotifDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowNotifDropdown(false)} />
+                  <Card className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-card border border-border/60 rounded-xl shadow-2xl z-50 p-4 space-y-3">
+                    <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                      <h4 className="font-bold text-xs text-[#1a3321]">Recent Notifications ({notifications.filter(n => !n.isRead).length})</h4>
+                      {notifications.filter(n => !n.isRead).length > 0 && (
+                        <button 
+                          className="text-[10px] text-primary font-semibold hover:underline"
+                          onClick={async () => {
+                            for (const n of notifications) {
+                              if (!n.isRead) await markNotificationAsRead(n.id);
+                            }
+                            loadDashboardData();
+                          }}
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {notifications.length === 0 ? (
+                        <p className="text-[10px] text-center text-muted-foreground py-6">No new updates found.</p>
+                      ) : (
+                        notifications.map((n) => (
+                          <div 
+                            key={n.id} 
+                            onClick={async () => {
+                              if (!n.isRead) {
+                                await markNotificationAsRead(n.id);
+                              }
+                              setShowNotifDropdown(false);
+                              if (n.actionUrl && n.actionUrl.includes('tab=')) {
+                                const tab = n.actionUrl.split('tab=')[1];
+                                setActiveTab(tab);
+                              } else if (n.actionUrl && n.actionUrl.startsWith('/')) {
+                                window.location.href = n.actionUrl;
+                              } else if (n.actionUrl) {
+                                setActiveTab(n.actionUrl);
+                              }
+                              loadDashboardData();
+                            }}
+                            className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all duration-200 ${
+                              n.isRead 
+                                ? "bg-slate-50/50 border-slate-100 hover:bg-slate-50" 
+                                : "bg-emerald-50/30 border-emerald-100 hover:bg-emerald-50/50 font-medium"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-bold text-foreground truncate max-w-[180px]">{n.title}</span>
+                              <span className="text-[8px] text-muted-foreground uppercase">{new Date(n.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{n.message}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Card>
+                </>
+              )}
+            </div>
+
             <div className="flex items-center space-x-2 bg-white px-2.5 py-1 rounded-full shadow-sm border border-[#d8dcd3]">
               <div className="h-5 w-5 bg-primary/20 text-primary rounded-full flex items-center justify-center">
                 <Leaf className="h-3 w-3" />
@@ -248,10 +338,13 @@ export default function SellerDashboard() {
         {/* Tab Content */}
         <div className="p-8">
           <FadeIn>
-            {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} />}
+            {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
             {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} />}
-            {activeTab === "analytics" && <AnalyticsView stats={stats} analyticsData={analyticsData} />}
+            {activeTab === "enquiries" && <EnquiriesView sellerId={profile?.id || ""} />}
+            { activeTab === "complaints" && <ComplaintsView sellerId={profile?.id || ""} />}
+            { activeTab === "messages" && <MessagesView sellerId={profile?.id || ""} /> }
+            { activeTab === "analytics" && <AnalyticsView stats={stats} analyticsData={analyticsData} />}
             {activeTab === "payments" && (
               <PaymentsView 
                 payoutStats={payoutStats} 
@@ -273,7 +366,7 @@ export default function SellerDashboard() {
 // --------------------------------------------------------------------------
 // DASHBOARD TAB VIEW
 // --------------------------------------------------------------------------
-function DashboardView({ stats, products, setTab }: any) {
+function DashboardView({ stats, products, setTab, profile }: any) {
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
@@ -335,15 +428,17 @@ function DashboardView({ stats, products, setTab }: any) {
             <div className="h-8 w-8 bg-amber-50 text-amber-500 rounded-md flex items-center justify-center">
               <Star className="h-4 w-4" />
             </div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">↑ 1%</Badge>
+            {profile?.trustScore && profile.trustScore > 4 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Trusted</Badge>
+            ) : null}
           </div>
           <div>
             <div className="flex items-baseline space-x-1">
-              <h3 className="text-2xl font-bold text-foreground">{stats?.rating || 4.8}</h3>
+              <h3 className="text-2xl font-bold text-foreground">{profile?.trustScore?.toFixed(1) || "0.0"}</h3>
               <Star className="h-3.5 w-3.5 text-foreground fill-foreground" />
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Avg Rating</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5">1,240 reviews</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Trust Score</p>
+            <p className="text-[9px] text-muted-foreground mt-0.5">Admin Assigned</p>
           </div>
         </Card>
       </div>
@@ -429,6 +524,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editCat, setEditCat] = useState("");
   const [editScore, setEditScore] = useState("");
   const [editDetails, setEditDetails] = useState("");
+  const [editMoq, setEditMoq] = useState("");
+  const [editWholesalePrice, setEditWholesalePrice] = useState("");
 
   const handleEditClick = (p: any) => {
     setEditingProduct(p);
@@ -439,6 +536,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditCat(p.category);
     setEditScore(p.sustainabilityScore.toString());
     setEditDetails(p.sustainabilityDetail || "");
+    setEditMoq(p.moq?.toString() || "");
+    setEditWholesalePrice(p.wholesalePrice?.toString() || "");
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -452,6 +551,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       categoryName: editCat,
       sustainabilityScore: Number(editScore),
       sustainabilityDetail: editDetails,
+      moq: editMoq ? Number(editMoq) : undefined,
+      wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
     });
     setEditingProduct(null);
     reload();
@@ -660,6 +761,16 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                   <Input type="number" required value={editScore} onChange={(e) => setEditScore(e.target.value)} />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>MOQ (Min Order Qty)</Label>
+                  <Input type="number" placeholder="Optional" value={editMoq} onChange={(e) => setEditMoq(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Wholesale Price (₹)</Label>
+                  <Input type="number" placeholder="Optional" value={editWholesalePrice} onChange={(e) => setEditWholesalePrice(e.target.value)} />
+                </div>
+              </div>
               <div className="space-y-1">
                 <Label>Sustainability Details</Label>
                 <Textarea value={editDetails} onChange={(e) => setEditDetails(e.target.value)} className="h-16" />
@@ -689,6 +800,8 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodCat, setProdCat] = useState("Organic Apparel");
   const [prodScore, setProdScore] = useState("90");
   const [prodDetails, setProdDetails] = useState("");
+  const [prodMoq, setProdMoq] = useState("");
+  const [prodWholesalePrice, setProdWholesalePrice] = useState("");
   const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -716,7 +829,7 @@ function AddProductForm({ onBack, profile, reload }: any) {
     if (!user || !prodName || !prodPrice) return;
     const imageUrls = imagePreviews.length > 0 ? imagePreviews.map((img) => img.dataUrl) : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
     await createProduct({
-      name: prodName, description: prodDesc, price: Number(prodPrice), stock: Number(prodStock), categoryName: prodCat, sustainabilityScore: Number(prodScore), sustainabilityDetail: prodDetails, imageUrls, sellerId: user.id, sellerName: profile?.companyName || "Seller",
+      name: prodName, description: prodDesc, price: Number(prodPrice), stock: Number(prodStock), categoryName: prodCat, sustainabilityScore: Number(prodScore), sustainabilityDetail: prodDetails, imageUrls, sellerId: user.id, sellerName: profile?.companyName || "Seller", moq: prodMoq ? Number(prodMoq) : undefined, wholesalePrice: prodWholesalePrice ? Number(prodWholesalePrice) : undefined
     });
     reload();
     onBack();
@@ -740,6 +853,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
             <div className="space-y-1"><Label>Price (₹)</Label><Input type="number" required value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
             <div className="space-y-1"><Label>Stock</Label><Input type="number" required value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
             <div className="space-y-1"><Label>Eco Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1"><Label>MOQ (Min Order Qty)</Label><Input type="number" placeholder="Optional" value={prodMoq} onChange={(e) => setProdMoq(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Wholesale Price (₹)</Label><Input type="number" placeholder="Optional" value={prodWholesalePrice} onChange={(e) => setProdWholesalePrice(e.target.value)} /></div>
           </div>
           
           <div className="space-y-2">
@@ -955,8 +1072,25 @@ function OrdersView({ orders, handleUpdateFulfillment }: any) {
 // ANALYTICS TAB VIEW
 // --------------------------------------------------------------------------
 function AnalyticsView({ stats, analyticsData }: any) {
-  const chartData = analyticsData?.monthly?.income?.slice(0, 6).reverse() || [];
+  const [period, setPeriod] = useState<"daily" | "this_month" | "monthly" | "yearly">("monthly");
+
+  let chartData = [];
+  let periodLabel = "Monthly Sales Performance";
   
+  if (period === "daily") {
+    chartData = analyticsData?.daily?.income?.slice(0, 7).reverse() || [];
+    periodLabel = "Daily Sales Performance (This Week)";
+  } else if (period === "this_month") {
+    chartData = analyticsData?.daily?.income?.slice(0, 30).reverse() || [];
+    periodLabel = "Daily Sales Performance (This Month)";
+  } else if (period === "yearly") {
+    chartData = analyticsData?.yearly?.income?.slice(0, 5).reverse() || [];
+    periodLabel = "Yearly Sales Performance (All Time)";
+  } else {
+    chartData = analyticsData?.monthly?.income?.slice(0, 12).reverse() || [];
+    periodLabel = "Monthly Sales Performance (This Year)";
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div>
@@ -1014,7 +1148,19 @@ function AnalyticsView({ stats, analyticsData }: any) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Bar Chart */}
         <Card className="lg:col-span-2 p-6 bg-white border-none shadow-sm rounded-2xl">
-          <h3 className="text-sm font-bold text-[#2d4a36] mb-6">Monthly Sales Performance</h3>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-sm font-bold text-[#2d4a36]">{periodLabel}</h3>
+            <select 
+              className="text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1 outline-none text-[#2d4a36] font-medium cursor-pointer"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as any)}
+            >
+              <option value="daily">This Week</option>
+              <option value="this_month">This Month</option>
+              <option value="monthly">This Year</option>
+              <option value="yearly">All Time</option>
+            </select>
+          </div>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -1069,38 +1215,259 @@ function AnalyticsView({ stats, analyticsData }: any) {
         </Card>
       </div>
 
-      {/* Environmental Impact Banner */}
-      <div className="bg-[#1e3425] rounded-2xl p-8 text-white shadow-md">
-        <div className="flex items-center space-x-2 mb-4">
-          <Leaf className="h-5 w-5 text-emerald-400" />
-          <h3 className="text-lg font-bold">Store Environmental Impact</h3>
-        </div>
-        <p className="text-sm text-emerald-100/70 mb-8 max-w-2xl">
-          Earth Centric tracks the ecological savings generated by your organic orders. Here is the cumulative offset your business has enabled this year:
+
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// ENQUIRIES TAB VIEW
+// --------------------------------------------------------------------------
+function EnquiriesView({ sellerId }: { sellerId: string }) {
+  const [enquiries, setEnquiries] = useState<EnquiryData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadEnquiries = async () => {
+    setLoading(true);
+    const data = await getSellerEnquiries(sellerId);
+    setEnquiries(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadEnquiries();
+  }, [sellerId]);
+
+  const handleUpdateStatus = async (enquiryId: string, status: string) => {
+    const success = await updateEnquiryStatus(enquiryId, status);
+    if (success) {
+      toast.success(`Updated enquiry status to ${status}`);
+      loadEnquiries();
+    } else {
+      toast.error("Failed to update status.");
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div>
+        <h1 className="text-2xl font-bold text-[#2d4a36]">Bulk Quote Enquiries</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Review and respond to incoming wholesale quote requests from organic buyers.
         </p>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white/10 rounded-xl p-5 border border-white/5">
-            <span className="text-2xl mb-2 block">🌱</span>
-            <h4 className="text-2xl font-black">{stats?.environmentalImpact?.carbonOffset?.toLocaleString() || 1420} kg</h4>
-            <p className="text-xs font-bold text-emerald-300 mt-1">Carbon Offset</p>
-            <p className="text-[10px] text-emerald-100/50">CO₂ emissions saved</p>
-          </div>
-          
-          <div className="bg-white/10 rounded-xl p-5 border border-white/5">
-            <span className="text-2xl mb-2 block">🥤</span>
-            <h4 className="text-2xl font-black">{stats?.environmentalImpact?.plasticAvoided?.toLocaleString() || 182} kg</h4>
-            <p className="text-xs font-bold text-emerald-300 mt-1">Plastic Avoided</p>
-            <p className="text-[10px] text-emerald-100/50">Single-use plastics replaced</p>
-          </div>
-          
-          <div className="bg-white/10 rounded-xl p-5 border border-white/5">
-            <span className="text-2xl mb-2 block">🌳</span>
-            <h4 className="text-2xl font-black">{stats?.environmentalImpact?.ecoTreePoints?.toLocaleString() || 56} Credits</h4>
-            <p className="text-xs font-bold text-emerald-300 mt-1">Eco Tree Points</p>
-            <p className="text-[10px] text-emerald-100/50">Trees funded for reforestation</p>
-          </div>
-        </div>
+      </div>
+
+      <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-[#e9ece6]">
+              <TableHead className="text-xs">Date</TableHead>
+              <TableHead className="text-xs">Buyer</TableHead>
+              <TableHead className="text-xs">Product</TableHead>
+              <TableHead className="text-xs">Qty</TableHead>
+              <TableHead className="text-xs">Target Price</TableHead>
+              <TableHead className="text-xs">Location</TableHead>
+              <TableHead className="text-xs">Status</TableHead>
+              <TableHead className="text-xs text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">Loading enquiries...</TableCell></TableRow>
+            ) : enquiries.length === 0 ? (
+              <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">No bulk enquiries received yet.</TableCell></TableRow>
+            ) : (
+              enquiries.map((enq) => (
+                <TableRow key={enq.id} className="border-[#e9ece6]/50">
+                  <TableCell className="text-xs">{new Date(enq.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-xs">
+                    <div className="font-bold">{enq.name}</div>
+                    <div className="text-[10px] text-muted-foreground">{enq.email} | {enq.phone}</div>
+                  </TableCell>
+                  <TableCell className="text-xs font-semibold">{enq.productName}</TableCell>
+                  <TableCell className="text-xs">{enq.quantity} units</TableCell>
+                  <TableCell className="text-xs font-bold">
+                    {enq.targetPrice ? `₹${enq.targetPrice}` : "N/A"}
+                  </TableCell>
+                  <TableCell className="text-xs">{enq.location}</TableCell>
+                  <TableCell className="text-xs">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                      enq.status === "NEW" ? "bg-blue-100 text-blue-800" :
+                      enq.status === "VIEWED" ? "bg-amber-100 text-amber-800" :
+                      enq.status === "RESPONDED" ? "bg-emerald-100 text-emerald-800" :
+                      "bg-slate-100 text-slate-800"
+                    }`}>
+                      {enq.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-xs text-right space-x-1.5">
+                    {enq.status === "NEW" && (
+                      <Button size="sm" variant="cool" onClick={() => handleUpdateStatus(enq.id, "VIEWED")}>
+                        Mark Viewed
+                      </Button>
+                    )}
+                    {enq.status !== "RESPONDED" && enq.status !== "CLOSED" && (
+                      <Button size="sm" className="bg-[#2d4a36] hover:bg-[#1e3425] text-white cursor-pointer border-none" onClick={() => handleUpdateStatus(enq.id, "RESPONDED")}>
+                        Respond Quote
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// COMPLAINTS TAB VIEW
+// --------------------------------------------------------------------------
+function ComplaintsView({ sellerId }: { sellerId: string }) {
+  const [complaints, setComplaints] = useState<ComplaintData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTicket, setSelectedTicket] = useState<ComplaintData | null>(null);
+  const [responseMsg, setResponseMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadComplaints = async () => {
+    setLoading(true);
+    const data = await getSellerComplaints(sellerId);
+    setComplaints(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadComplaints();
+  }, [sellerId]);
+
+  const handleSubmitResponse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTicket || !responseMsg.trim()) return;
+    setSubmitting(true);
+    
+    const success = await updateComplaintStatus(selectedTicket.id, {
+      status: "UNDER_REVIEW",
+      sellerResponse: responseMsg,
+    });
+
+    setSubmitting(false);
+    if (success) {
+      toast.success("Response submitted successfully.");
+      setSelectedTicket(null);
+      setResponseMsg("");
+      loadComplaints();
+    } else {
+      toast.error("Failed to submit response.");
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div>
+        <h1 className="text-2xl font-bold text-[#2d4a36]">Buyer Disputes & Complaints</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Review return claims, dispute logs, and support queries filed against your orders.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 p-6 bg-white border-none shadow-sm rounded-2xl">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-[#e9ece6]">
+                <TableHead className="text-xs">Ticket ID</TableHead>
+                <TableHead className="text-xs">Order ID</TableHead>
+                <TableHead className="text-xs">Buyer</TableHead>
+                <TableHead className="text-xs">Type</TableHead>
+                <TableHead className="text-xs">Subject</TableHead>
+                <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={7} className="text-center text-xs py-6">Loading tickets...</TableCell></TableRow>
+              ) : complaints.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center text-xs py-6">No support complaints raised.</TableCell></TableRow>
+              ) : (
+                complaints.map((c) => (
+                  <TableRow key={c.id} className="border-[#e9ece6]/50">
+                    <TableCell className="text-xs font-mono font-bold">{c.id.substring(10, 15).toUpperCase()}</TableCell>
+                    <TableCell className="text-xs font-mono">{c.orderId.substring(4, 9)}</TableCell>
+                    <TableCell className="text-xs">{c.buyerName}</TableCell>
+                    <TableCell className="text-xs uppercase font-bold text-[#2d4a36]">{c.type}</TableCell>
+                    <TableCell className="text-xs font-semibold">{c.subject}</TableCell>
+                    <TableCell className="text-xs">
+                      <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                        c.status === "PENDING" ? "bg-amber-100 text-amber-800" :
+                        c.status === "UNDER_REVIEW" ? "bg-blue-100 text-blue-800" :
+                        c.status === "RESOLVED" ? "bg-emerald-100 text-emerald-800" :
+                        "bg-red-100 text-red-800"
+                      }`}>
+                        {c.status.replace(/_/g, " ")}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-right">
+                      <Button size="sm" variant="cool" onClick={() => setSelectedTicket(c)}>
+                        View Details
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+
+        {selectedTicket && (
+          <Card className="lg:col-span-1 p-6 bg-white border-none shadow-sm rounded-2xl space-y-4 h-fit animate-in slide-in-from-right duration-200">
+            <div className="flex justify-between items-start">
+              <h3 className="font-bold text-sm text-[#2d4a36]">Ticket Details</h3>
+              <button onClick={() => setSelectedTicket(null)} className="text-slate-400 hover:text-slate-600 bg-transparent border-none cursor-pointer">✕</button>
+            </div>
+
+            <div className="text-xs space-y-2 border-b border-[#e9ece6] pb-3">
+              <p><strong>Order ID:</strong> <span className="font-mono">{selectedTicket.orderId}</span></p>
+              <p><strong>Type:</strong> <span className="font-bold uppercase text-[#2d4a36]">{selectedTicket.type}</span></p>
+              <p><strong>Subject:</strong> {selectedTicket.subject}</p>
+              <p className="bg-slate-50 p-2.5 rounded-lg text-slate-600 leading-relaxed mt-1">
+                {selectedTicket.message}
+              </p>
+              {selectedTicket.proofUrl && (
+                <p>
+                  <strong>Proof Document:</strong>{" "}
+                  <a href={selectedTicket.proofUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold">
+                    View Attachment
+                  </a>
+                </p>
+              )}
+            </div>
+
+            {selectedTicket.sellerResponse ? (
+              <div className="text-xs bg-emerald-50/50 p-3 rounded-lg border border-emerald-100">
+                <p className="font-bold text-[#2d4a36]">Your Response:</p>
+                <p className="text-slate-600 leading-relaxed mt-1">{selectedTicket.sellerResponse}</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitResponse} className="space-y-3">
+                <Label className="text-xs">Submit Response to dispute:</Label>
+                <Textarea
+                  placeholder="Detail your explanation or solution (e.g. replacement package dispatched, refund details...)"
+                  value={responseMsg}
+                  onChange={(e) => setResponseMsg(e.target.value)}
+                  required
+                  className="text-xs min-h-[80px]"
+                />
+                <MetalButton type="submit" variant="success" className="w-full text-xs" disabled={submitting}>
+                  {submitting ? "Submitting..." : "Submit Response"}
+                </MetalButton>
+              </form>
+            )}
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -1111,6 +1478,8 @@ function AnalyticsView({ stats, analyticsData }: any) {
 // --------------------------------------------------------------------------
 function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: any) {
   const [payoutAmount, setPayoutAmount] = useState("");
+  const [isUrgent, setIsUrgent] = useState(false);
+  const [reason, setReason] = useState("");
   const [payoutError, setPayoutError] = useState("");
   const [payoutSuccess, setPayoutSuccess] = useState("");
   const [requestingPayout, setRequestingPayout] = useState(false);
@@ -1123,10 +1492,12 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
     setRequestingPayout(true);
 
     try {
-      const res = await requestPayout(sellerId, Number(payoutAmount));
+      const res = await requestPayout(sellerId, Number(payoutAmount), isUrgent, reason);
       if (res.success) {
         setPayoutSuccess(`Successfully requested ₹${payoutAmount}!`);
         setPayoutAmount("");
+        setIsUrgent(false);
+        setReason("");
         reload();
       } else {
         setPayoutError(res.error || "Failed to request payout.");
@@ -1173,6 +1544,33 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
               <Label>Amount to Withdraw (₹)</Label>
               <Input type="number" min="1" value={payoutAmount} onChange={(e) => setPayoutAmount(e.target.value)} required />
             </div>
+
+            <div className="flex items-center space-x-2 py-1">
+              <input
+                type="checkbox"
+                id="isUrgent"
+                checked={isUrgent}
+                onChange={(e) => setIsUrgent(e.target.checked)}
+                className="rounded border-[#d8dcd3] text-emerald-600 focus:ring-emerald-500 cursor-pointer h-4 w-4"
+              />
+              <Label htmlFor="isUrgent" className="text-xs font-semibold cursor-pointer">
+                Is this an Urgent Payout?
+              </Label>
+            </div>
+
+            {isUrgent && (
+              <div className="space-y-1.5 animate-in fade-in duration-200">
+                <Label>Reason for Urgent Payout *</Label>
+                <Textarea
+                  placeholder="Explain why you need this payout urgently..."
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  required={isUrgent}
+                  className="text-xs min-h-[60px]"
+                />
+              </div>
+            )}
+
             {payoutError && <p className="text-xs text-red-500">{payoutError}</p>}
             {payoutSuccess && <p className="text-xs text-emerald-600">{payoutSuccess}</p>}
             <MetalButton type="submit" variant="success" className="w-full" disabled={requestingPayout || (payoutStats?.availableBalance ?? 0) <= 0}>
@@ -1188,18 +1586,38 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
               <TableRow className="border-[#e9ece6]">
                 <TableHead className="text-xs">Date</TableHead>
                 <TableHead className="text-xs">Amount</TableHead>
+                <TableHead className="text-xs">Type</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {payoutRequests.length === 0 ? (
-                <TableRow><TableCell colSpan={3} className="text-center text-xs py-6">No past requests.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} className="text-center text-xs py-6">No past requests.</TableCell></TableRow>
               ) : (
                 payoutRequests.map((req: any) => (
                   <TableRow key={req.id} className="border-[#e9ece6]/50">
                     <TableCell className="text-xs">{new Date(req.requestedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-xs font-bold">₹{req.amount}</TableCell>
-                    <TableCell className="text-xs">{req.status}</TableCell>
+                    <TableCell className="text-xs font-bold">₹{req.amount.toLocaleString()}</TableCell>
+                    <TableCell className="text-xs">
+                      {req.isUrgent ? (
+                        <Badge variant="danger" className="text-[9px] bg-red-100 text-red-700 border-none px-1.5 py-0.5">
+                          Urgent
+                        </Badge>
+                      ) : (
+                        <Badge className="text-[9px] bg-slate-100 text-slate-700 border-none px-1.5 py-0.5">
+                          Normal
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <span className={`capitalize font-bold ${
+                        req.status === "SETTLED" ? "text-emerald-600" :
+                        req.status === "REJECTED" ? "text-red-600" :
+                        "text-amber-500"
+                      }`}>
+                        {req.status.toLowerCase()}
+                      </span>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -1426,6 +1844,25 @@ function SettingsView({ profile }: any) {
             <Badge className="bg-[#2d4a36] hover:bg-[#2d4a36] text-white border-none text-[10px] px-2 py-1"><Star className="h-3 w-3 mr-1 inline fill-white" /> Gold Eco Brand</Badge>
           </Card>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// MESSAGES TAB VIEW
+// --------------------------------------------------------------------------
+function MessagesView({ sellerId }: { sellerId: string }) {
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-foreground">Messages</h2>
+          <p className="text-sm text-muted-foreground mt-1">Communicate with the EarthCentric Admin team</p>
+        </div>
+      </div>
+      <div className="max-w-4xl mx-auto">
+        <AdminSellerMessenger sellerId={sellerId} adminId={"admin@earthcentric.com"} />
       </div>
     </div>
   );

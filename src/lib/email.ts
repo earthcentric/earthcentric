@@ -1,17 +1,16 @@
 import nodemailer from "nodemailer";
+import { getCredential } from "./credentials";
 
-// SMTP Configuration — supports Gmail, Outlook, custom SMTP, or Ethereal (test)
-const smtpHost = process.env.SMTP_HOST || "";
-const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
-const smtpUser = process.env.SMTP_USER || "";
-const smtpPass = process.env.SMTP_PASS || "";
-const smtpFrom = process.env.SMTP_FROM || "EarthCentric <noreply@earthcentric.com>";
 
-export const isEmailConfigured = !!(smtpHost && smtpUser && smtpPass);
+// Create transporter dynamically on-demand
+async function createTransporter() {
+  const smtpHost = await getCredential("SMTP_HOST");
+  const smtpPort = parseInt(await getCredential("SMTP_PORT", "587"), 10);
+  const smtpUser = await getCredential("SMTP_USER");
+  const smtpPass = await getCredential("SMTP_PASS");
 
-// Create reusable transporter
-function createTransporter() {
-  if (!isEmailConfigured) return null;
+  const isConfigured = !!(smtpHost && smtpUser && smtpPass);
+  if (!isConfigured) return null;
 
   return nodemailer.createTransport({
     host: smtpHost,
@@ -24,7 +23,6 @@ function createTransporter() {
   });
 }
 
-const transporter = createTransporter();
 
 // ─── Base email template ───────────────────────────────────────────
 function wrapInTemplate(bodyHtml: string): string {
@@ -65,7 +63,10 @@ interface EmailPayload {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; id?: string }> {
+  const smtpFrom = await getCredential("SMTP_FROM", "EarthCentric <noreply@earthcentric.com>");
   const fromAddress = payload.from || smtpFrom;
+
+  const transporter = await createTransporter();
 
   if (!transporter) {
     console.log("─────────────────────────────────────────");

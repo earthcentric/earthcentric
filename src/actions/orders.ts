@@ -3,6 +3,7 @@
 import db from "@/lib/db";
 import { createRazorpayOrder, verifyPaymentSignature } from "@/lib/razorpay";
 import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "@/lib/email";
+import { createNotification, createAdminNotification } from "./notifications";
 
 export interface OrderItemInput {
   productId: string;
@@ -10,6 +11,7 @@ export interface OrderItemInput {
   price: number;
   quantity: number;
   image: string;
+  sellerId?: string;
 }
 
 export interface AddressInput {
@@ -33,6 +35,12 @@ export interface OrderDetail {
     quantity: number;
     price: number;
     image: string;
+    seller?: {
+      id: string;
+      companyName: string;
+      email: string;
+      phone: string;
+    };
   }[];
   paymentStatus: "PENDING" | "COMPLETED" | "FAILED";
   razorpayOrderId?: string;
@@ -67,33 +75,50 @@ export async function createOrder(data: {
   });
 
   try {
+    // Group items by sellerId
+    const itemsBySeller: Record<string, OrderItemInput[]> = {};
+    const mockSellerId = "mock-seller-id";
+    for (const item of data.items) {
+      const sId = item.sellerId || mockSellerId;
+      if (!itemsBySeller[sId]) {
+        itemsBySeller[sId] = [];
+      }
+      itemsBySeller[sId].push(item);
+    }
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const newOrder: OrderDetail = {
-        id: orderId,
-        userId: data.userId,
-        totalAmount: data.totalAmount,
-        status: "PLACED",
-        createdAt: new Date(),
-        address: data.address,
-        items: data.items.map((item) => ({
-          productId: item.productId,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-          image: item.image,
-        })),
-        paymentStatus: "PENDING",
-        razorpayOrderId: paymentOrder.id,
-        timeline: [
-          {
-            status: "PLACED",
-            description: "Order placed. Awaiting payment authorization.",
-            createdAt: new Date(),
-          },
-        ],
-      };
-      mockOrders.push(newOrder);
-      return { success: true, order: newOrder, razorpayOrderId: paymentOrder.id };
+      const newOrders: OrderDetail[] = [];
+      Object.entries(itemsBySeller).forEach(([sellerId, items], index) => {
+        const orderAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const splitOrderId = `${orderId}-${index}`;
+        const newOrder: OrderDetail = {
+          id: splitOrderId,
+          userId: data.userId,
+          totalAmount: orderAmount,
+          status: "PLACED",
+          createdAt: new Date(),
+          address: data.address,
+          items: items.map((item) => ({
+            productId: item.productId,
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            image: item.image,
+          })),
+          paymentStatus: "PENDING",
+          razorpayOrderId: paymentOrder.id,
+          timeline: [
+            {
+              status: "PLACED",
+              description: "Order placed. Awaiting payment authorization.",
+              createdAt: new Date(),
+            },
+          ],
+        };
+        mockOrders.push(newOrder);
+        newOrders.push(newOrder);
+      });
+      return { success: true, order: newOrders[0], razorpayOrderId: paymentOrder.id };
     }
 
     // Write to Prisma Database
@@ -108,56 +133,67 @@ export async function createOrder(data: {
       },
     });
 
-    const order = await db.order.create({
-      data: {
-        id: orderId,
-        userId: data.userId,
-        addressId: address.id,
-        totalAmount: data.totalAmount,
-        status: "PLACED",
-        items: {
-          create: data.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            price: item.price,
-          })),
-        },
-        payment: {
-          create: {
-            razorpayOrderId: paymentOrder.id,
-            amount: data.totalAmount,
-            status: "PENDING",
+    const createdOrders = [];
+    let index = 0;
+    for (const [sellerId, items] of Object.entries(itemsBySeller)) {
+      const orderAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const splitOrderId = `${orderId}-${index}`;
+      const sId = sellerId === mockSellerId ? undefined : sellerId;
+
+      const order = await db.order.create({
+        data: {
+          id: splitOrderId,
+          userId: data.userId,
+          addressId: address.id,
+          totalAmount: orderAmount,
+          status: "PLACED",
+          sellerId: sId,
+          paymentGroupId: paymentOrder.id, // Grouping multiple orders under one payment
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              price: item.price,
+            })),
           },
-        },
-        timeline: {
-          create: {
-            status: "PLACED",
-            description: "Order placed. Awaiting payment authorization.",
+          payment: {
+            create: {
+              razorpayOrderId: paymentOrder.id,
+              amount: orderAmount,
+              status: "PENDING",
+            },
           },
-        },
-      },
-      include: {
-        items: {
-          include: {
-            product: {
-              include: {
-                images: true,
-              },
+          timeline: {
+            create: {
+              status: "PLACED",
+              description: "Order placed. Awaiting payment authorization.",
             },
           },
         },
-        timeline: true,
-      },
-    });
+        include: {
+          items: {
+            include: {
+              product: {
+                include: { images: true },
+              },
+            },
+          },
+          timeline: true,
+        },
+      });
+      createdOrders.push(order);
+      index++;
+    }
 
+    const firstOrder = createdOrders[0];
     const formattedOrder: OrderDetail = {
-      id: order.id,
-      userId: order.userId,
-      totalAmount: order.totalAmount,
-      status: order.status as any,
-      createdAt: order.createdAt,
+      id: firstOrder.id,
+      userId: firstOrder.userId,
+      totalAmount: firstOrder.totalAmount,
+      status: firstOrder.status as any,
+      createdAt: firstOrder.createdAt,
       address: data.address,
-      items: order.items.map((it) => ({
+      items: firstOrder.items.map((it) => ({
         productId: it.productId,
         name: it.product.name,
         quantity: it.quantity,
@@ -166,7 +202,7 @@ export async function createOrder(data: {
       })),
       paymentStatus: "PENDING",
       razorpayOrderId: paymentOrder.id,
-      timeline: order.timeline.map((t) => ({
+      timeline: firstOrder.timeline.map((t) => ({
         status: t.status,
         description: t.description,
         createdAt: t.createdAt,
@@ -230,7 +266,7 @@ export async function confirmOrderPayment(
     }
   }
 
-  const isValid = verifyPaymentSignature(razorpayOrderId, razorpayPaymentId, signature);
+  const isValid = await verifyPaymentSignature(razorpayOrderId, razorpayPaymentId, signature);
 
   if (!isValid) {
     console.error("Signature verification failed for order", orderId, "with razorpayOrderId", razorpayOrderId);
@@ -265,9 +301,9 @@ export async function confirmOrderPayment(
       return true;
     }
 
-    // Update in DB
+    // Update in DB (update all payments associated with this Razorpay Order ID)
     await db.payment.updateMany({
-      where: { orderId: orderId },
+      where: { razorpayOrderId: razorpayOrderId },
       data: {
         razorpayPaymentId,
         razorpaySignature: signature,
@@ -275,20 +311,28 @@ export async function confirmOrderPayment(
       },
     });
 
-    await db.order.update({
-      where: { id: orderId },
-      data: {
-        status: "CONFIRMED",
-      },
+    // Find all orders in this payment group
+    const dbOrders = await db.order.findMany({
+      where: { paymentGroupId: razorpayOrderId },
+      select: { id: true, totalAmount: true },
     });
+    
+    const ordersToUpdate = dbOrders.length > 0 ? dbOrders : [{ id: orderId, totalAmount: 0 }];
 
-    await db.orderTimeline.create({
-      data: {
-        orderId: orderId,
-        status: "CONFIRMED",
-        description: "Payment confirmed. Order sent to supplier fulfillment queue.",
-      },
-    });
+    for (const ord of ordersToUpdate) {
+      await db.order.update({
+        where: { id: ord.id },
+        data: { status: "CONFIRMED" },
+      });
+
+      await db.orderTimeline.create({
+        data: {
+          orderId: ord.id,
+          status: "CONFIRMED",
+          description: "Payment confirmed. Order sent to supplier fulfillment queue.",
+        },
+      });
+    }
 
     const dbOrder = await db.order.findUnique({
       where: { id: orderId },
@@ -473,11 +517,12 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
 
     // Fetch the buyer's email from the order if not provided
     let emailToSend = buyerEmail;
+    const order = await db.order.findUnique({
+      where: { id: orderId },
+      include: { user: { select: { id: true, email: true } } },
+    });
+    
     if (!emailToSend) {
-      const order = await db.order.findUnique({
-        where: { id: orderId },
-        include: { user: { select: { email: true } } },
-      });
       emailToSend = order?.user?.email;
     }
 
@@ -499,6 +544,11 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
       await sendOrderStatusEmail(emailToSend, orderId, status, description).catch((err) =>
         console.error("Failed to send order status email:", err)
       );
+    }
+    
+    // Send Notification to Buyer
+    if (order?.user?.id) {
+      await createNotification(order.user.id, `Order ${status}`, `Your order ${orderId} is now ${status}. ${description}`, `/profile/orders`);
     }
 
     return true;
@@ -661,6 +711,11 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
             product: {
               include: {
                 images: true,
+                seller: {
+                  include: {
+                    user: { select: { email: true } }
+                  }
+                }
               },
             },
           },
@@ -692,6 +747,12 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         quantity: it.quantity,
         price: it.price,
         image: it.product.images[0]?.url || "",
+        seller: {
+          id: it.product.seller.id,
+          companyName: it.product.seller.companyName,
+          email: it.product.seller.user.email,
+          phone: it.product.seller.phone || "Not provided",
+        }
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
       razorpayOrderId: order.payment?.razorpayOrderId || undefined,

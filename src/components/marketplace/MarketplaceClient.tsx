@@ -229,8 +229,8 @@ export default function MarketplaceClient() {
   // Load wishlist from database on mount
   const { user } = useAuth();
   useEffect(() => {
-    if (user?.userId) {
-      getWishlistIds(user.userId).then((ids) => setWishlistIds(ids));
+    if (user?.id) {
+      getWishlistIds(user.id).then((ids) => setWishlistIds(ids));
     } else {
       setWishlistIds([]);
     }
@@ -323,9 +323,9 @@ export default function MarketplaceClient() {
   };
 
   const handleToggleWishlistAction = async (p: ProductItem) => {
-    if (!user?.userId) return;
+    if (!user?.id) return;
     const { toggleWishlist } = await import("@/actions/wishlist");
-    const res = await toggleWishlist(user.userId, p.id);
+    const res = await toggleWishlist(user.id, p.id);
     if (res.success) {
       if (res.isWishlisted) {
         setWishlistIds([...wishlistIds, p.id]);
@@ -516,7 +516,7 @@ export default function MarketplaceClient() {
                         >
                           <div className="aspect-square bg-muted rounded-lg overflow-hidden relative">
                             <Image 
-                              src={item.image} 
+                              src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"} 
                               alt={item.name} 
                               fill
                               sizes="(max-width: 768px) 25vw, 10vw"

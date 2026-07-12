@@ -2,15 +2,19 @@
 
 import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct } from "@/actions/admin";
+import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore } from "@/actions/admin";
 import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
 import { getAllOrdersForAdmin, updateOrderStatus } from "@/actions/orders";
 import { SellerProfile } from "@/actions/sellers";
-import { Button, Card, Badge, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, Input, LiquidButton, Label } from "@/components/ui/shared";
+import { getAdminNotifications, markNotificationAsRead } from "@/actions/notifications";
+import { getIntegrationCredentials, updateIntegrationCredential, CredentialItem } from "@/actions/credentials";
+import { Button, Card, Badge, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, Input, LiquidButton, Label, Textarea } from "@/components/ui/shared";
 import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { AdminAnalyticsCharts, AdminAnalyticsData } from "@/components/ui/admin-analytics-charts";
 import { AdminSellerDetailModal } from "@/components/ui/admin-seller-detail-modal";
+import { AdminBuyerDetailModal } from "@/components/ui/admin-buyer-detail-modal";
 import { Logo } from "@/components/Logo";
 import {
   ShieldAlert,
@@ -34,6 +38,8 @@ import {
   Activity,
   X,
   Eye,
+  EyeOff,
+  Key,
   Settings,
   LogOut,
   ChevronDown,
@@ -75,6 +81,11 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
+  const [selectedBuyerId, setSelectedBuyerId] = useState<string | null>(null);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [credentials, setCredentials] = useState<CredentialItem[]>([]);
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -104,6 +115,15 @@ export default function AdminDashboard() {
 
     const orders = await getAllOrdersForAdmin();
     setAllOrders(orders);
+
+    const txns = await getAdminTransactions();
+    setTransactions(txns);
+
+    const notifs = await getAdminNotifications();
+    setNotifications(notifs);
+
+    const creds = await getIntegrationCredentials();
+    setCredentials(creds);
 
     setLoading(false);
   };
@@ -202,12 +222,12 @@ export default function AdminDashboard() {
             <SidebarLink icon={PackageCheck} label="Product Approval" value="products" />
             <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
             <SidebarLink icon={Wallet} label="Payments" value="payments" />
+            <SidebarLink icon={AlertCircle} label="Disputes" value="disputes" />
           </div>
 
           <div className="space-y-1">
-            <p className="px-6 text-[10px] font-bold text-[#627d6a] uppercase tracking-wider mb-2">Sustainability</p>
-            <SidebarLink icon={Leaf} label="Impact Analytics" value="impact" />
-            <SidebarLink icon={Award} label="Certifications" value="certifications" />
+            <p className="px-6 text-[10px] font-bold text-[#627d6a] uppercase tracking-wider mb-2">System Config</p>
+            <SidebarLink icon={Key} label="Credentials Manager" value="credentials" />
           </div>
 
         </div>
@@ -237,10 +257,76 @@ export default function AdminDashboard() {
             />
           </div>
           <div className="flex items-center space-x-4">
-            <button className="text-muted-foreground hover:text-foreground relative">
-              <Bell className="h-4 w-4" />
-              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-red-500 rounded-full"></span>
-            </button>
+            {/* Notifications Popover */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                className="text-muted-foreground hover:text-foreground relative h-8 w-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors"
+              >
+                <Bell className="h-4 w-4" />
+                {notifications.filter(n => !n.isRead).length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full animate-pulse"></span>
+                )}
+              </button>
+
+              {showNotifDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowNotifDropdown(false)} />
+                  <Card className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-card border border-border/60 rounded-xl shadow-2xl z-50 p-4 space-y-3">
+                    <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                      <h4 className="font-bold text-xs text-[#1a3321]">Recent Notifications ({notifications.filter(n => !n.isRead).length})</h4>
+                      {notifications.filter(n => !n.isRead).length > 0 && (
+                        <button 
+                          className="text-[10px] text-primary font-semibold hover:underline"
+                          onClick={async () => {
+                            for (const n of notifications) {
+                              if (!n.isRead) await markNotificationAsRead(n.id);
+                            }
+                            loadAdminData();
+                          }}
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {notifications.length === 0 ? (
+                        <p className="text-[10px] text-center text-muted-foreground py-6">No new updates found.</p>
+                      ) : (
+                        notifications.map((n) => (
+                          <div 
+                            key={n.id} 
+                            onClick={async () => {
+                              if (!n.isRead) {
+                                await markNotificationAsRead(n.id);
+                              }
+                              setShowNotifDropdown(false);
+                              if (n.redirectSection && n.redirectSection.includes("tab=")) {
+                                const tab = n.redirectSection.split("tab=")[1];
+                                setActiveTab(tab);
+                              } else {
+                                setActiveTab(n.redirectSection);
+                              }
+                              loadAdminData();
+                            }}
+                            className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all duration-200 ${
+                              n.isRead 
+                                ? "bg-slate-50/50 border-slate-100 hover:bg-slate-50" 
+                                : "bg-emerald-50/30 border-emerald-100 hover:bg-emerald-50/50 font-medium"
+                            }`}
+                          >
+                            <p className="text-[11px] font-bold text-[#1a3321]">{n.title}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{n.message}</p>
+                            <p className="text-[9px] text-slate-400 mt-1">{new Date(n.createdAt).toLocaleDateString()} {new Date(n.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Card>
+                </>
+              )}
+            </div>
             <button className="text-muted-foreground hover:text-foreground">
               <HelpCircle className="h-4 w-4" />
             </button>
@@ -257,13 +343,13 @@ export default function AdminDashboard() {
           <FadeIn key={activeTab}>
             {activeTab === "dashboard" && <DashboardView stats={stats} analyticsData={analyticsData} pendingSellers={pendingSellers} />}
             {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} />}
-            {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} />}
-            {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} reload={loadAdminData} adminEmail={user?.email} />}
-            {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} onActionComplete={loadAdminData} adminEmail={user?.email} />}
+            {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} />}
+            {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} />}
+            {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} />}
+            {activeTab === "disputes" && <DisputesView disputes={disputes} onResolve={loadAdminData} adminEmail={user?.email} />}
             {activeTab === "analytics" && <AdminAnalyticsCharts data={analyticsData!} />}
             {activeTab === "orders" && <OrderManagementView orders={allOrders} onUpdateStatus={loadAdminData} />}
-            {activeTab === "impact" && <ImpactView />}
-            {activeTab === "certifications" && <CertificationsView />}
+            {activeTab === "credentials" && <CredentialsManagerView credentials={credentials} reload={loadAdminData} />}
           </FadeIn>
         </main>
       </div>
@@ -276,6 +362,13 @@ export default function AdminDashboard() {
           onActionComplete={loadAdminData}
         />
       )}
+
+      {selectedBuyerId && (
+        <AdminBuyerDetailModal 
+          buyerId={selectedBuyerId} 
+          onClose={() => setSelectedBuyerId(null)} 
+        />
+      )}
     </div>
   );
 }
@@ -284,7 +377,17 @@ export default function AdminDashboard() {
 // DASHBOARD VIEW
 // --------------------------------------------------------------------------
 function DashboardView({ stats, analyticsData, pendingSellers }: any) {
-  const chartData = analyticsData?.monthly?.income?.slice(0, 6).reverse() || [];
+  const [revenuePeriod, setRevenuePeriod] = useState<"daily" | "monthly" | "yearly">("monthly");
+  const [showRevenueDropdown, setShowRevenueDropdown] = useState(false);
+
+  let chartData = [];
+  if (revenuePeriod === "daily") {
+    chartData = analyticsData?.daily?.income?.slice(0, 7).reverse() || [];
+  } else if (revenuePeriod === "yearly") {
+    chartData = analyticsData?.yearly?.income?.slice(0, 5).reverse() || [];
+  } else {
+    chartData = analyticsData?.monthly?.income?.slice(0, 6).reverse() || [];
+  }
   
   return (
     <div className="space-y-6">
@@ -308,8 +411,8 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
             <span className="text-[11px] font-semibold">Total Revenue</span>
           </div>
           <div>
-            <h3 className="text-xl font-black text-[#1a3321]">₹{stats?.totalRevenue?.toLocaleString() || "10,24,832"}</h3>
-            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ 18.4%</Badge>
+            <h3 className="text-xl font-black text-[#1a3321]">₹{(stats?.totalRevenue ?? 0).toLocaleString()}</h3>
+            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ {stats?.totalRevenue ? "18.4%" : "0%"}</Badge>
           </div>
         </Card>
 
@@ -319,8 +422,8 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
             <span className="text-[11px] font-semibold">Total Orders</span>
           </div>
           <div>
-            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalOrders || "64"}</h3>
-            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ 12.1%</Badge>
+            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalOrders ?? 0}</h3>
+            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ {stats?.totalOrders ? "12.1%" : "0%"}</Badge>
           </div>
         </Card>
 
@@ -330,8 +433,8 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
             <span className="text-[11px] font-semibold">Total Sellers</span>
           </div>
           <div>
-            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalSellers || "8"}</h3>
-            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ 8.3%</Badge>
+            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalSellers ?? 0}</h3>
+            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ {stats?.totalSellers ? "8.3%" : "0%"}</Badge>
           </div>
         </Card>
 
@@ -341,8 +444,8 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
             <span className="text-[11px] font-semibold">Total Products</span>
           </div>
           <div>
-            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalProducts || "42"}</h3>
-            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ 22%</Badge>
+            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalProducts ?? 0}</h3>
+            <Badge className="bg-[#e8f3ec] text-emerald-700 hover:bg-[#e8f3ec] border-none text-[9px] px-1.5 py-0 mt-1">↑ {stats?.totalProducts ? "22%" : "0%"}</Badge>
           </div>
         </Card>
 
@@ -366,11 +469,38 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h3 className="text-sm font-bold text-[#1a3321]">Revenue Overview</h3>
-              <p className="text-[10px] text-muted-foreground">Monthly revenue in ₹ Lakhs</p>
+              <p className="text-[10px] text-muted-foreground">Revenue in ₹ Lakhs</p>
             </div>
-            <div className="bg-[#f4f5f3] px-3 py-1.5 rounded-full flex items-center space-x-2 cursor-pointer">
-              <span className="text-[10px] font-bold text-[#1a3321]">This Year</span>
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            <div className="relative">
+              <div 
+                onClick={() => setShowRevenueDropdown(!showRevenueDropdown)}
+                className="bg-[#f4f5f3] px-3 py-1.5 rounded-full flex items-center space-x-2 cursor-pointer hover:bg-[#e9ece6] transition-colors"
+              >
+                <span className="text-[10px] font-bold text-[#1a3321]">
+                  {revenuePeriod === "daily" ? "This Week" : revenuePeriod === "monthly" ? "This Year" : "All Time"}
+                </span>
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              </div>
+              
+              {showRevenueDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowRevenueDropdown(false)} />
+                  <Card className="absolute right-0 mt-2 w-32 bg-card border border-border/60 rounded-xl shadow-xl z-50 overflow-hidden">
+                    <button 
+                      onClick={() => { setRevenuePeriod("daily"); setShowRevenueDropdown(false); }}
+                      className={`w-full text-left px-4 py-2 text-[10px] font-medium transition-colors ${revenuePeriod === "daily" ? "bg-emerald-50 text-emerald-700" : "hover:bg-slate-50 text-muted-foreground"}`}
+                    >This Week</button>
+                    <button 
+                      onClick={() => { setRevenuePeriod("monthly"); setShowRevenueDropdown(false); }}
+                      className={`w-full text-left px-4 py-2 text-[10px] font-medium transition-colors ${revenuePeriod === "monthly" ? "bg-emerald-50 text-emerald-700" : "hover:bg-slate-50 text-muted-foreground"}`}
+                    >This Year</button>
+                    <button 
+                      onClick={() => { setRevenuePeriod("yearly"); setShowRevenueDropdown(false); }}
+                      className={`w-full text-left px-4 py-2 text-[10px] font-medium transition-colors ${revenuePeriod === "yearly" ? "bg-emerald-50 text-emerald-700" : "hover:bg-slate-50 text-muted-foreground"}`}
+                    >All Time</button>
+                  </Card>
+                </>
+              )}
             </div>
           </div>
           
@@ -384,26 +514,45 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
             </div>
             
             {/* Bars */}
-            {[
-              { month: 'Jan', val: '2.4L', h: '35%' },
-              { month: 'Feb', val: '3.8L', h: '55%' },
-              { month: 'Mar', val: '3.2L', h: '45%' },
-              { month: 'Apr', val: '5.6L', h: '75%' },
-              { month: 'May', val: '7.2L', h: '90%' },
-              { month: 'Jun', val: '8L', h: '100%' },
-            ].map((bar, i) => (
-              <div key={i} className="flex flex-col items-center z-10 w-[12%]">
-                <span className="text-[10px] font-bold text-muted-foreground mb-2">{bar.val}</span>
-                <div 
-                  className="w-full rounded-t-sm"
-                  style={{ 
-                    height: `calc(${bar.h} * 2.2)`, 
-                    background: 'linear-gradient(to bottom, #1a3321, #0ea5e9)'
-                  }}
-                ></div>
-                <span className="text-[10px] font-semibold text-muted-foreground mt-3">{bar.month}</span>
-              </div>
-            ))}
+            {(() => {
+              let monthsData = [];
+              if (analyticsData) {
+                if (revenuePeriod === "daily") {
+                  monthsData = analyticsData.daily.income.slice(-5);
+                } else if (revenuePeriod === "monthly") {
+                  monthsData = analyticsData.monthly.income.slice(-5);
+                } else {
+                  monthsData = analyticsData.yearly.income.slice(-5);
+                }
+              } else {
+                monthsData = [
+                  { name: 'Jan', income: 0 },
+                  { name: 'Feb', income: 0 },
+                  { name: 'Mar', income: 0 },
+                  { name: 'Apr', income: 0 },
+                  { name: 'May', income: 0 },
+                ];
+              }
+
+              const maxAmount = Math.max(...monthsData.map((m: any) => m.income), 1);
+              return monthsData.map((bar: any, i: number) => {
+                const heightPercent = bar.income > 0 ? `${(bar.income / maxAmount) * 100}%` : '0%';
+                const displayVal = bar.income > 0 ? `₹${bar.income >= 100000 ? (bar.income / 100000).toFixed(1) + 'L' : bar.income.toLocaleString()}` : '₹0';
+                return (
+                  <div key={i} className="flex flex-col items-center z-10 w-[12%]">
+                    <span className="text-[10px] font-bold text-muted-foreground mb-2">{displayVal}</span>
+                    <div 
+                      className="w-full rounded-t-sm transition-all duration-500"
+                      style={{ 
+                        height: `calc(${heightPercent} * 2.2)`, 
+                        background: 'linear-gradient(to bottom, #1a3321, #0ea5e9)'
+                      }}
+                    />
+                    <span className="text-[9px] font-semibold text-muted-foreground mt-3">{bar.name}</span>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </Card>
 
@@ -415,40 +564,40 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
             <div className="space-y-2">
               <div className="flex justify-between text-[11px] font-bold">
                 <span className="text-muted-foreground">Order Success Rate</span>
-                <span className="text-[#1a3321]">97.2%</span>
+                <span className="text-[#1a3321]">{stats?.orderSuccessRate ?? 0}%</span>
               </div>
               <div className="h-1.5 w-full bg-muted/30 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full" style={{ width: '97.2%' }} />
+                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${stats?.orderSuccessRate ?? 0}%` }} />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-[11px] font-bold">
                 <span className="text-muted-foreground">Seller Approval Rate</span>
-                <span className="text-[#1a3321]">84.5%</span>
+                <span className="text-[#1a3321]">{stats?.sellerApprovalRate ?? 0}%</span>
               </div>
               <div className="h-1.5 w-full bg-muted/30 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-400 rounded-full" style={{ width: '84.5%' }} />
+                <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${stats?.sellerApprovalRate ?? 0}%` }} />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-[11px] font-bold">
                 <span className="text-muted-foreground">Customer Satisfaction</span>
-                <span className="text-[#1a3321]">4.9 / 5</span>
+                <span className="text-[#1a3321]">{stats?.customerSatisfaction ?? 0} / 5</span>
               </div>
               <div className="h-1.5 w-full bg-muted/30 rounded-full overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full" style={{ width: '95%' }} />
+                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${((stats?.customerSatisfaction ?? 0) / 5) * 100}%` }} />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-[11px] font-bold">
                 <span className="text-muted-foreground">Eco Certified Products</span>
-                <span className="text-[#1a3321]">92.4%</span>
+                <span className="text-[#1a3321]">{stats?.ecoCertifiedRate ?? 0}%</span>
               </div>
               <div className="h-1.5 w-full bg-muted/30 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full" style={{ width: '92.4%' }} />
+                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${stats?.ecoCertifiedRate ?? 0}%` }} />
               </div>
             </div>
 
@@ -464,16 +613,13 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
 // SELLER APPROVALS VIEW
 // --------------------------------------------------------------------------
 function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
-  const displaySellers = pendingSellers.length > 0 ? pendingSellers : [
-    { id: "seller-1", companyName: "SHIVA CLOTHING", user: { name: "Shiva Teja" }, contact: "bluegamer355@gmail.com", appliedOn: "11/6/2026", status: "INCOMPLETE" },
-    { id: "seller-2", companyName: "SHIVA CLOTHING", user: { name: "Shiva Teja Yadav" }, contact: "imshivateja082@gmail.com", appliedOn: "10/6/2026", status: "VERIFIED" },
-  ];
+  const displaySellers = pendingSellers;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold text-[#1a3321]">Seller Approvals</h1>
-        <p className="text-sm text-muted-foreground mt-1">Review and manage new seller applications.</p>
+        <p className="text-sm text-muted-foreground mt-1">Review and manage seller verification records.</p>
       </div>
 
       <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
@@ -488,47 +634,57 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {displaySellers.map((seller: any, i: number) => (
-              <TableRow key={i} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                <TableCell className="py-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-8 w-8 bg-[#f4f5f3] rounded border border-[#e9ece6] flex items-center justify-center text-[#8ca193]">
-                      <Users className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-[#1a3321]">{seller.companyName}</p>
-                      <p className="text-[10px] text-muted-foreground flex items-center"><Users className="h-2.5 w-2.5 mr-1" /> {seller.user?.name || "Applicant"}</p>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="py-4">
-                  <p className="text-xs text-muted-foreground flex items-center">
-                    <AlertCircle className="h-3 w-3 mr-1.5 opacity-50" />
-                    {seller.contact || "email@example.com"}
-                  </p>
-                </TableCell>
-                <TableCell className="py-4">
-                  <p className="text-xs text-muted-foreground flex items-center">
-                    <LayoutDashboard className="h-3 w-3 mr-1.5 opacity-50" />
-                    {seller.appliedOn || new Date().toLocaleDateString()}
-                  </p>
-                </TableCell>
-                <TableCell className="py-4">
-                  {seller.status === "VERIFIED" || seller.verificationStatus === "APPROVED" ? (
-                    <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-3 w-3 mr-1" /> VERIFIED</Badge>
-                  ) : (
-                    <Badge className="bg-[#f4f5f3] text-muted-foreground border-none text-[9px] hover:bg-[#f4f5f3]"><AlertCircle className="h-3 w-3 mr-1" /> PENDING</Badge>
-                  )}
-                </TableCell>
-                <TableCell className="py-4 text-right pr-6">
-                  {seller.status === "VERIFIED" || seller.verificationStatus === "APPROVED" ? (
-                    <Button variant="ghost" className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 h-8 font-semibold" onClick={() => onInspectSeller(seller.id || seller.userId)}>View Record</Button>
-                  ) : (
-                    <Button variant="outline" className="text-xs text-[#8ca193] border-[#e9ece6] hover:bg-[#f4f5f3] px-3 h-8" onClick={() => onInspectSeller(seller.id || seller.userId)}><Eye className="h-3 w-3 mr-1.5" /> Review</Button>
-                  )}
+            {displaySellers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-10 text-xs text-muted-foreground">
+                  No seller verification records found.
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              displaySellers.map((seller: any, i: number) => (
+                <TableRow key={i} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+                  <TableCell className="py-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="h-8 w-8 bg-[#f4f5f3] rounded border border-[#e9ece6] flex items-center justify-center text-[#8ca193]">
+                        <Users className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-[#1a3321]">{seller.companyName}</p>
+                        <p className="text-[10px] text-muted-foreground flex items-center"><Users className="h-2.5 w-2.5 mr-1" /> {seller.user?.name || "Applicant"}</p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <p className="text-xs text-muted-foreground flex items-center">
+                      <AlertCircle className="h-3 w-3 mr-1.5 opacity-50" />
+                      {seller.contact || seller.email || "email@example.com"}
+                    </p>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <p className="text-xs text-muted-foreground flex items-center">
+                      <LayoutDashboard className="h-3 w-3 mr-1.5 opacity-50" />
+                      {seller.appliedOn || (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString() : new Date().toLocaleDateString())}
+                    </p>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    {seller.verificationStatus === "APPROVED" || seller.status === "VERIFIED" ? (
+                      <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-3 w-3 mr-1 inline-block" /> VERIFIED</Badge>
+                    ) : seller.verificationStatus === "REJECTED" || seller.status === "REJECTED" ? (
+                      <Badge className="bg-rose-50 text-rose-700 border-none text-[9px] hover:bg-rose-50"><X className="h-3 w-3 mr-1 inline-block" /> REJECTED</Badge>
+                    ) : (
+                      <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] hover:bg-amber-50"><AlertCircle className="h-3 w-3 mr-1 inline-block" /> PENDING</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="py-4 text-right pr-6">
+                    {seller.verificationStatus === "PENDING" || seller.status === "PENDING" ? (
+                      <Button variant="outline" className="text-xs text-[#1a3321] border-[#1a3321]/30 hover:bg-[#f4f5f3] px-3 h-8" onClick={() => onInspectSeller(seller.id || seller.userId)}><Eye className="h-3 w-3 mr-1.5" /> Review</Button>
+                    ) : (
+                      <Button variant="ghost" className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 h-8 font-semibold" onClick={() => onInspectSeller(seller.id || seller.userId)}>View Record</Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </Card>
@@ -539,7 +695,7 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
 // --------------------------------------------------------------------------
 // USER MANAGEMENT VIEW
 // --------------------------------------------------------------------------
-function UserManagementView({ usersData, onInspectSeller }: any) {
+function UserManagementView({ usersData, onInspectSeller, onInspectBuyer }: any) {
   const displayData = usersData || {
     totalUsers: 4,
     totalOrdersBooked: 3,
@@ -605,8 +761,10 @@ function UserManagementView({ usersData, onInspectSeller }: any) {
                 </TableCell>
                 <TableCell className="py-4 text-right pr-6 text-xs text-muted-foreground space-x-4">
                   <span><LayoutDashboard className="h-3 w-3 mr-1.5 opacity-50 inline" /> {u.joinedDate}</span>
-                  {u.role === "SELLER" && (
-                    <Button variant="ghost" className="text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 h-7" onClick={() => onInspectSeller(u.id)}>Inspect</Button>
+                  {u.role === "SELLER" ? (
+                    <Button variant="ghost" className="text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 h-7" onClick={() => onInspectSeller(u.id)}>Inspect Seller</Button>
+                  ) : (
+                    <Button variant="ghost" className="text-[10px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 px-2 h-7" onClick={() => onInspectBuyer(u.id)}>Inspect Buyer</Button>
                   )}
                 </TableCell>
               </TableRow>
@@ -621,7 +779,7 @@ function UserManagementView({ usersData, onInspectSeller }: any) {
 // --------------------------------------------------------------------------
 // PRODUCT APPROVALS VIEW
 // --------------------------------------------------------------------------
-function ProductApprovalView({ pendingProducts, reload, adminEmail }: { pendingProducts: any[], reload: () => void, adminEmail?: string }) {
+function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday = 0, reload, adminEmail }: { pendingProducts: any[], approvedToday?: number, rejectedToday?: number, reload: () => void, adminEmail?: string }) {
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
@@ -656,14 +814,14 @@ function ProductApprovalView({ pendingProducts, reload, adminEmail }: { pendingP
         <Card className="p-4 bg-white border border-emerald-100 shadow-sm rounded-2xl flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Approved Today</p>
-            <h3 className="text-xl font-bold text-emerald-600">5 items</h3>
+            <h3 className="text-xl font-bold text-emerald-600">{approvedToday} items</h3>
           </div>
           <div className="h-10 w-10 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center"><CheckCircle2 className="h-5 w-5" /></div>
         </Card>
         <Card className="p-4 bg-white border border-rose-100 shadow-sm rounded-2xl flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Rejected Today</p>
-            <h3 className="text-xl font-bold text-rose-600">0 items</h3>
+            <h3 className="text-xl font-bold text-rose-600">{rejectedToday} items</h3>
           </div>
           <div className="h-10 w-10 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center"><X className="h-5 w-5" /></div>
         </Card>
@@ -677,6 +835,8 @@ function ProductApprovalView({ pendingProducts, reload, adminEmail }: { pendingP
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller / Brand</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Category</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Retail Price</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Wholesale Price</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">MOQ</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-48">Sustainability Claims</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Compliance Status</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
@@ -709,6 +869,12 @@ function ProductApprovalView({ pendingProducts, reload, adminEmail }: { pendingP
                   </TableCell>
                   <TableCell className="py-4">
                     <p className="text-xs font-black text-[#1a3321]">₹{p.price}</p>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <p className="text-xs font-bold text-amber-700">{p.wholesalePrice ? `₹${p.wholesalePrice}` : "N/A"}</p>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <p className="text-xs font-semibold text-muted-foreground">{p.moq ? `${p.moq} units` : "1 unit"}</p>
                   </TableCell>
                   <TableCell className="py-4">
                     <p className="text-[9px] text-[#4a5d4e] bg-[#e8f3ec] p-1.5 rounded">{p.sustainabilityDetail || p.description}</p>
@@ -754,9 +920,158 @@ function ProductApprovalView({ pendingProducts, reload, adminEmail }: { pendingP
 }
 
 // --------------------------------------------------------------------------
+// DISPUTES VIEW
+// --------------------------------------------------------------------------
+function DisputesView({ disputes, onResolve, adminEmail }: { disputes: DisputeCase[], onResolve: () => void, adminEmail?: string }) {
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [resolutionRemarks, setResolutionRemarks] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleResolve = async () => {
+    if (!resolvingId) return;
+    const ticket = disputes.find((x) => x.id === resolvingId);
+    if (!ticket) return;
+
+    setSubmitting(true);
+    const success = await resolveDispute(
+      resolvingId,
+      ticket.orderId || "N/A",
+      adminEmail || "admin@earthcentric.com"
+    );
+    setSubmitting(false);
+    if (success) {
+      toast.success("Dispute resolved successfully.");
+      setResolvingId(null);
+      setResolutionRemarks("");
+      onResolve();
+    } else {
+      toast.error("Failed to resolve dispute.");
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div>
+        <h1 className="text-2xl font-extrabold text-[#1a3321]">Platform Disputes & Complaints</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Review, mediate, and resolve customer complaints, returns, and dispute logs.
+        </p>
+      </div>
+
+      <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden mt-6">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Ticket ID</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Order ID</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Buyer</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Issue Details</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Priority</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {disputes.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
+                  No active disputes or complaints.
+                </TableCell>
+              </TableRow>
+            ) : (
+              disputes.map((d) => (
+                <TableRow key={d.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+                  <TableCell className="py-4 pl-6 font-mono text-xs font-bold text-[#1a3321]">
+                    {d.id.substring(0, 10).toUpperCase()}
+                  </TableCell>
+                  <TableCell className="py-4 font-mono text-xs text-slate-500">
+                    {d.orderId.substring(0, 12)}
+                  </TableCell>
+                  <TableCell className="py-4 text-xs font-semibold">
+                    {d.buyerName}
+                  </TableCell>
+                  <TableCell className="py-4 text-xs font-medium max-w-[200px] truncate" title={d.issue}>
+                    {d.issue}
+                  </TableCell>
+                  <TableCell className="py-4 text-xs">
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                      d.priority === "HIGH" ? "bg-red-100 text-red-700" :
+                      d.priority === "MEDIUM" ? "bg-amber-100 text-amber-800" :
+                      "bg-blue-100 text-blue-800"
+                    }`}>
+                      {d.priority}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-4 text-xs">
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                      d.status === "PENDING" ? "bg-amber-100 text-amber-800" :
+                      d.status === "RESOLVED" ? "bg-emerald-100 text-emerald-800" :
+                      "bg-rose-100 text-rose-800"
+                    }`}>
+                      {d.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-4 text-right pr-6">
+                    {d.status !== "RESOLVED" ? (
+                      <Button size="sm" className="bg-[#1a3321] text-white text-[10px] h-7" onClick={() => setResolvingId(d.id)}>
+                        Resolve Dispute
+                      </Button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground font-semibold">Resolved</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {resolvingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setResolvingId(null)} />
+          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+            <h3 className="font-bold text-sm text-[#1a3321]">Resolve Dispute Ticket</h3>
+            
+            {/* Show ticket details */}
+            {(() => {
+              const ticket = disputes.find(x => x.id === resolvingId);
+              if (!ticket) return null;
+              return (
+                <div className="text-xs bg-slate-50 p-3 rounded-lg border space-y-1 text-slate-600">
+                  <p><strong>Issue Detail:</strong></p>
+                  <p className="italic">"{ticket.issue}"</p>
+                </div>
+              );
+            })()}
+
+            <div className="space-y-1.5">
+              <Label>Resolution Notes / Actions Taken</Label>
+              <Textarea
+                placeholder="Detail the dispute resolution (e.g. Refund issued, warning issued to seller...)"
+                value={resolutionRemarks}
+                onChange={(e) => setResolutionRemarks(e.target.value)}
+                required
+                className="text-xs min-h-[80px]"
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button variant="ghost" onClick={() => setResolvingId(null)}>Cancel</Button>
+              <Button className="bg-[#1a3321] text-white cursor-pointer border-none" disabled={submitting} onClick={handleResolve}>
+                {submitting ? "Resolving..." : "Confirm Resolve"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
 // PAYMENTS VIEW
 // --------------------------------------------------------------------------
-function PaymentsView({ payoutRequests, onActionComplete, adminEmail }: { payoutRequests: any[], onActionComplete: () => void, adminEmail?: string }) {
+function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string }) {
   const [subTab, setSubTab] = useState("transactions");
   const [settleId, setSettleId] = useState<string | null>(null);
   const [settleNotes, setSettleNotes] = useState("");
@@ -813,31 +1128,39 @@ function PaymentsView({ payoutRequests, onActionComplete, adminEmail }: { payout
               </TableRow>
             </TableHeader>
             <TableBody>
-              {MOCK_TRANSACTIONS.map((t) => (
-                <TableRow key={t.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                  <TableCell className="py-4 pl-6">
-                    <p className="text-xs font-bold text-[#1a3321]">{t.id}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs text-muted-foreground">{t.orderId}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs font-black text-[#1a3321]">₹{t.amount}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs text-muted-foreground">{t.method}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs font-bold text-emerald-600">₹{t.commission}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-2.5 w-2.5 mr-1" /> Success</Badge>
-                  </TableCell>
-                  <TableCell className="py-4 text-right pr-6">
-                    <p className="text-xs text-muted-foreground">{t.date}</p>
+              {transactions.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
+                    No transactions found.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                transactions.map((t) => (
+                  <TableRow key={t.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+                    <TableCell className="py-4 pl-6">
+                      <p className="text-xs font-bold text-[#1a3321]">{t.id}</p>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <p className="text-xs text-muted-foreground">{t.orderId}</p>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <p className="text-xs font-black text-[#1a3321]">₹{t.amount}</p>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <p className="text-xs text-muted-foreground">{t.method}</p>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <p className="text-xs font-bold text-emerald-600">₹{t.commission}</p>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-2.5 w-2.5 mr-1" /> {t.status}</Badge>
+                    </TableCell>
+                    <TableCell className="py-4 text-right pr-6">
+                      <p className="text-xs text-muted-foreground">{t.date}</p>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </Card>
@@ -849,6 +1172,8 @@ function PaymentsView({ payoutRequests, onActionComplete, adminEmail }: { payout
                 <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Request ID</TableHead>
                 <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller Company</TableHead>
                 <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Requested Amount</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Type</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Reason / Notes</TableHead>
                 <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Date Requested</TableHead>
                 <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Payout Status</TableHead>
                 <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Action</TableHead>
@@ -857,7 +1182,7 @@ function PaymentsView({ payoutRequests, onActionComplete, adminEmail }: { payout
             <TableBody>
               {payoutRequests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-xs text-muted-foreground">
                     No payout requests submitted.
                   </TableCell>
                 </TableRow>
@@ -865,7 +1190,7 @@ function PaymentsView({ payoutRequests, onActionComplete, adminEmail }: { payout
                 payoutRequests.map((r) => (
                   <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
                     <TableCell className="py-4 pl-6 font-mono text-xs text-[#1a3321]">
-                      {r.id}
+                      {r.id.substring(10, 15).toUpperCase()}
                     </TableCell>
                     <TableCell className="py-4 text-xs font-semibold">
                       {r.companyName}
@@ -873,21 +1198,33 @@ function PaymentsView({ payoutRequests, onActionComplete, adminEmail }: { payout
                     <TableCell className="py-4 text-xs font-black text-[#1a3321]">
                       ₹{r.amount.toLocaleString()}
                     </TableCell>
+                    <TableCell className="py-4 text-xs">
+                      {r.isUrgent ? (
+                        <Badge variant="danger" className="bg-red-50 text-red-700 text-[9px] border-none">Urgent</Badge>
+                      ) : (
+                        <Badge className="bg-slate-50 text-slate-700 text-[9px] border-none">Normal</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4 text-xs max-w-[150px] truncate text-slate-500 font-medium" title={r.reason}>
+                      {r.isUrgent ? r.reason : "N/A"}
+                    </TableCell>
                     <TableCell className="py-4 text-xs text-muted-foreground">
                       {new Date(r.requestedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="py-4">
-                      <Badge className={r.status === "SETTLED" ? "bg-emerald-50 text-emerald-700 border-none text-[9px]" : "bg-amber-50 text-amber-700 border-none text-[9px]"}>
+                      <Badge className={r.status === "SETTLED" ? "bg-emerald-50 text-emerald-700 border-none text-[9px]" : r.status === "REJECTED" ? "bg-red-50 text-red-700 border-none text-[9px]" : "bg-amber-50 text-amber-700 border-none text-[9px]"}>
                         {r.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="py-4 text-right pr-6">
                       {r.status === "PENDING" ? (
-                        <Button size="sm" className="bg-[#1a3321] text-white text-[10px] h-7" onClick={() => setSettleId(r.id)}>
-                          Settle Request
-                        </Button>
+                        <div className="flex items-center justify-end space-x-2">
+                          <Button size="sm" className="bg-[#1a3321] text-white text-[10px] h-7" onClick={() => setSettleId(r.id)}>
+                            Settle
+                          </Button>
+                        </div>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground font-semibold">Settled</span>
+                        <span className="text-[10px] text-muted-foreground font-semibold">{r.status === "SETTLED" ? "Settled" : "Rejected"}</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -996,32 +1333,95 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
       </Card>
 
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setSelectedOrder(null)} />
-          <Card className="relative w-full max-w-md p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+          <Card className="relative w-full max-w-2xl p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-6">
             <div className="flex justify-between items-center pb-2 border-b">
-              <h3 className="font-bold text-sm">Order EC-ORD-{selectedOrder.id.substring(4, 10).toUpperCase()} Timeline</h3>
-              <button onClick={() => setSelectedOrder(null)}><X className="h-4 w-4" /></button>
+              <div>
+                <h3 className="font-bold text-base text-[#1a3321]">Order Details: EC-ORD-{selectedOrder.id.substring(4, 10).toUpperCase()}</h3>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Placed on {new Date(selectedOrder.createdAt).toLocaleString()}</p>
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200"><X className="h-4 w-4" /></button>
             </div>
             
-            <div className="space-y-4 max-h-60 overflow-y-auto pr-1">
-              {selectedOrder.timeline && selectedOrder.timeline.length > 0 ? (
-                selectedOrder.timeline.map((step: any, idx: number) => (
-                  <div key={idx} className="flex space-x-3 text-xs">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 mt-1" />
-                      {idx < selectedOrder.timeline.length - 1 && <div className="w-0.5 h-10 bg-border" />}
-                    </div>
-                    <div>
-                      <p className="font-bold text-[#1a3321]">{step.status}</p>
-                      <p className="text-muted-foreground text-[10px] mt-0.5">{step.description}</p>
-                      <p className="text-[9px] text-muted-foreground/60 mt-0.5">{new Date(step.createdAt).toLocaleString()}</p>
-                    </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left Column: Order Items & Summary */}
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Order Items</h4>
+                  <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                    {selectedOrder.items.map((it: any, idx: number) => (
+                      <div key={idx} className="flex items-center space-x-3 text-xs bg-slate-50 p-2.5 rounded-lg border">
+                        <img src={it.image || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"} className="h-10 w-10 object-cover rounded" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-[#1a3321] truncate">{it.name}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">Qty: {it.quantity} × ₹{it.price}</p>
+                          {it.seller && (
+                            <p className="text-[9px] text-emerald-700 font-semibold mt-0.5">Seller: {it.seller.companyName} ({it.seller.email})</p>
+                          )}
+                        </div>
+                        <p className="font-bold text-[#1a3321] shrink-0">₹{it.quantity * it.price}</p>
+                      </div>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <p className="text-xs text-muted-foreground">No timeline events recorded.</p>
-              )}
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-lg border space-y-1.5 text-xs text-slate-600">
+                  <div className="flex justify-between">
+                    <span>Subtotal</span>
+                    <span className="font-semibold text-slate-800">₹{selectedOrder.totalAmount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Payment Status</span>
+                    <Badge className={selectedOrder.paymentStatus === "COMPLETED" ? "bg-emerald-50 text-emerald-800 border-none text-[9px]" : "bg-amber-50 text-amber-800 border-none text-[9px]"}>
+                      {selectedOrder.paymentStatus}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t font-bold text-slate-800 text-sm">
+                    <span>Total</span>
+                    <span>₹{selectedOrder.totalAmount}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Buyer Info & Timeline */}
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Buyer Information</h4>
+                  <div className="text-xs space-y-1 bg-slate-50 p-3 rounded-lg border">
+                    <p className="font-bold text-[#1a3321]">{selectedOrder.user?.name || "Anonymous"}</p>
+                    <p className="text-slate-600">{selectedOrder.user?.email}</p>
+                    {selectedOrder.address && (
+                      <p className="text-slate-500 mt-1 pt-1 border-t text-[10px] leading-relaxed">
+                        <strong>Shipping Address:</strong><br />
+                        {selectedOrder.address.street}, {selectedOrder.address.city}, {selectedOrder.address.state} - {selectedOrder.address.postalCode}, {selectedOrder.address.country}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Order Timeline</h4>
+                  <div className="space-y-3.5 max-h-40 overflow-y-auto pr-1">
+                    {selectedOrder.timeline && selectedOrder.timeline.length > 0 ? (
+                      selectedOrder.timeline.map((step: any, idx: number) => (
+                        <div key={idx} className="flex space-x-2 text-xs">
+                          <div className="flex flex-col items-center shrink-0">
+                            <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1" />
+                            {idx < selectedOrder.timeline.length - 1 && <div className="w-px h-6 bg-border" />}
+                          </div>
+                          <div>
+                            <p className="font-bold text-[#1a3321] text-[11px]">{step.status}</p>
+                            <p className="text-muted-foreground text-[9px]">{step.description}</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No timeline events recorded.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-between space-x-2 pt-4 border-t">
@@ -1057,105 +1457,182 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
 }
 
 // --------------------------------------------------------------------------
-// SUSTAINABILITY IMPACT VIEW
+// CREDENTIALS MANAGER VIEW
 // --------------------------------------------------------------------------
-function ImpactView() {
+function CredentialsManagerView({ credentials, reload }: { credentials: CredentialItem[], reload: () => void }) {
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
+  const [savingKeys, setSavingKeys] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const initialValues: Record<string, string> = {};
+    credentials.forEach((c) => {
+      initialValues[c.key] = c.value;
+    });
+    setFormValues(initialValues);
+  }, [credentials]);
+
+  const handleValueChange = (key: string, val: string) => {
+    setFormValues((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const toggleVisibility = (key: string) => {
+    setVisibleKeys((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleSaveCredential = async (key: string) => {
+    const value = formValues[key] ?? "";
+    setSavingKeys((prev) => ({ ...prev, [key]: true }));
+
+    const res = await updateIntegrationCredential(key, value);
+    setSavingKeys((prev) => ({ ...prev, [key]: false }));
+
+    if (res.success) {
+      toast.success(`${key} updated successfully!`);
+      reload();
+    } else {
+      toast.error(res.error || `Failed to update ${key}`);
+    }
+  };
+
+  const isSecretKey = (key: string) => {
+    const k = key.toUpperCase();
+    return k.includes("PASS") || k.includes("SECRET") || k.includes("KEY");
+  };
+
+  const emailCreds = credentials.filter((c) => c.key.startsWith("SMTP_"));
+  const cloudinaryCreds = credentials.filter((c) => c.key.startsWith("CLOUDINARY_"));
+  const razorpayCreds = credentials.filter((c) => c.key.startsWith("RAZORPAY_"));
+  const otherCreds = credentials.filter(
+    (c) => !c.key.startsWith("SMTP_") && !c.key.startsWith("CLOUDINARY_") && !c.key.startsWith("RAZORPAY_")
+  );
+
+  const renderCredentialRow = (c: CredentialItem) => {
+    const isSecret = isSecretKey(c.key);
+    const isVisible = visibleKeys[c.key] || !isSecret;
+    const isSaving = savingKeys[c.key];
+    const currentValue = formValues[c.key] ?? "";
+
+    return (
+      <div key={c.key} className="flex flex-col md:flex-row md:items-center justify-between gap-4 py-4 border-b border-slate-100 last:border-0">
+        <div className="flex-1 space-y-1">
+          <label className="text-xs font-bold text-[#1a3321] block font-mono">{c.key}</label>
+          <span className="text-[11px] text-[#8ca193] block leading-tight">{c.description}</span>
+        </div>
+        <div className="flex items-center gap-2 md:w-2/3 max-w-lg w-full">
+          <div className="relative flex-1">
+            <Input
+              type={isVisible ? "text" : "password"}
+              value={currentValue}
+              onChange={(e) => handleValueChange(c.key, e.target.value)}
+              className="pr-10 text-xs py-1.5 font-medium w-full bg-[#f8f9f8] border-slate-200 focus:border-[#2d4a36] focus:ring-1 focus:ring-[#2d4a36]"
+              placeholder={`Enter ${c.key}...`}
+            />
+            {isSecret && (
+              <button
+                type="button"
+                onClick={() => toggleVisibility(c.key)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+              >
+                {isVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            )}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => handleSaveCredential(c.key)}
+            disabled={isSaving || currentValue === c.value}
+            className={`text-[10px] font-bold h-8 px-3 rounded-lg flex items-center transition-all ${
+              currentValue === c.value
+                ? "bg-slate-100 text-slate-400 hover:bg-slate-100 cursor-not-allowed border-none shadow-none"
+                : "bg-[#2d4a36] text-white hover:bg-[#203627] shadow-sm"
+            }`}
+          >
+            {isSaving ? "Saving..." : currentValue === c.value ? "Saved" : "Update"}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Sustainability Impact Metrics</h1>
-        <p className="text-sm text-muted-foreground mt-1">Platform-wide cumulative environmental offsets and sustainable supply metrics.</p>
+        <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
+          <span>Credentials & Portals Manager</span>
+          <span className="text-xl">🔑</span>
+        </h1>
+        <p className="text-[10px] text-muted-foreground font-semibold mt-1 flex items-center space-x-1 uppercase tracking-wider">
+          <span>EarthCentric</span> <span className="mx-1">{">"}</span> <span>Super Admin</span> <span className="mx-1">{">"}</span> <span className="text-[#1a3321]">Credentials</span>
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="p-6 bg-[#1a3321] text-white rounded-2xl relative overflow-hidden flex flex-col justify-between">
-          <div>
-            <span className="text-3xl">🌱</span>
-            <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest mt-2">Carbon Offset (CO2)</p>
-            <h3 className="text-3xl font-black mt-1">1,248.4 kg</h3>
-            <p className="text-[10px] text-emerald-100/60 mt-1">Equivalent to 62 trees growing for 10 years</p>
-          </div>
-        </Card>
-
-        <Card className="p-6 bg-[#1a3321] text-white rounded-2xl relative overflow-hidden flex flex-col justify-between">
-          <div>
-            <span className="text-3xl">🥤</span>
-            <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest mt-2">Plastic Saved</p>
-            <h3 className="text-3xl font-black mt-1">482.6 kg</h3>
-            <p className="text-[10px] text-emerald-100/60 mt-1">Equal to 24,000 standard plastic water bottles avoided</p>
-          </div>
-        </Card>
-
-        <Card className="p-6 bg-[#1a3321] text-white rounded-2xl relative overflow-hidden flex flex-col justify-between">
-          <div>
-            <span className="text-3xl">🌳</span>
-            <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest mt-2">Eco Reforestation</p>
-            <h3 className="text-3xl font-black mt-1">124 Credits</h3>
-            <p className="text-[10px] text-emerald-100/60 mt-1">Trees sponsored directly in global mangrove reserves</p>
-          </div>
-        </Card>
-      </div>
-
-      <Card className="p-6 bg-white border-none shadow-sm rounded-2xl space-y-4">
-        <h3 className="font-bold text-sm text-[#1a3321]">Monthly Eco-Savings Timeline</h3>
-        <div className="h-48 w-full flex items-end justify-between px-6 pt-4 border-b pb-4">
-          {[
-            { month: 'Jan', co2: '180kg', h: '30%' },
-            { month: 'Feb', co2: '220kg', h: '40%' },
-            { month: 'Mar', co2: '310kg', h: '60%' },
-            { month: 'Apr', co2: '280kg', h: '55%' },
-            { month: 'May', co2: '410kg', h: '85%' },
-            { month: 'Jun', co2: '482kg', h: '100%' }
-          ].map((bar, i) => (
-            <div key={i} className="flex flex-col items-center w-[12%]">
-              <span className="text-[9px] font-bold text-emerald-700 mb-1">{bar.co2}</span>
-              <div className="w-8 bg-gradient-to-t from-emerald-800 to-emerald-400 rounded-t" style={{ height: `calc(${bar.h} * 1.2)` }} />
-              <span className="text-[10px] text-muted-foreground mt-2 font-semibold">{bar.month}</span>
-            </div>
-          ))}
+      <Card className="p-4 bg-amber-50/50 border border-amber-200/50 rounded-2xl flex items-start space-x-3">
+        <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <h4 className="text-xs font-bold text-amber-800">Security Warning</h4>
+          <p className="text-[10px] text-amber-700/90 leading-relaxed">
+            These configurations govern SMTP mail delivery, Cloudinary media hosting, and Razorpay payment operations. Modifications to these keys will immediately update live portal connections and operations. Please verify credentials before updating.
+          </p>
         </div>
       </Card>
-    </div>
-  );
-}
 
-// --------------------------------------------------------------------------
-// CERTIFICATIONS VIEW
-// --------------------------------------------------------------------------
-function CertificationsView() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Organic Certifications Compliance</h1>
-        <p className="text-sm text-muted-foreground mt-1">Audit statuses and validation metrics of third-party ecological certificates.</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { name: "GOTS Organic", code: "GOTS", desc: "Global Organic Textile Standard", count: 8, status: "Active" },
-          { name: "FSC Certified", code: "FSC", desc: "Forest Stewardship Council", count: 12, status: "Active" },
-          { name: "FairTrade Certified", code: "FT", desc: "Ethical trade production audits", count: 6, status: "Active" },
-          { name: "USDA Biobased", code: "USDA", desc: "Bio-derived organic materials rating", count: 9, status: "Active" },
-        ].map((c) => (
-          <Card key={c.code} className="p-5 bg-white border-none shadow-sm rounded-2xl space-y-3 flex flex-col justify-between">
-            <div className="space-y-2">
-              <div className="flex justify-between items-start">
-                <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded">{c.code}</span>
-                <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">{c.status}</Badge>
-              </div>
+      <div className="space-y-6">
+        {emailCreds.length > 0 && (
+          <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+            <div className="flex items-center space-x-2 pb-4 border-b border-slate-100 mb-2">
+              <span className="text-lg">📧</span>
               <div>
-                <h4 className="font-bold text-xs text-[#1a3321]">{c.name}</h4>
-                <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{c.desc}</p>
+                <h3 className="text-xs font-bold text-[#1a3321]">Gmail SMTP Config</h3>
+                <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Nodemailer service login details</p>
               </div>
             </div>
-            <div className="pt-2 border-t flex justify-between text-[10px] font-bold text-muted-foreground">
-              <span>Audited Listings</span>
-              <span className="text-foreground">{c.count} items</span>
-            </div>
+            <div>{emailCreds.map(renderCredentialRow)}</div>
           </Card>
-        ))}
+        )}
+
+        {cloudinaryCreds.length > 0 && (
+          <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+            <div className="flex items-center space-x-2 pb-4 border-b border-slate-100 mb-2">
+              <span className="text-lg">☁️</span>
+              <div>
+                <h3 className="text-xs font-bold text-[#1a3321]">Cloudinary Integration</h3>
+                <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Image & Document storage API keys</p>
+              </div>
+            </div>
+            <div>{cloudinaryCreds.map(renderCredentialRow)}</div>
+          </Card>
+        )}
+
+        {razorpayCreds.length > 0 && (
+          <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+            <div className="flex items-center space-x-2 pb-4 border-b border-slate-100 mb-2">
+              <span className="text-lg">💳</span>
+              <div>
+                <h3 className="text-xs font-bold text-[#1a3321]">Razorpay Gateway</h3>
+                <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Merchant account API keys & secrets</p>
+              </div>
+            </div>
+            <div>{razorpayCreds.map(renderCredentialRow)}</div>
+          </Card>
+        )}
+
+        {otherCreds.length > 0 && (
+          <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+            <div className="flex items-center space-x-2 pb-4 border-b border-slate-100 mb-2">
+              <span className="text-lg">🔧</span>
+              <div>
+                <h3 className="text-xs font-bold text-[#1a3321]">Other Integrations</h3>
+                <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Generic configuration parameters</p>
+              </div>
+            </div>
+            <div>{otherCreds.map(renderCredentialRow)}</div>
+          </Card>
+        )}
       </div>
     </div>
   );
 }
+
+
 
