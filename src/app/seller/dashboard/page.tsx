@@ -11,6 +11,7 @@ import { getOrdersBySeller, updateOrderStatus, OrderDetail } from "@/actions/ord
 import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
+import * as XLSX from "xlsx";
 import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, MetalButton } from "@/components/ui/shared";
 import { FadeIn } from "@/components/FramerComponents";
 import { Logo } from "@/components/Logo";
@@ -1114,11 +1115,91 @@ function AnalyticsView({ stats, analyticsData }: any) {
     periodLabel = "Monthly Sales Performance (This Year)";
   }
 
+  const handleExportToExcel = () => {
+    try {
+      // 1. Create Summary sheet data
+      const summaryData = [
+        ["EarthCentric Seller Analytics Report"],
+        ["Generated on:", new Date().toLocaleString()],
+        [],
+        ["KPI Indicator", "Value"],
+        ["Total Earnings (₹)", stats?.revenue || 0],
+        ["Sales Conversion", `${stats?.salesConversion || 3.4}%`],
+        ["Average Order Value (₹)", stats?.averageOrderValue || 525],
+        ["Total Store Visits", stats?.totalStoreVisits || 24840],
+        [],
+        ["Category", "Percentage (%)"],
+        ...((stats?.categoryBreakdown || [
+          { name: "Disposables", percentage: 45 },
+          { name: "Kitchenware", percentage: 30 },
+          { name: "Personal Care", percentage: 25 }
+        ]).map((cat: any) => [cat.name, `${cat.percentage}%`]))
+      ];
+
+      // 2. Create monthly performance data
+      const monthlyHeaders = [["Month", "Revenue (₹)", "Orders Count"]];
+      const monthlyData = (analyticsData?.monthly?.income || []).map((m: any, idx: number) => {
+        const ords = analyticsData?.monthly?.orders?.[idx]?.orders || 0;
+        return [m.name, m.income, ords];
+      });
+
+      // 3. Create daily performance data
+      const dailyHeaders = [["Date", "Revenue (₹)", "Orders Count"]];
+      const dailyData = (analyticsData?.daily?.income || []).map((d: any, idx: number) => {
+        const ords = analyticsData?.daily?.orders?.[idx]?.orders || 0;
+        return [d.name, d.income, ords];
+      });
+
+      // 4. Create yearly performance data
+      const yearlyHeaders = [["Year", "Revenue (₹)", "Orders Count"]];
+      const yearlyData = (analyticsData?.yearly?.income || []).map((y: any, idx: number) => {
+        const ords = analyticsData?.yearly?.orders?.[idx]?.orders || 0;
+        return [y.name, y.income, ords];
+      });
+
+      // Generate Workbook
+      const wb = XLSX.utils.book_new();
+
+      // Add Summary Sheet
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Summary Dashboard");
+
+      // Add Monthly Sheet
+      const wsMonthly = XLSX.utils.aoa_to_sheet([...monthlyHeaders, ...monthlyData]);
+      XLSX.utils.book_append_sheet(wb, wsMonthly, "Monthly Performance");
+
+      // Add Daily Sheet
+      const wsDaily = XLSX.utils.aoa_to_sheet([...dailyHeaders, ...dailyData]);
+      XLSX.utils.book_append_sheet(wb, wsDaily, "Daily Performance");
+
+      // Add Yearly Sheet
+      const wsYearly = XLSX.utils.aoa_to_sheet([...yearlyHeaders, ...yearlyData]);
+      XLSX.utils.book_append_sheet(wb, wsYearly, "Yearly Performance");
+
+      // Write and Download File
+      XLSX.writeFile(wb, `Seller_Analytics_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success("Excel analytics data downloaded successfully!");
+    } catch (error) {
+      console.error("Failed to export Excel report:", error);
+      toast.error("Failed to export Excel report.");
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <div>
-        <h1 className="text-2xl font-bold text-[#2d4a36]">Business Analytics</h1>
-        <p className="text-sm text-muted-foreground mt-1">Monitor revenue trends, analyze product demand, and review your environmental sustainability metrics.</p>
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 text-left">
+        <div>
+          <h1 className="text-2xl font-bold text-[#2d4a36]">Business Analytics</h1>
+          <p className="text-sm text-muted-foreground mt-1">Monitor revenue trends, analyze product demand, and review your environmental sustainability metrics.</p>
+        </div>
+        <Button 
+          onClick={handleExportToExcel}
+          variant="cool" 
+          className="flex items-center space-x-1.5 text-xs font-bold py-2 px-4 shadow-sm border border-emerald-200/50 hover:bg-emerald-50 transition-all cursor-pointer w-fit animate-pulse"
+        >
+          <History className="h-4 w-4 text-[#2d4a36]" />
+          <span>Export to Excel</span>
+        </Button>
       </div>
 
       {/* KPI Row */}
