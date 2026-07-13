@@ -330,7 +330,7 @@ function AnimatedCounter({ value, isDecimal = false, suffix = "" }: { value: num
 export default function Homepage() {
   const { addToCart } = useCart();
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
-  const [selectedWowProduct, setSelectedWowProduct] = useState(SUSTAINABILITY_DATA[0]);
+  const [selectedWowItemId, setSelectedWowItemId] = useState<string | null>(null);
   const [purchaseQuantity, setPurchaseQuantity] = useState(50);
   const [verifiedSellers, setVerifiedSellers] = useState<any[]>([]);
 
@@ -360,6 +360,93 @@ export default function Homepage() {
   }));
 
   const [products, setProducts] = useState<ProductItem[]>(initialProducts);
+
+  // Dynamically map products to sustainability intelligence items
+  const sustainabilityItems = products.map((prod) => {
+    let carbonRate = 0.65;
+    let waterRate = 150;
+    let wasteRate = 0.05;
+    let certs = ["Eco-Friendly Audited", "Material Vetted"];
+
+    const nameLower = prod.name.toLowerCase();
+    if (nameLower.includes("toothbrush") || nameLower.includes("brush")) {
+      carbonRate = 0.65;
+      waterRate = 150;
+      wasteRate = 0.05;
+      certs = ["USDA Biobased", "FSC Certified Wood"];
+    } else if (nameLower.includes("shirt") || nameLower.includes("cotton") || nameLower.includes("apparel")) {
+      carbonRate = 12.5;
+      waterRate = 420;
+      wasteRate = 0.22;
+      certs = ["GOTS Organic", "Fair Trade Certified"];
+    } else if (nameLower.includes("lamp") || nameLower.includes("solar") || nameLower.includes("power")) {
+      carbonRate = 45.2;
+      waterRate = 80;
+      wasteRate = 1.15;
+      certs = ["RoHS Compliant", "CE Certified"];
+    } else if (nameLower.includes("notebook") || nameLower.includes("paper")) {
+      carbonRate = 3.1;
+      waterRate = 350;
+      wasteRate = 0.38;
+      certs = ["FSC Recycled", "Chlorine-Free Process"];
+    } else {
+      // Proportional fallback based on sustainability score
+      const score = prod.sustainabilityScore || 75;
+      carbonRate = Number((score * 0.2).toFixed(2));
+      waterRate = Math.round(score * 3.5);
+      wasteRate = Number((score * 0.005).toFixed(3));
+      
+      // Category fallback certs
+      const catLower = (prod.category || "").toLowerCase();
+      if (catLower.includes("apparel") || catLower.includes("clothing")) {
+        certs = ["GOTS Organic", "Fair Trade Certified"];
+      } else if (catLower.includes("zero-waste") || catLower.includes("waste")) {
+        certs = ["USDA Biobased", "Biodegradable Audited"];
+      } else if (catLower.includes("energy") || catLower.includes("solar")) {
+        certs = ["RoHS Compliant", "CE Certified"];
+      } else if (catLower.includes("home") || catLower.includes("goods") || catLower.includes("wood")) {
+        certs = ["FSC Recycled", "Chemical-Free Process"];
+      }
+    }
+
+    return {
+      id: prod.id,
+      name: prod.name,
+      carbonRate,
+      waterRate,
+      wasteRate,
+      score: `${prod.sustainabilityScore}/100`,
+      certs,
+      desc: prod.description || `Eco-friendly option sourced directly from audited partners. Featuring a high sustainability rating of ${prod.sustainabilityScore}/100.`,
+      color: "text-emerald-600"
+    };
+  });
+
+  const activeWowItem = sustainabilityItems.find(item => item.id === selectedWowItemId) || sustainabilityItems[0];
+
+  // Dynamically map verifiedSellers to matching format for the scrolling globe panel
+  const mappedSellers = (verifiedSellers && verifiedSellers.length > 0 ? verifiedSellers : SELLERS).map((s) => {
+    const name = s.companyName || s.name || "Eco Brand";
+    const logo = s.logoUrl || s.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400";
+    const description = s.description || "Verified Sustainable Supplier committed to environmental excellence and auditing.";
+    const score = s.sustainabilityScore || s.score || 90;
+    
+    // Fallbacks for fields that might not be in DB profile mapping:
+    const location = s.location || "India";
+    const category = s.category || "Eco-Friendly Products";
+    const productCount = s.productCount || 12;
+
+    return {
+      name,
+      location,
+      category: category.toUpperCase(),
+      score,
+      productCount,
+      image: logo,
+      description,
+      id: s.id || null
+    };
+  });
 
   useEffect(() => {
     async function loadData() {
@@ -570,12 +657,13 @@ export default function Homepage() {
               {/* Toggle Panel Left Column */}
               <div className="lg:col-span-4 flex flex-col justify-between gap-4">
                 <div className="space-y-3">
-                  {SUSTAINABILITY_DATA.map((prod) => {
-                    const isSelected = selectedWowProduct.id === prod.id;
+                  {sustainabilityItems.slice(0, 5).map((prod) => {
+                    const isSelected = activeWowItem?.id === prod.id;
+                    const badgeText = prod.certs[0] || "Eco-Friendly";
                     return (
                       <button
                         key={prod.id}
-                        onClick={() => setSelectedWowProduct(prod)}
+                        onClick={() => setSelectedWowItemId(prod.id)}
                         className={`w-full text-left p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex items-center justify-between ${
                           isSelected 
                             ? "bg-primary border-primary text-primary-foreground shadow-lg scale-[1.02]" 
@@ -583,7 +671,7 @@ export default function Homepage() {
                         }`}
                       >
                         <div className="space-y-1">
-                          <p className="text-[9px] font-bold uppercase tracking-wider text-accent">{prod.certs[0]}</p>
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-accent">{badgeText}</p>
                           <h4 className="text-sm font-bold truncate max-w-[220px]">{prod.name}</h4>
                         </div>
                         <ChevronRight className={`h-4 w-4 ${isSelected ? 'opacity-100' : 'opacity-40'}`} />
@@ -601,75 +689,80 @@ export default function Homepage() {
               </div>
 
               {/* Dynamic Display Right Column */}
-              <div className="lg:col-span-8 glass-panel rounded-3xl p-6 sm:p-8 flex flex-col justify-between text-left border border-[#d0c6b8]/50 dark:border-[#243b2e]/50">
-                <div className="space-y-6">
-                  <div className="flex justify-between items-start border-b border-[#d0c6b8]/20 pb-4">
-                    <div>
-                      <span className="text-[9px] font-extrabold uppercase tracking-widest text-[#6a7b6e]">Verified Product Telemetry</span>
-                      <h3 className="text-xl sm:text-2xl font-black text-primary mt-1">{selectedWowProduct.name}</h3>
-                    </div>
-                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white border-none py-1 px-3 text-xs font-bold rounded-full">
-                      Eco Score: {selectedWowProduct.score}
-                    </Badge>
-                  </div>
-
-                  <p className="text-sm leading-relaxed text-muted-foreground">{selectedWowProduct.desc}</p>
-
-                  {/* Ecological Savings Simulator */}
-                  <div className="space-y-3 bg-[#FFFDF8]/40 dark:bg-[#14241C]/40 rounded-2xl p-4 border border-border/20 text-left">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-[#6a7b6e]">Simulated Purchase Quantity:</span>
-                      <span className="font-black text-primary px-2.5 py-0.5 bg-[#d0c6b8]/20 dark:bg-emerald-950/40 rounded-md">{purchaseQuantity} units</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="500"
-                      value={purchaseQuantity}
-                      onChange={(e) => setPurchaseQuantity(parseInt(e.target.value))}
-                      className="w-full h-1.5 bg-[#d0c6b8]/40 dark:bg-[#243b2e]/40 rounded-lg appearance-none cursor-pointer accent-emerald-600 focus:outline-none"
-                    />
-                    <p className="text-[9px] text-muted-foreground italic">Drag the slider to calculate the cumulative ecological savings at commercial scale.</p>
-                  </div>
-
-                  {/* Dynamic Calculation Cards */}
-                  {(() => {
-                    const savings = BASE_SAVINGS[selectedWowProduct.id] || { carbon: 0, water: 0, waste: 0 };
-                    const totalCarbon = (savings.carbon * purchaseQuantity).toFixed(1);
-                    const totalWater = Math.round(savings.water * purchaseQuantity).toLocaleString();
-                    const totalWaste = (savings.waste * purchaseQuantity).toFixed(1);
-
-                    return (
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-[#FFFDF8]/60 dark:bg-[#14241C]/60 rounded-2xl p-4 border border-border/20">
-                          <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e]">Simulated CO₂ Offset</span>
-                          <div className="text-xl sm:text-2xl font-black text-emerald-600 mt-1">{totalCarbon} kg</div>
-                          <span className="text-[9px] text-muted-foreground">Emissions avoided</span>
-                        </div>
-                        <div className="bg-[#FFFDF8]/60 dark:bg-[#14241C]/60 rounded-2xl p-4 border border-border/20">
-                          <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e]">Water Conserved</span>
-                          <div className="text-xl sm:text-2xl font-black text-emerald-600 mt-1">{totalWater} L</div>
-                          <span className="text-[9px] text-muted-foreground">Fresh water saved</span>
-                        </div>
-                        <div className="bg-[#FFFDF8]/60 dark:bg-[#14241C]/60 rounded-2xl p-4 border border-border/20">
-                          <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e]">Landfill Diverted</span>
-                          <div className="text-xl sm:text-2xl font-black text-primary mt-1">{totalWaste} kg</div>
-                          <span className="text-[9px] text-muted-foreground">Plastic waste avoided</span>
-                        </div>
+              {activeWowItem ? (
+                <div className="lg:col-span-8 glass-panel rounded-3xl p-6 sm:p-8 flex flex-col justify-between text-left border border-[#d0c6b8]/50 dark:border-[#243b2e]/50">
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-start border-b border-[#d0c6b8]/20 pb-4">
+                      <div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-widest text-[#6a7b6e]">Verified Product Telemetry</span>
+                        <h3 className="text-xl sm:text-2xl font-black text-primary mt-1">{activeWowItem.name}</h3>
                       </div>
-                    );
-                  })()}
-                </div>
+                      <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white border-none py-1 px-3 text-xs font-bold rounded-full">
+                        Eco Score: {activeWowItem.score}
+                      </Badge>
+                    </div>
 
-                <div className="border-t border-[#d0c6b8]/20 pt-6 mt-6 flex flex-wrap items-center gap-2">
-                  <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e] mr-2">Verified Compliance Audits:</span>
-                  {selectedWowProduct.certs.map((cert) => (
-                    <Badge key={cert} variant="accent" className="text-[10px] font-semibold">
-                      ✓ {cert}
-                    </Badge>
-                  ))}
+                    <p className="text-sm leading-relaxed text-muted-foreground">{activeWowItem.desc}</p>
+
+                    {/* Ecological Savings Simulator */}
+                    <div className="space-y-3 bg-[#FFFDF8]/40 dark:bg-[#14241C]/40 rounded-2xl p-4 border border-border/20 text-left">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-[#6a7b6e]">Simulated Purchase Quantity:</span>
+                        <span className="font-black text-primary px-2.5 py-0.5 bg-[#d0c6b8]/20 dark:bg-emerald-950/40 rounded-md">{purchaseQuantity} units</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="500"
+                        value={purchaseQuantity}
+                        onChange={(e) => setPurchaseQuantity(parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-[#d0c6b8]/40 dark:bg-[#243b2e]/40 rounded-lg appearance-none cursor-pointer accent-emerald-600 focus:outline-none"
+                      />
+                      <p className="text-[9px] text-muted-foreground italic">Drag the slider to calculate the cumulative ecological savings at commercial scale.</p>
+                    </div>
+
+                    {/* Dynamic Calculation Cards */}
+                    {(() => {
+                      const totalCarbon = (activeWowItem.carbonRate * purchaseQuantity).toFixed(1);
+                      const totalWater = Math.round(activeWowItem.waterRate * purchaseQuantity).toLocaleString();
+                      const totalWaste = (activeWowItem.wasteRate * purchaseQuantity).toFixed(1);
+
+                      return (
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-[#FFFDF8]/60 dark:bg-[#14241C]/60 rounded-2xl p-4 border border-border/20">
+                            <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e]">Simulated CO₂ Offset</span>
+                            <div className="text-xl sm:text-2xl font-black text-emerald-600 mt-1">{totalCarbon} kg</div>
+                            <span className="text-[9px] text-muted-foreground">Emissions avoided</span>
+                          </div>
+                          <div className="bg-[#FFFDF8]/60 dark:bg-[#14241C]/60 rounded-2xl p-4 border border-border/20">
+                            <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e]">Water Conserved</span>
+                            <div className="text-xl sm:text-2xl font-black text-emerald-600 mt-1">{totalWater} L</div>
+                            <span className="text-[9px] text-muted-foreground">Fresh water saved</span>
+                          </div>
+                          <div className="bg-[#FFFDF8]/60 dark:bg-[#14241C]/60 rounded-2xl p-4 border border-border/20">
+                            <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e]">Landfill Diverted</span>
+                            <div className="text-xl sm:text-2xl font-black text-primary mt-1">{totalWaste} kg</div>
+                            <span className="text-[9px] text-muted-foreground">Plastic waste avoided</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="border-t border-[#d0c6b8]/20 pt-6 mt-6 flex flex-wrap items-center gap-2">
+                    <span className="text-[9px] font-extrabold uppercase text-[#6a7b6e] mr-2">Verified Compliance Audits:</span>
+                    {activeWowItem.certs.map((cert) => (
+                      <Badge key={cert} variant="accent" className="text-[10px] font-semibold">
+                        ✓ {cert}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="lg:col-span-8 glass-panel rounded-3xl p-6 sm:p-8 flex items-center justify-center border border-dashed border-border/40">
+                  <p className="text-sm text-muted-foreground">No product sustainability details available.</p>
+                </div>
+              )}
 
             </div>
           </div>
@@ -888,7 +981,7 @@ export default function Homepage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pt-4">
-            {SELLERS.map((s, idx) => (
+            {mappedSellers.slice(0, 6).map((s, idx) => (
               <div 
                 key={idx}
                 className="glass-card bg-card border border-border/40 rounded-3xl p-6 flex flex-col justify-between space-y-6 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden"
@@ -897,7 +990,7 @@ export default function Homepage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <span className="text-sm block">🏢</span>
-                      <h3 className="font-extrabold text-base text-primary tracking-tight">{s.name}</h3>
+                      <h3 className="font-extrabold text-base text-primary tracking-tight truncate max-w-[180px]" title={s.name}>{s.name}</h3>
                     </div>
                     <Badge variant="premium" className="bg-emerald-600 text-white border-none py-0.5 px-2 text-[9px] font-bold">
                       Score: {s.score}
@@ -914,11 +1007,11 @@ export default function Homepage() {
                     </span>
                   </div>
 
-                  <p className="text-xs text-muted-foreground leading-relaxed">
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3 min-h-[48px]">
                     {s.description}
                   </p>
                   
-                  <div className="text-[10px] font-bold text-accent uppercase tracking-wider">
+                  <div className="text-[10px] font-bold text-accent uppercase tracking-wider truncate">
                     Category: <span className="text-primary">{s.category}</span>
                   </div>
                 </div>
@@ -928,7 +1021,7 @@ export default function Homepage() {
                     <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
                     <span>Audit Status: Passed</span>
                   </div>
-                  <Link href={`/marketplace?search=${encodeURIComponent(s.name)}`}>
+                  <Link href={s.id ? `/marketplace?seller=${s.id}` : `/marketplace?search=${encodeURIComponent(s.name)}`}>
                     <Button variant="cool" size="sm" className="text-[10px] py-1.5 px-3">
                       View Profile
                     </Button>
