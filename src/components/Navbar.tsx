@@ -196,10 +196,19 @@ export default function Navbar() {
 
                 {isProfileOpen && (
                   <div className="absolute right-0 mt-2 w-52 rounded-xl border border-slate-100 bg-white p-1.5 shadow-lg z-50 text-left">
-                    <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                    <div className="border-b border-slate-50 px-3 py-2.5 mb-1.5">
                       <p className="text-sm font-semibold text-slate-800 truncate">{user.name}</p>
                       <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
                     </div>
+
+                    <Link
+                      href="/orders"
+                      className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      onClick={() => setIsProfileOpen(false)}
+                    >
+                      <Settings className="h-4 w-4 text-slate-500" />
+                      <span>My Orders & Tracking</span>
+                    </Link>
 
                     {user.role === "BUYER" && (
                       <>
