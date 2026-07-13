@@ -1507,6 +1507,19 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
   const [payoutSuccess, setPayoutSuccess] = useState("");
   const [requestingPayout, setRequestingPayout] = useState(false);
 
+  // New payment method states
+  const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER"); // BANK_TRANSFER or UPI
+  
+  // Bank details states
+  const [accountNumber, setAccountNumber] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [ifscCode, setIfscCode] = useState("");
+  const [accountHolderName, setAccountHolderName] = useState("");
+
+  // UPI details states
+  const [upiId, setUpiId] = useState("");
+  const [upiAccountHolderName, setUpiAccountHolderName] = useState("");
+
   const handleRequestPayout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !payoutAmount) return;
@@ -1514,13 +1527,46 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
     setPayoutSuccess("");
     setRequestingPayout(true);
 
+    let paymentDetails = "";
+    if (paymentMethod === "BANK_TRANSFER") {
+      if (!accountNumber || !bankName || !ifscCode || !accountHolderName) {
+        setPayoutError("Please fill in all bank transfer details.");
+        setRequestingPayout(false);
+        return;
+      }
+      paymentDetails = `Holder: ${accountHolderName} | Bank: ${bankName} | A/C: ${accountNumber} | IFSC: ${ifscCode}`;
+    } else {
+      if (!upiId || !upiAccountHolderName) {
+        setPayoutError("Please fill in all UPI details.");
+        setRequestingPayout(false);
+        return;
+      }
+      paymentDetails = `Holder: ${upiAccountHolderName} | UPI ID: ${upiId}`;
+    }
+
     try {
-      const res = await requestPayout(sellerId, Number(payoutAmount), isUrgent, reason);
+      const res = await requestPayout(
+        sellerId, 
+        Number(payoutAmount), 
+        isUrgent, 
+        reason, 
+        paymentMethod, 
+        paymentDetails
+      );
       if (res.success) {
         setPayoutSuccess(`Successfully requested ₹${payoutAmount}!`);
         setPayoutAmount("");
         setIsUrgent(false);
         setReason("");
+        
+        // Reset details
+        setAccountNumber("");
+        setBankName("");
+        setIfscCode("");
+        setAccountHolderName("");
+        setUpiId("");
+        setUpiAccountHolderName("");
+        
         reload();
       } else {
         setPayoutError(res.error || "Failed to request payout.");
@@ -1563,12 +1609,118 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
         <Card className="p-6 bg-white border-none shadow-sm rounded-2xl lg:col-span-1 space-y-4">
           <h3 className="font-bold text-sm text-[#2d4a36] pb-2 border-b border-[#e9ece6]">Request Payment</h3>
           <form onSubmit={handleRequestPayout} className="space-y-4">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 text-left">
               <Label>Amount to Withdraw (₹)</Label>
               <Input type="number" min="1" value={payoutAmount} onChange={(e) => setPayoutAmount(e.target.value)} required />
             </div>
 
-            <div className="flex items-center space-x-2 py-1">
+            {/* Payment Method Selector */}
+            <div className="space-y-2 text-left">
+              <Label className="text-xs font-bold text-[#2d4a36]">Payment Method</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("BANK_TRANSFER")}
+                  className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
+                    paymentMethod === "BANK_TRANSFER"
+                      ? "bg-primary text-white border-primary shadow-sm"
+                      : "bg-[#FFFDF8]/40 hover:bg-[#FFFDF8]/80 text-[#2d4a36] border-[#d8dcd3]"
+                  }`}
+                >
+                  Bank Transfer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("UPI")}
+                  className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
+                    paymentMethod === "UPI"
+                      ? "bg-primary text-white border-primary shadow-sm"
+                      : "bg-[#FFFDF8]/40 hover:bg-[#FFFDF8]/80 text-[#2d4a36] border-[#d8dcd3]"
+                  }`}
+                >
+                  UPI
+                </button>
+              </div>
+            </div>
+
+            {/* Dynamic Form details based on Payment Method */}
+            {paymentMethod === "BANK_TRANSFER" ? (
+              <div className="space-y-3 p-3 bg-slate-50 dark:bg-emerald-950/20 rounded-2xl border border-[#d8dcd3]/60 animate-in fade-in duration-200 text-left">
+                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Bank Account Details</p>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px]">Account Holder Name</Label>
+                  <Input 
+                    type="text" 
+                    value={accountHolderName} 
+                    onChange={(e) => setAccountHolderName(e.target.value)} 
+                    placeholder="E.g. Rajesh Kumar" 
+                    required 
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px]">Bank Name</Label>
+                  <Input 
+                    type="text" 
+                    value={bankName} 
+                    onChange={(e) => setBankName(e.target.value)} 
+                    placeholder="E.g. HDFC Bank" 
+                    required 
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px]">Account Number</Label>
+                  <Input 
+                    type="text" 
+                    value={accountNumber} 
+                    onChange={(e) => setAccountNumber(e.target.value)} 
+                    placeholder="Enter Account Number" 
+                    required 
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px]">IFSC Code</Label>
+                  <Input 
+                    type="text" 
+                    value={ifscCode} 
+                    onChange={(e) => setIfscCode(e.target.value)} 
+                    placeholder="E.g. HDFC0000123" 
+                    required 
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 p-3 bg-slate-50 dark:bg-emerald-950/20 rounded-2xl border border-[#d8dcd3]/60 animate-in fade-in duration-200 text-left">
+                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">UPI Details</p>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px]">Account Holder Name</Label>
+                  <Input 
+                    type="text" 
+                    value={upiAccountHolderName} 
+                    onChange={(e) => setUpiAccountHolderName(e.target.value)} 
+                    placeholder="E.g. Rajesh Kumar" 
+                    required 
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px]">UPI ID (VPA)</Label>
+                  <Input 
+                    type="text" 
+                    value={upiId} 
+                    onChange={(e) => setUpiId(e.target.value)} 
+                    placeholder="E.g. rajesh@okaxis" 
+                    required 
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center space-x-2 py-1 text-left">
               <input
                 type="checkbox"
                 id="isUrgent"
@@ -1582,7 +1734,7 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
             </div>
 
             {isUrgent && (
-              <div className="space-y-1.5 animate-in fade-in duration-200">
+              <div className="space-y-1.5 animate-in fade-in duration-200 text-left">
                 <Label>Reason for Urgent Payout *</Label>
                 <Textarea
                   placeholder="Explain why you need this payout urgently..."
@@ -1594,8 +1746,8 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
               </div>
             )}
 
-            {payoutError && <p className="text-xs text-red-500">{payoutError}</p>}
-            {payoutSuccess && <p className="text-xs text-emerald-600">{payoutSuccess}</p>}
+            {payoutError && <p className="text-xs text-red-500 text-left">{payoutError}</p>}
+            {payoutSuccess && <p className="text-xs text-emerald-600 text-left">{payoutSuccess}</p>}
             <MetalButton type="submit" variant="success" className="w-full" disabled={requestingPayout || (payoutStats?.availableBalance ?? 0) <= 0}>
               {requestingPayout ? "Submitting..." : "Request Payout"}
             </MetalButton>
@@ -1620,7 +1772,14 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
                 payoutRequests.map((req: any) => (
                   <TableRow key={req.id} className="border-[#e9ece6]/50">
                     <TableCell className="text-xs">{new Date(req.requestedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-xs font-bold">₹{req.amount.toLocaleString()}</TableCell>
+                    <TableCell className="text-xs">
+                      <div className="font-bold">₹{req.amount.toLocaleString()}</div>
+                      {req.notes && (
+                        <div className="text-[9px] text-[#6a7b6e] mt-0.5 font-normal max-w-[220px] truncate" title={req.notes}>
+                          {req.notes}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs">
                       {req.isUrgent ? (
                         <Badge variant="danger" className="text-[9px] bg-red-100 text-red-700 border-none px-1.5 py-0.5">

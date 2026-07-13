@@ -146,7 +146,9 @@ export async function requestPayout(
   sellerId: string,
   amount: number,
   isUrgent = false,
-  reason?: string
+  reason?: string,
+  paymentMethod?: string,
+  paymentDetails?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     if (amount <= 0) {
@@ -163,6 +165,7 @@ export async function requestPayout(
     }
 
     const cycle = getCurrentCycleRange();
+    const formattedNotes = paymentMethod && paymentDetails ? `[${paymentMethod}] ${paymentDetails}` : null;
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       if (!isUrgent) {
@@ -187,6 +190,7 @@ export async function requestPayout(
         requestedAt: new Date(),
         isUrgent,
         reason: reason || null,
+        notes: formattedNotes,
       });
 
       return { success: true };
@@ -219,6 +223,7 @@ export async function requestPayout(
         status: "PENDING",
         isUrgent,
         reason: reason || null,
+        notes: formattedNotes,
       },
     });
     const sProfile = await db.seller.findFirst({
