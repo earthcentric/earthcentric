@@ -361,6 +361,67 @@ export default function Homepage() {
 
   const [products, setProducts] = useState<ProductItem[]>(initialProducts);
 
+  // Dynamically map products to sustainability intelligence items
+  const sustainabilityItems = products.map((prod) => {
+    let carbonRate = 0.65;
+    let waterRate = 150;
+    let wasteRate = 0.05;
+    let certs = ["Eco-Friendly Audited", "Material Vetted"];
+
+    const nameLower = prod.name.toLowerCase();
+    if (nameLower.includes("toothbrush") || nameLower.includes("brush")) {
+      carbonRate = 0.65;
+      waterRate = 150;
+      wasteRate = 0.05;
+      certs = ["USDA Biobased", "FSC Certified Wood"];
+    } else if (nameLower.includes("shirt") || nameLower.includes("cotton") || nameLower.includes("apparel")) {
+      carbonRate = 12.5;
+      waterRate = 420;
+      wasteRate = 0.22;
+      certs = ["GOTS Organic", "Fair Trade Certified"];
+    } else if (nameLower.includes("lamp") || nameLower.includes("solar") || nameLower.includes("power")) {
+      carbonRate = 45.2;
+      waterRate = 80;
+      wasteRate = 1.15;
+      certs = ["RoHS Compliant", "CE Certified"];
+    } else if (nameLower.includes("notebook") || nameLower.includes("paper")) {
+      carbonRate = 3.1;
+      waterRate = 350;
+      wasteRate = 0.38;
+      certs = ["FSC Recycled", "Chlorine-Free Process"];
+    } else {
+      // Proportional fallback based on sustainability score
+      const score = prod.sustainabilityScore || 75;
+      carbonRate = Number((score * 0.2).toFixed(2));
+      waterRate = Math.round(score * 3.5);
+      wasteRate = Number((score * 0.005).toFixed(3));
+      
+      // Category fallback certs
+      const catLower = (prod.category || "").toLowerCase();
+      if (catLower.includes("apparel") || catLower.includes("clothing")) {
+        certs = ["GOTS Organic", "Fair Trade Certified"];
+      } else if (catLower.includes("zero-waste") || catLower.includes("waste")) {
+        certs = ["USDA Biobased", "Biodegradable Audited"];
+      } else if (catLower.includes("energy") || catLower.includes("solar")) {
+        certs = ["RoHS Compliant", "CE Certified"];
+      } else if (catLower.includes("home") || catLower.includes("goods") || catLower.includes("wood")) {
+        certs = ["FSC Recycled", "Chemical-Free Process"];
+      }
+    }
+
+    return {
+      id: prod.id,
+      name: prod.name,
+      carbonRate,
+      waterRate,
+      wasteRate,
+      score: `${prod.sustainabilityScore}/100`,
+      certs,
+      desc: prod.description || `Eco-friendly option sourced directly from audited partners. Featuring a high sustainability rating of ${prod.sustainabilityScore}/100.`,
+      color: "text-emerald-600"
+    };
+  });
+
   useEffect(() => {
     async function loadData() {
       try {
