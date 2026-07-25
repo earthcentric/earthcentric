@@ -22,6 +22,10 @@ async function main() {
     await prisma.enquiry.deleteMany();
     await prisma.complaint.deleteMany();
 
+    console.log("Deleting Messages & System Credentials...");
+    await prisma.message.deleteMany();
+    await prisma.systemCredential.deleteMany();
+
     console.log("Deleting Wishlists & Carts...");
     await prisma.wishlistItem.deleteMany();
     await prisma.wishlist.deleteMany();
