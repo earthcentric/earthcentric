@@ -333,6 +333,14 @@ export default function Homepage() {
   const [selectedWowItemId, setSelectedWowItemId] = useState<string | null>(null);
   const [purchaseQuantity, setPurchaseQuantity] = useState(50);
   const [verifiedSellers, setVerifiedSellers] = useState<any[]>([]);
+  const [homeCategories, setHomeCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
+
+  useEffect(() => {
+    fetch("/api/categories")
+      .then(r => r.json())
+      .then(data => setHomeCategories(data.categories || []))
+      .catch(() => {});
+  }, []);
 
   // Convert FEATURED_PRODUCTS to a compatible format for initial rendering
   const initialProducts: ProductItem[] = FEATURED_PRODUCTS.map((p) => ({
@@ -505,14 +513,10 @@ export default function Homepage() {
                   </Link>
                 </div>
 
-                <div className="pt-6 border-t border-[#d0c6b8]/30 max-w-xl grid grid-cols-2 sm:grid-cols-4 gap-6 text-xs text-muted-foreground font-semibold">
+                <div className="pt-6 border-t border-[#d0c6b8]/30 max-w-xl grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs text-muted-foreground font-semibold">
                   <div>
-                    <span className="block text-lg font-black text-primary">282+</span>
+                    <span className="block text-lg font-black text-primary">{verifiedSellers.length > 0 ? verifiedSellers.length : '1'}</span>
                     <span>Verified Sellers</span>
-                  </div>
-                  <div>
-                    <span className="block text-lg font-black text-primary">4</span>
-                    <span>Countries</span>
                   </div>
                   <div>
                     <span className="block text-lg font-black text-primary">5-Stage</span>
@@ -530,46 +534,6 @@ export default function Homepage() {
             </div>
           </div>
 
-          {/* Live Impact Metrics Bar */}
-          <div id="impact-tracker" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 md:mt-24">
-            <div className="glass-panel rounded-3xl p-8 grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 relative overflow-hidden border border-[#d0c6b8]/50 dark:border-[#243b2e]/50 text-center">
-              <div className="space-y-1">
-                <span className="text-3xl block mb-2">🌳</span>
-                <div className="text-3xl md:text-4xl font-extrabold text-primary">
-                  <AnimatedCounter value={45234} />
-                </div>
-                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Trees Saved</p>
-                <p className="text-[9px] text-muted-foreground">Reforestation initiatives funded</p>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-3xl block mb-2">♻️</span>
-                <div className="text-3xl md:text-4xl font-extrabold text-primary">
-                  <AnimatedCounter value={12.4} isDecimal suffix=" Tons" />
-                </div>
-                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Plastic Reduced</p>
-                <p className="text-[9px] text-muted-foreground">Single-use plastics avoided</p>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-3xl block mb-2">💧</span>
-                <div className="text-3xl md:text-4xl font-extrabold text-primary">
-                  <AnimatedCounter value={1.8} isDecimal suffix="M Liters" />
-                </div>
-                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Water Conserved</p>
-                <p className="text-[9px] text-muted-foreground">Sustainable agriculture metrics</p>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-3xl block mb-2">🌎</span>
-                <div className="text-3xl md:text-4xl font-extrabold text-primary">
-                  <AnimatedCounter value={58} suffix=" Tons" />
-                </div>
-                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Carbon Offset</p>
-                <p className="text-[9px] text-muted-foreground">Verified cargo footprint offsets</p>
-              </div>
-            </div>
-          </div>
 
           {/* Floating Product Showcase Preview */}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20 md:mt-36 space-y-8">
@@ -763,8 +727,58 @@ export default function Homepage() {
                   <p className="text-sm text-muted-foreground">No product sustainability details available.</p>
                 </div>
               )}
-
             </div>
+          </div>
+        </section>
+      )
+    },
+    {
+      id: "categories-section",
+      badge: "Categories",
+      content: (
+        <section className="w-full py-16 md:py-20 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
+            <div className="space-y-2">
+              <div className="inline-flex items-center space-x-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                <Leaf className="h-3 w-3" />
+                <span>Browse by Category</span>
+              </div>
+              <h2 className="text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+                Shop by Category
+              </h2>
+              <p className="text-sm text-muted-foreground max-w-2xl">
+                Explore our curated sustainable product categories — from organic clothing to biodegradable tableware.
+              </p>
+            </div>
+            <Link href="/marketplace" className="flex items-center text-sm font-bold text-emerald-600 hover:text-emerald-700 hover:underline space-x-1 shrink-0">
+              <span>View all products</span>
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {homeCategories.map((cat) => {
+              const iconMap: Record<string, string> = {
+                "clothing": "👗", "paper-plates": "🍽️", "fertilizers": "🌱",
+                "bamboo": "🎋", "reusable-packaging": "♻️", "cutlery": "🥢",
+                "personal-care": "🧴", "stationery": "📓", "cleaning": "🧹",
+                "home-decor": "🏡", "disposables": "🌿", "food": "🫙",
+              };
+              const emoji = iconMap[cat.slug] || "🌿";
+              return (
+                <Link
+                  key={cat.id}
+                  href={`/marketplace?category=${cat.slug}`}
+                  className="group flex flex-col items-center justify-center text-center p-4 rounded-2xl border border-border/40 bg-white hover:bg-emerald-50 hover:border-emerald-300 hover:shadow-md transition-all duration-200 space-y-2 cursor-pointer"
+                >
+                  <div className="text-3xl">{emoji}</div>
+                  <span className="text-xs font-bold text-slate-700 group-hover:text-emerald-700 leading-tight line-clamp-2">{cat.name}</span>
+                  {cat.productCount > 0 && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">{cat.productCount} products</span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </section>
       )
@@ -1188,7 +1202,7 @@ export default function Homepage() {
           <span className="text-xs font-semibold">Added "{addedItemName}" to Cart!</span>
         </div>
       )}
-      <ScrollGlobe sections={sections} />
+      <ScrollGlobe sections={sections} sellerCount={verifiedSellers.length > 0 ? verifiedSellers.length : 1} />
     </>
   );
 }

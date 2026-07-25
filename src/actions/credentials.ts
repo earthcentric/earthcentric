@@ -41,9 +41,25 @@ export interface CredentialItem {
  */
 export async function getIntegrationCredentials(): Promise<CredentialItem[]> {
   try {
-    // Ensure all known keys are initialized/auto-migrated
+    // Ensure all known keys are initialized/auto-migrated and sync env vars to DB
     for (const key of CREDENTIAL_KEYS) {
       await getCredential(key);
+      const envVal = process.env[key];
+      if (envVal !== undefined && envVal !== null && envVal !== "" && process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+        try {
+          await db.systemCredential.upsert({
+            where: { key },
+            update: { value: envVal },
+            create: {
+              key,
+              value: envVal,
+              description: CREDENTIAL_DESCRIPTIONS[key] || "System integration setting",
+            },
+          });
+        } catch (e) {
+          // Ignore sync errors
+        }
+      }
     }
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
@@ -61,7 +77,7 @@ export async function getIntegrationCredentials(): Promise<CredentialItem[]> {
 
     return credentials.map((c) => ({
       key: c.key,
-      value: c.value,
+      value: process.env[c.key] || c.value,
       description: c.description || CREDENTIAL_DESCRIPTIONS[c.key] || "System integration setting",
     }));
   } catch (error) {
@@ -83,6 +99,9 @@ export async function updateIntegrationCredential(key: string, value: string): P
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return { success: false, error: "Cannot modify credentials in offline/mock database mode." };
     }
+
+    // Update in-memory process.env so it takes immediate effect
+    process.env[key] = value;
 
     await db.systemCredential.upsert({
       where: { key },

@@ -39,7 +39,7 @@ const drawDottedHUDLine = (
   ctx.fill();
 };
 
-export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number }) {
+export default function Globe({ scrollProgress = 0, sellerCount = 1 }: { scrollProgress?: number, sellerCount?: number }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const hudCanvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -49,11 +49,7 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
   }, [scrollProgress]);
   
   // References for HTML pins and cards to direct-manipulate style variables for 60fps performance
-  const usaPinRef = useRef<HTMLDivElement>(null);
-  const germanyPinRef = useRef<HTMLDivElement>(null);
   const indiaPinRef = useRef<HTMLDivElement>(null);
-  const usaCardRef = useRef<HTMLDivElement>(null);
-  const germanyCardRef = useRef<HTMLDivElement>(null);
   const indiaCardRef = useRef<HTMLDivElement>(null);
 
   // Rotation values and mouse tracking references
@@ -174,8 +170,6 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
 
     // 10. Spherical Coordinates for verified country pins
     const pins = {
-      usa: convertLatLngToVector3(38, -97, 1.6),
-      germany: convertLatLngToVector3(51, 10, 1.6),
       india: convertLatLngToVector3(20, 78, 1.6)
     };
 
@@ -233,8 +227,6 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
 
         // Fixed screen anchor coordinates for matching absolute HTML labels
         const labelPositions = {
-          usa: { x: 92, y: 135 },       // Left side label target
-          germany: { x: 388, y: 75 },   // Right side top label target
           india: { x: 388, y: 395 }    // Right side bottom label target
         };
 
@@ -253,33 +245,7 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
           return { x: px, y: py, isFront };
         };
 
-        // Project and connect USA Pin
-        const pUsa = projectPin(pins.usa);
-        if (usaPinRef.current && usaCardRef.current) {
-          if (pUsa.isFront) {
-            usaPinRef.current.style.display = "block";
-            usaPinRef.current.style.transform = `translate3d(${pUsa.x}px, ${pUsa.y}px, 0) translate3d(-50%, -50%, 0)`;
-            usaCardRef.current.style.opacity = "1";
-            drawDottedHUDLine(hudCtx, pUsa.x, pUsa.y, labelPositions.usa.x, labelPositions.usa.y);
-          } else {
-            usaPinRef.current.style.display = "none";
-            usaCardRef.current.style.opacity = "0.35";
-          }
-        }
 
-        // Project and connect Germany Pin
-        const pGer = projectPin(pins.germany);
-        if (germanyPinRef.current && germanyCardRef.current) {
-          if (pGer.isFront) {
-            germanyPinRef.current.style.display = "block";
-            germanyPinRef.current.style.transform = `translate3d(${pGer.x}px, ${pGer.y}px, 0) translate3d(-50%, -50%, 0)`;
-            germanyCardRef.current.style.opacity = "1";
-            drawDottedHUDLine(hudCtx, pGer.x, pGer.y, labelPositions.germany.x, labelPositions.germany.y);
-          } else {
-            germanyPinRef.current.style.display = "none";
-            germanyCardRef.current.style.opacity = "0.35";
-          }
-        }
 
         // Project and connect India Pin
         const pInd = projectPin(pins.india);
@@ -360,21 +326,6 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
         />
 
         {/* HTML overlay pins */}
-        <div 
-          ref={usaPinRef}
-          className="absolute top-0 left-0 w-2.5 h-2.5 rounded-full bg-emerald-500 pointer-events-none z-30"
-          style={{ display: "none" }}
-        >
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-        </div>
-
-        <div 
-          ref={germanyPinRef}
-          className="absolute top-0 left-0 w-2.5 h-2.5 rounded-full bg-emerald-500 pointer-events-none z-30"
-          style={{ display: "none" }}
-        >
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-        </div>
 
         <div 
           ref={indiaPinRef}
@@ -384,33 +335,7 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
         </div>
 
-        {/* Floating country info card - USA */}
-        <div 
-          ref={usaCardRef}
-          className="absolute top-[22%] left-[-4%] flex items-center space-x-1.5 z-20 transition-opacity duration-300"
-        >
-          <div className="glass-panel rounded-xl p-2 text-[9px] pointer-events-none shadow-md">
-            <div className="flex items-center space-x-1 font-bold text-foreground">
-              <span>🇺🇸</span>
-              <span>USA</span>
-            </div>
-            <p className="text-[8px] text-muted-foreground font-semibold">102 Eco Manufacturers</p>
-          </div>
-        </div>
 
-        {/* Floating country info card - Germany */}
-        <div 
-          ref={germanyCardRef}
-          className="absolute top-[10%] right-[-2%] flex items-center space-x-1.5 z-20 transition-opacity duration-300"
-        >
-          <div className="glass-panel rounded-xl p-2 text-[9px] pointer-events-none shadow-md">
-            <div className="flex items-center space-x-1 font-bold text-foreground">
-              <span>🇩🇪</span>
-              <span>Germany</span>
-            </div>
-            <p className="text-[8px] text-muted-foreground font-semibold">48 Carbon Neutral Brands</p>
-          </div>
-        </div>
 
         {/* Floating country info card - India */}
         <div 
@@ -422,7 +347,7 @@ export default function Globe({ scrollProgress = 0 }: { scrollProgress?: number 
               <span>🇮🇳</span>
               <span>India</span>
             </div>
-            <p className="text-[8px] text-muted-foreground font-semibold">132 Verified Sellers</p>
+            <p className="text-[8px] text-muted-foreground font-semibold">{sellerCount} Verified Sellers</p>
           </div>
         </div>
 

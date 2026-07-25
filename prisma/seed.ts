@@ -1,6 +1,11 @@
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
+
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
 
 async function main() {
   console.log("Seeding database...");
@@ -46,28 +51,34 @@ async function main() {
     },
   });
 
-  // Common password
-  // Wait, if bcrypt is not available, just use plain strings for mock login. The credentials provider in NextAuth (if any) or our mock login checks plain passwords or just logs in.
-  // Actually, our mock AuthContext just skips password check, so we don't need bcrypt for demo users.
-  const password = "Seller@123";
+  // Hashed passwords for accounts
+  const adminPassword = hashPassword("Admin@123");
+  const buyerPassword = hashPassword("Buyer@123");
+  const sellerPassword = hashPassword("Seller@123");
 
   // Create default Admin and Buyer users
   await prisma.user.upsert({
     where: { email: "admin@earthcentric.com" },
-    update: {},
+    update: {
+      password: adminPassword,
+    },
     create: {
       name: "EarthCentric Admin",
       email: "admin@earthcentric.com",
+      password: adminPassword,
       role: "ADMIN",
     },
   });
 
   await prisma.user.upsert({
     where: { email: "buyer@earthcentric.com" },
-    update: {},
+    update: {
+      password: buyerPassword,
+    },
     create: {
       name: "Alex Conscious",
       email: "buyer@earthcentric.com",
+      password: buyerPassword,
       role: "BUYER",
     },
   });
@@ -138,11 +149,13 @@ async function main() {
   for (const s of sellers) {
     const user = await prisma.user.upsert({
       where: { email: s.email },
-      update: {},
+      update: {
+        password: sellerPassword,
+      },
       create: {
         name: s.name,
         email: s.email,
-        password: password,
+        password: sellerPassword,
         role: "SELLER",
       },
     });

@@ -64,6 +64,7 @@ model User {
   password      String? // Hashed password for credentials login
   emailVerified DateTime?
   image         String?
+  phone         String?   // Buyer phone number collected during registration
   role          Role      @default(BUYER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -79,6 +80,16 @@ model User {
   complaints    Complaint[]
   sentMessages  Message[] @relation("SentMessages")
   receivedMessages Message[] @relation("ReceivedMessages")
+}
+
+// Temporary OTP storage for buyer email verification during registration
+model OtpVerification {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  otpHash   String   // SHA-256 hashed OTP for security
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 model Seller {
@@ -156,6 +167,7 @@ model Product {
   shortDescription     String?
   price                Float
   wholesalePrice       Float?
+  originalPrice        Float?
   moq                  Int      @default(1)
   unit                 String   @default("piece") // e.g. piece, kg, box
   bulkPriceSlabs       Json?    // [{min: 100, price: 150}]

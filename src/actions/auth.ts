@@ -64,10 +64,31 @@ export async function loginUser(email: string, password?: string): Promise<{ suc
   }
 }
 
-export async function signupUser(name: string, email: string, role: string, password?: string): Promise<{ success: boolean; user?: any; error?: string }> {
+export async function signupUser(
+  name: string,
+  email: string,
+  role: string,
+  password?: string,
+  phone?: string
+): Promise<{ success: boolean; user?: any; error?: string }> {
   try {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // --- Guard: For BUYER registrations, ensure email was OTP-verified ---
+    if (role === "BUYER") {
+      const otpRecord = await db.otpVerification.findUnique({
+        where: { email: normalizedEmail },
+      });
+      if (!otpRecord || !otpRecord.verified) {
+        return {
+          success: false,
+          error: "Email not verified. Please complete OTP verification first.",
+        };
+      }
+    }
+
     const existing = await db.user.findUnique({
-      where: { email: email.toLowerCase() }
+      where: { email: normalizedEmail }
     });
 
     if (existing) {
@@ -81,19 +102,27 @@ export async function signupUser(name: string, email: string, role: string, pass
       data: {
         id: userId,
         name,
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         password: hashedPassword,
+        phone: phone || null,
         role: role as any,
+        // Mark emailVerified since we confirmed via OTP
+        emailVerified: role === "BUYER" ? new Date() : null,
       }
     });
+
+    // Clean up OtpVerification row after successful account creation
+    if (role === "BUYER") {
+      await db.otpVerification.delete({ where: { email: normalizedEmail } }).catch(() => {
+        // Non-fatal — ignore if already deleted
+      });
+    }
 
     // Send welcome email in background
     sendWelcomeEmail(user.email, user.name || name).catch((err) =>
       console.error("Failed to send welcome email:", err)
     );
 
-
-    
     const finalUser = {
       id: user.id,
       name: user.name || "",
@@ -120,6 +149,7 @@ export async function signupUser(name: string, email: string, role: string, pass
     return { success: false, error: "An unexpected error occurred during registration." };
   }
 }
+
 
 export async function logoutUser() {
   const cookieStore = await cookies();

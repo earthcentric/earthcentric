@@ -104,8 +104,8 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const [newReviewRating, setNewReviewRating] = useState(5);
 
   // Pricing
-  const originalPrice = product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5);
-  const discountPercent = Math.round(((originalPrice - product.price) / originalPrice) * 100);
+  const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
+  const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : 0;
 
   // Badge type
   const ecoScore = product.sustainabilityScore;
@@ -159,12 +159,23 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Find matching bulk price slab if the selected quantity meets or exceeds it
+  const getActiveUnitPrice = () => {
+    if (!product.bulkPriceSlabs || !(product.bulkPriceSlabs as any[]).length) {
+      return product.price;
+    }
+    const slabs = [...(product.bulkPriceSlabs as any[])].sort((a, b) => b.min - a.min);
+    const matchingSlab = slabs.find(s => quantity >= s.min);
+    return matchingSlab ? matchingSlab.price : product.price;
+  };
+
   const handleAddToCart = () => {
+    const activePrice = getActiveUnitPrice();
     addToCart(
       {
         id: product.id,
         name: product.name,
-        price: product.price,
+        price: activePrice,
         image: product.images[0] || "",
         sustainabilityScore: product.sustainabilityScore,
         sellerName: product.seller?.companyName || "EarthCentric",
@@ -380,13 +391,68 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               <div>
                 <div className="flex items-baseline space-x-3">
                   <span className="text-4xl font-black text-slate-900">₹{product.price}</span>
-                  <span className="text-lg text-slate-400 line-through font-semibold">₹{originalPrice}</span>
+                  {originalPrice > product.price && (
+                    <span className="text-lg text-slate-400 line-through font-semibold">₹{originalPrice}</span>
+                  )}
                   <span className="text-sm text-slate-500 font-semibold">(Retail Price)</span>
                 </div>
                 <p className="text-sm text-slate-500 font-medium mt-1">
                   Inclusive of all taxes • Free Shipping available
                 </p>
               </div>
+
+              {/* Volume Discount Deals Slabs */}
+              {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (
+                <div className="bg-emerald-50/40 border border-emerald-100 rounded-2xl p-4 space-y-2.5 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Volume Discount Deals</span>
+                    <span className="text-[10px] text-slate-400 font-bold font-sans">Click to select package</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(product.bulkPriceSlabs as any[]).map((slab: any, i: number) => {
+                      const qty = slab.min;
+                      const slabTotal = slab.total || (slab.price * qty);
+                      const regularTotal = product.price * qty;
+                      const savings = regularTotal - slabTotal;
+                      const savingsPercent = regularTotal > 0 ? Math.round((savings / regularTotal) * 100) : 0;
+                      const isSelected = quantity === qty;
+
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => setQuantity(qty)}
+                          className={`bg-white border rounded-xl p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md select-none ${
+                            isSelected
+                              ? "border-[#0F6E56] ring-2 ring-[#0F6E56]/15 bg-emerald-50/10"
+                              : "border-slate-100"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-xs font-bold text-slate-800 block">Buy {qty} {qty === 1 ? "unit" : "units"}</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">₹{slab.price.toLocaleString()} each</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-base font-black text-[#0F6E56] block">₹{slabTotal.toLocaleString()}</span>
+                              <span className="text-[9px] text-slate-400 block font-medium">total package</span>
+                            </div>
+                          </div>
+                          {savings > 0 && (
+                            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                              <span className="text-[9px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">
+                                Save ₹{savings.toLocaleString()}!
+                              </span>
+                              <span className="text-[9px] text-slate-400 font-bold">
+                                {savingsPercent}% Off
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* B2B Pricing */}
               {(product.wholesalePrice || product.moq) && (
@@ -489,7 +555,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
                   >
                     <ShoppingCart className="h-5 w-5" />
-                    <span>Add to Cart — ₹{(product.price * quantity).toLocaleString()}</span>
+                    <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
                   </button>
                 </div>
 
@@ -735,7 +801,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               onClick={handleAddToCart}
               className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
             >
-              <span>Add to Cart — ₹{(product.price * quantity).toLocaleString()}</span>
+              <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
             </button>
           </div>
         </div>

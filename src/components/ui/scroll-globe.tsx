@@ -20,6 +20,7 @@ interface ScrollGlobeProps {
     }[];
   };
   className?: string;
+  sellerCount?: number;
 }
 
 const defaultGlobeConfig = {
@@ -37,7 +38,7 @@ const defaultGlobeConfig = {
 // Parse percentage string to numerical viewport coordinate
 const parsePercent = (str: string): number => parseFloat(str.replace('%', ''));
 
-export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig, className }: ScrollGlobeProps) {
+export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig, className, sellerCount = 1 }: ScrollGlobeProps) {
   const [activeSection, setActiveSection] = useState(0);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [globeTransform, setGlobeTransform] = useState("");
@@ -217,7 +218,7 @@ export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig
         }}
       >
         <div className="scale-75 md:scale-90 lg:scale-100 opacity-90">
-          <Globe scrollProgress={scrollProgress} />
+          <Globe scrollProgress={scrollProgress} sellerCount={sellerCount} />
         </div>
       </div>
 

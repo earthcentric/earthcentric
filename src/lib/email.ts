@@ -10,6 +10,14 @@ async function createTransporter() {
   const smtpPass = await getCredential("SMTP_PASS");
 
   const isConfigured = !!(smtpHost && smtpUser && smtpPass);
+  
+  if (isConfigured) {
+    const maskedPass = smtpPass ? `${smtpPass[0]}...${smtpPass[smtpPass.length-1]} (${smtpPass.length} chars)` : "none";
+    console.log(`[SMTP DEBUG] host=${smtpHost} port=${smtpPort} user=${smtpUser} pass=${maskedPass}`);
+  } else {
+    console.log(`[SMTP DEBUG] Not configured: host=${smtpHost} user=${smtpUser} pass=${smtpPass ? "present" : "missing"}`);
+  }
+
   if (!isConfigured) return null;
 
   return nodemailer.createTransport({
@@ -24,15 +32,22 @@ async function createTransporter() {
 }
 
 
+const getBaseUrl = () => process.env.NEXTAUTH_URL || "http://localhost:3000";
+
 // ─── Base email template ───────────────────────────────────────────
 function wrapInTemplate(bodyHtml: string): string {
+  const baseUrl = getBaseUrl();
   return `
     <div style="font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 600px; margin: auto; padding: 0; border-radius: 16px; overflow: hidden; border: 1px solid #D8CEBE; background-color: #FFFFFF;">
       <!-- Header -->
       <div style="background: linear-gradient(135deg, #1F3A2E 0%, #2D5A40 100%); padding: 28px 32px; text-align: center;">
-        <div style="display: inline-block; background: rgba(163, 177, 138, 0.2); border-radius: 50%; width: 48px; height: 48px; line-height: 48px; font-size: 24px; margin-bottom: 8px;">🌿</div>
-        <h1 style="color: #F5F1EA; font-size: 20px; font-weight: 700; margin: 8px 0 0 0; letter-spacing: -0.3px;">EarthCentric</h1>
-        <p style="color: rgba(245,241,234,0.65); font-size: 11px; margin: 4px 0 0 0; letter-spacing: 0.5px;">Premium Sustainable Marketplace</p>
+        <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">
+          <div style="position: relative; display: inline-block;">
+            <h1 style="color: #F5F1EA; font-size: 28px; font-family: sans-serif; font-weight: 900; margin: 0; letter-spacing: -0.5px; padding-right: 12px;">Earth Centric</h1>
+            <span style="position: absolute; top: -22px; right: -16px; font-size: 28px;">🌿</span>
+          </div>
+        </div>
+        <p style="color: rgba(245,241,234,0.65); font-size: 13px; margin: 8px 0 0 0; letter-spacing: 0.5px;">Premium Sustainable Marketplace</p>
       </div>
       <!-- Body -->
       <div style="padding: 32px 28px; color: #1A1A1A;">
@@ -62,7 +77,7 @@ interface EmailPayload {
   from?: string;
 }
 
-export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; id?: string }> {
+export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; id?: string; error?: string }> {
   const smtpFrom = await getCredential("SMTP_FROM", "EarthCentric <noreply@earthcentric.com>");
   const fromAddress = payload.from || smtpFrom;
 
@@ -86,9 +101,9 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     });
     console.log(`[EMAIL SENT] to=${payload.to} subject="${payload.subject}" messageId=${info.messageId}`);
     return { success: true, id: info.messageId };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Nodemailer email sending failed:", error);
-    return { success: false };
+    return { success: false, error: error?.message || "Unknown SMTP error" };
   }
 }
 
@@ -134,6 +149,38 @@ export async function sendForgotPasswordOTPEmail(email: string, otpCode: string)
       <div style="background: #FFF8F0; border: 1px solid #F0E0C8; border-radius: 12px; padding: 14px 18px; margin: 16px 0;">
         <p style="color: #6B4F3A; font-size: 12px; margin: 0; line-height: 1.5;">
           ⚠️ If you did not request a password reset, please ignore this email. Your account remains secure.
+        </p>
+      </div>
+    `),
+  });
+}
+
+// ─── Buyer Registration OTP Email ─────────────────────────────────
+export async function sendBuyerRegistrationOTPEmail(email: string, name: string, otpCode: string) {
+  return sendEmail({
+    to: email,
+    subject: `Your EarthCentric Verification Code: ${otpCode}`,
+    html: wrapInTemplate(`
+      <h2 style="color: #1F3A2E; font-size: 22px; margin: 0 0 12px 0;">Verify Your Email, ${name}! 🌿</h2>
+      <p style="color: #333; font-size: 14px; line-height: 1.7; margin: 0 0 8px 0;">
+        Welcome to EarthCentric! To complete your registration as a Conscious Buyer, please enter the verification code below:
+      </p>
+      <div style="text-align: center; margin: 28px 0;">
+        <div style="display: inline-block; background: linear-gradient(135deg, #1F3A2E 0%, #2D5A40 100%); border-radius: 16px; padding: 20px 36px;">
+          <span style="font-size: 36px; font-weight: 800; letter-spacing: 12px; color: #F5F1EA; font-family: 'SF Mono', 'Fira Code', monospace;">${otpCode}</span>
+        </div>
+      </div>
+      <p style="color: #888; font-size: 12px; text-align: center; margin: 0 0 16px 0;">
+        This code expires in <strong>10 minutes</strong>. Do not share it with anyone.
+      </p>
+      <div style="background: #E8F5E9; border: 1px solid #C8E6C9; border-radius: 12px; padding: 14px 18px; margin: 16px 0;">
+        <p style="color: #2E7D32; font-size: 12px; margin: 0; line-height: 1.5;">
+          🌱 By verifying your email, you're one step closer to shopping from verified sustainable brands on EarthCentric.
+        </p>
+      </div>
+      <div style="background: #FFF8F0; border: 1px solid #F0E0C8; border-radius: 12px; padding: 14px 18px; margin: 16px 0;">
+        <p style="color: #6B4F3A; font-size: 12px; margin: 0; line-height: 1.5;">
+          ⚠️ If you did not start this registration, please ignore this email.
         </p>
       </div>
     `),
