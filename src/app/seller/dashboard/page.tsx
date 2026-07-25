@@ -549,6 +549,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editDetails, setEditDetails] = useState("");
   const [editMoq, setEditMoq] = useState("");
   const [editWholesalePrice, setEditWholesalePrice] = useState("");
+  const [editOriginalPrice, setEditOriginalPrice] = useState("");
+  const [editSlabs, setEditSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
 
   const handleEditClick = (p: any) => {
     setEditingProduct(p);
@@ -561,6 +563,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditDetails(p.sustainabilityDetail || "");
     setEditMoq(p.moq?.toString() || "");
     setEditWholesalePrice(p.wholesalePrice?.toString() || "");
+    setEditOriginalPrice(p.originalPrice?.toString() || "");
+    setEditSlabs(p.bulkPriceSlabs || []);
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -576,6 +580,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       sustainabilityDetail: editDetails,
       moq: editMoq ? Number(editMoq) : undefined,
       wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
+      originalPrice: editOriginalPrice ? Number(editOriginalPrice) : undefined,
+      bulkPriceSlabs: editSlabs.length > 0 ? editSlabs : undefined,
     });
     setEditingProduct(null);
     reload();
@@ -772,16 +778,16 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-1">
-                  <Label>Price (₹)</Label>
+                  <Label>Original Price / MRP (₹)</Label>
+                  <Input type="number" placeholder="MRP" value={editOriginalPrice} onChange={(e) => setEditOriginalPrice(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Active Deal Price (₹)</Label>
                   <Input type="number" required value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <Label>Stock</Label>
                   <Input type="number" required value={editStock} onChange={(e) => setEditStock(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Eco Score (1-100)</Label>
-                  <Input type="number" required value={editScore} onChange={(e) => setEditScore(e.target.value)} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -790,13 +796,74 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                   <Input type="number" placeholder="Optional" value={editMoq} onChange={(e) => setEditMoq(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <Label>Wholesale Price (₹)</Label>
-                  <Input type="number" placeholder="Optional" value={editWholesalePrice} onChange={(e) => setEditWholesalePrice(e.target.value)} />
+                  <Label>Eco Score (1-100)</Label>
+                  <Input type="number" required value={editScore} onChange={(e) => setEditScore(e.target.value)} />
                 </div>
               </div>
               <div className="space-y-1">
                 <Label>Sustainability Details</Label>
                 <Textarea value={editDetails} onChange={(e) => setEditDetails(e.target.value)} className="h-16" />
+              </div>
+
+              {/* Edit Slabs Section */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex justify-between items-center">
+                  <Label className="font-bold text-xs text-[#2d4a36]">Volume Pricing Deals (Buy More, Pay Less)</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditSlabs([...editSlabs, { min: 2, price: 0, total: 0 }])} className="text-xs h-7">
+                    + Add Tier
+                  </Button>
+                </div>
+                {editSlabs.map((slab: any, index) => (
+                  <div key={index} className="flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-xs font-semibold">Buy</span>
+                    <Input
+                      type="number"
+                      required
+                      placeholder="Qty"
+                      value={slab.min || ""}
+                      onChange={(e) => {
+                        const qty = Number(e.target.value);
+                        const newSlabs = [...editSlabs];
+                        newSlabs[index].min = qty;
+                        const totalVal = newSlabs[index].total || (newSlabs[index].price * qty) || 0;
+                        newSlabs[index].total = totalVal;
+                        newSlabs[index].price = qty > 0 ? Math.round(totalVal / qty) : 0;
+                        setEditSlabs(newSlabs);
+                      }}
+                      className="w-16 text-xs h-8 bg-white"
+                    />
+                    <span className="text-xs font-semibold">units for a total of ₹</span>
+                    <Input
+                      type="number"
+                      required
+                      placeholder="Total Price"
+                      value={slab.total || (slab.price * slab.min) || ""}
+                      onChange={(e) => {
+                        const total = Number(e.target.value);
+                        const newSlabs = [...editSlabs];
+                        newSlabs[index].total = total;
+                        const qty = newSlabs[index].min || 1;
+                        newSlabs[index].price = qty > 0 ? Math.round(total / qty) : 0;
+                        setEditSlabs(newSlabs);
+                      }}
+                      className="w-24 text-xs h-8 bg-white"
+                    />
+                    {slab.price > 0 && (
+                      <span className="text-[10px] text-slate-500 font-semibold italic">
+                        (₹{slab.price}/each)
+                      </span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditSlabs(editSlabs.filter((_, i) => i !== index))}
+                      className="text-rose-500 hover:text-rose-600 text-xs h-8 hover:bg-rose-50 ml-auto"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
               </div>
               
               <div className="flex justify-end space-x-2 pt-2 border-t">
@@ -823,8 +890,8 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodCat, setProdCat] = useState("Organic Apparel");
   const [prodScore, setProdScore] = useState("90");
   const [prodDetails, setProdDetails] = useState("");
-  const [prodMoq, setProdMoq] = useState("");
-  const [prodWholesalePrice, setProdWholesalePrice] = useState("");
+  const [prodOriginalPrice, setProdOriginalPrice] = useState("");
+  const [prodSlabs, setProdSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
   const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -852,7 +919,18 @@ function AddProductForm({ onBack, profile, reload }: any) {
     if (!user || !prodName || !prodPrice) return;
     const imageUrls = imagePreviews.length > 0 ? imagePreviews.map((img) => img.dataUrl) : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
     await createProduct({
-      name: prodName, description: prodDesc, price: Number(prodPrice), stock: Number(prodStock), categoryName: prodCat, sustainabilityScore: Number(prodScore), sustainabilityDetail: prodDetails, imageUrls, sellerId: user.id, sellerName: profile?.companyName || "Seller", moq: prodMoq ? Number(prodMoq) : undefined, wholesalePrice: prodWholesalePrice ? Number(prodWholesalePrice) : undefined
+      name: prodName,
+      description: prodDesc,
+      price: Number(prodPrice),
+      stock: Number(prodStock),
+      categoryName: prodCat,
+      sustainabilityScore: Number(prodScore),
+      sustainabilityDetail: prodDetails,
+      imageUrls,
+      sellerId: user.id,
+      sellerName: profile?.companyName || "Seller",
+      originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
+      bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,
     });
     reload();
     onBack();
@@ -873,13 +951,74 @@ function AddProductForm({ onBack, profile, reload }: any) {
           </div>
           <div className="space-y-1"><Label>Description</Label><Textarea required value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} /></div>
           <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1"><Label>Price (₹)</Label><Input type="number" required value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Original Price / MRP (₹)</Label><Input type="number" placeholder="MRP" value={prodOriginalPrice} onChange={(e) => setProdOriginalPrice(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Active Sale Price (₹)</Label><Input type="number" required value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
             <div className="space-y-1"><Label>Stock</Label><Input type="number" required value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Eco Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1"><Label>MOQ (Min Order Qty)</Label><Input type="number" placeholder="Optional" value={prodMoq} onChange={(e) => setProdMoq(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Wholesale Price (₹)</Label><Input type="number" placeholder="Optional" value={prodWholesalePrice} onChange={(e) => setProdWholesalePrice(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Eco Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Sustainability Details</Label><Input value={prodDetails} onChange={(e) => setProdDetails(e.target.value)} /></div>
+          </div>
+
+          {/* Volume pricing deals */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex justify-between items-center">
+              <Label className="font-bold text-xs text-[#2d4a36]">Volume Pricing Deals (Buy More, Pay Less)</Label>
+              <Button type="button" variant="outline" size="sm" onClick={() => setProdSlabs([...prodSlabs, { min: 2, price: 0, total: 0 }])} className="text-xs h-7">
+                + Add Tier
+              </Button>
+            </div>
+            {prodSlabs.map((slab: any, index) => (
+              <div key={index} className="flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                <span className="text-xs font-semibold">Buy</span>
+                <Input
+                  type="number"
+                  required
+                  placeholder="Qty"
+                  value={slab.min || ""}
+                  onChange={(e) => {
+                    const qty = Number(e.target.value);
+                    const newSlabs = [...prodSlabs];
+                    newSlabs[index].min = qty;
+                    const totalVal = newSlabs[index].total || (newSlabs[index].price * qty) || 0;
+                    newSlabs[index].total = totalVal;
+                    newSlabs[index].price = qty > 0 ? Math.round(totalVal / qty) : 0;
+                    setProdSlabs(newSlabs);
+                  }}
+                  className="w-16 text-xs h-8 bg-white"
+                />
+                <span className="text-xs font-semibold">units for a total of ₹</span>
+                <Input
+                  type="number"
+                  required
+                  placeholder="Total Price"
+                  value={slab.total || (slab.price * slab.min) || ""}
+                  onChange={(e) => {
+                    const total = Number(e.target.value);
+                    const newSlabs = [...prodSlabs];
+                    newSlabs[index].total = total;
+                    const qty = newSlabs[index].min || 1;
+                    newSlabs[index].price = qty > 0 ? Math.round(total / qty) : 0;
+                    setProdSlabs(newSlabs);
+                  }}
+                  className="w-24 text-xs h-8 bg-white"
+                />
+                {slab.price > 0 && (
+                  <span className="text-[10px] text-slate-500 font-semibold italic">
+                    (₹{slab.price}/each)
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setProdSlabs(prodSlabs.filter((_, i) => i !== index))}
+                  className="text-rose-500 hover:text-rose-600 text-xs h-8 hover:bg-rose-50 ml-auto"
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
           </div>
           
           <div className="space-y-2">

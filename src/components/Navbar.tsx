@@ -80,6 +80,17 @@ export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
 
+  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
+  const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
+
+  // Fetch categories for navbar dropdown
+  useEffect(() => {
+    fetch("/api/categories")
+      .then(r => r.json())
+      .then(data => setNavCategories(data.categories || []))
+      .catch(() => {});
+  }, []);
+
   // Keyboard shortcut Ctrl/Cmd+K or / to open Spotlight Search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -117,14 +128,6 @@ export default function Navbar() {
 
   return (
     <>
-      {/* 1. Announcement Bar */}
-      <div className="w-full bg-[#0F6E56] text-white text-[11px] font-bold py-2.5 px-4 flex items-center justify-center space-x-2 border-b border-white/10 select-none overflow-x-auto whitespace-nowrap scrollbar-none">
-        <span className="flex items-center gap-1">💸 Free shipping on orders above ₹499</span>
-        <span className="text-white/40">|</span>
-        <span className="flex items-center gap-1">🛡️ All sellers are sustainability-verified</span>
-        <span className="text-white/40">|</span>
-        <span className="flex items-center gap-1">🌍 10% of profits go to reforestation</span>
-      </div>
 
       <header className="sticky top-0 z-40 w-full border-b border-slate-100 bg-white transition-colors duration-300">
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
@@ -300,13 +303,52 @@ export default function Navbar() {
         </div>
 
         {/* 2. Sub-Navbar Section (Dark Forest Green) */}
-        <div className="w-full bg-[#0c3c26] text-slate-100 text-xs py-2.5 px-4 sm:px-6 lg:px-8 shadow-md flex items-center justify-between border-t border-emerald-950 select-none overflow-x-auto whitespace-nowrap scrollbar-none">
+        <div className={`w-full bg-[#0c3c26] text-slate-100 text-xs py-2.5 px-4 sm:px-6 lg:px-8 shadow-md flex items-center justify-between border-t border-emerald-950 select-none whitespace-nowrap scrollbar-none ${isCategoriesOpen ? "overflow-visible" : "overflow-x-auto"}`}>
           <div className="flex items-center space-x-6">
-            {/* All Categories Dropdown Button */}
-            <button className="flex items-center space-x-2 text-white font-bold px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-all text-xs cursor-pointer border-none">
-              <Menu className="h-4 w-4" />
-              <span>All Categories</span>
-            </button>
+            {/* All Categories Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setIsCategoriesOpen(!isCategoriesOpen)}
+                className="flex items-center space-x-2 text-white font-bold px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-all text-xs cursor-pointer border-none"
+              >
+                <Menu className="h-4 w-4" />
+                <span>All Categories</span>
+                <ChevronDown className={`h-3 w-3 transition-transform ${isCategoriesOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {isCategoriesOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsCategoriesOpen(false)} />
+                  <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                    <div className="p-3 border-b border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sustainable Categories</p>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto py-1">
+                      <Link
+                        href="/marketplace"
+                        onClick={() => setIsCategoriesOpen(false)}
+                        className="flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 transition-colors group"
+                      >
+                        <span className="text-xs font-semibold text-slate-700 group-hover:text-emerald-700">🌿 All Products</span>
+                      </Link>
+                      {navCategories.map(cat => (
+                        <Link
+                          key={cat.id}
+                          href={`/marketplace?category=${cat.slug}`}
+                          onClick={() => setIsCategoriesOpen(false)}
+                          className="flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 transition-colors group"
+                        >
+                          <span className="text-xs font-semibold text-slate-700 group-hover:text-emerald-700">{cat.name}</span>
+                          {cat.productCount > 0 && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">{cat.productCount}</span>
+                          )}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Nav links */}
             <nav className="flex items-center space-x-6 text-xs font-semibold">
@@ -316,10 +358,10 @@ export default function Navbar() {
               <Link href="/#verified-sellers" className="text-slate-200 hover:text-emerald-400 transition-colors">
                 Verified Sellers
               </Link>
-              <Link href="/marketplace?sort=popular" className="text-slate-200 hover:text-emerald-400 transition-colors">
+              <Link href="/marketplace?deals=true" className="text-slate-200 hover:text-emerald-400 transition-colors">
                 Deals
               </Link>
-              <Link href="/marketplace?sort=newest" className="text-slate-200 hover:text-emerald-400 transition-colors">
+              <Link href="/marketplace?newArrivals=true" className="text-slate-200 hover:text-emerald-400 transition-colors">
                 New Arrivals
               </Link>
               <Link href="/#sustainability-mission" className="text-slate-200 hover:text-emerald-400 transition-colors">
@@ -328,18 +370,8 @@ export default function Navbar() {
             </nav>
           </div>
 
-          {/* Quick pills */}
-          <div className="hidden md:flex items-center space-x-3">
-            <Link href="/marketplace?sort=popular" className="bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-full px-3 py-1 text-[11px] font-semibold transition-all">
-              🔥 Today's Deals
-            </Link>
-            <Link href="/marketplace?sort=newest" className="bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-full px-3 py-1 text-[11px] font-semibold transition-all">
-              New Arrivals
-            </Link>
-            <Link href="/marketplace?sort=popular" className="bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-full px-3 py-1 text-[11px] font-semibold transition-all">
-              🏷️ Offers
-            </Link>
-          </div>
+
+
         </div>
 
         {/* Mobile Menu Dropdown */}

@@ -21,7 +21,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<boolean>;
-  signup: (name: string, email: string, role: Role, password?: string) => Promise<boolean>;
+  signup: (name: string, email: string, role: Role, password?: string, phone?: string) => Promise<boolean>;
   logout: () => void;
   switchRole: (role: Role) => void | Promise<void>;
   updateSellerStatus: (status: "PENDING" | "APPROVED" | "REJECTED", badges?: string[]) => void;
@@ -124,9 +124,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return true;
   };
 
-  const signup = async (name: string, email: string, role: Role, password?: string) => {
+  const signup = async (name: string, email: string, role: Role, password?: string, phone?: string) => {
     setIsLoading(true);
-    const res = await signupUser(name, email, role, password);
+    const res = await signupUser(name, email, role, password, phone);
 
     if (!res.success) {
       toast.error(res.error || "Registration failed");

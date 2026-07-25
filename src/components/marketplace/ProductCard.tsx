@@ -50,8 +50,9 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
   };
 
   // Compute pricing details
-  const originalPrice = product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5);
-  const discountPercent = originalPrice ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
+  const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
+  const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
+  const hasBulkDeal = product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0;
 
   // Determine status badge class and label
   const ecoScore = product.sustainabilityScore;
@@ -97,6 +98,13 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
             </span>
           )}
 
+          {/* Bulk Deal Tag */}
+          {hasBulkDeal && (
+            <span className={`absolute top-3 bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg shadow-sm z-10 flex items-center gap-0.5 ${discountPercent ? "left-14" : "left-3"}`}>
+              🏷️ Bulk Deal
+            </span>
+          )}
+
           {/* Status Badge (Top-Right) */}
           <span className={`absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-sm z-10 ${badgeStyle}`}>
             {badgeIcon}
@@ -133,6 +141,29 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
               {product.name}
             </h4>
           </Link>
+
+          {/* Bundle Deal Promo */}
+          {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (() => {
+            const slabs = product.bulkPriceSlabs as any[];
+            const bundleDeal = slabs.find(s => s.min > 1);
+            if (bundleDeal) {
+              const qty = bundleDeal.min;
+              const bundleTotal = bundleDeal.total || (bundleDeal.price * qty);
+              const regularTotal = product.price * qty;
+              const savings = regularTotal - bundleTotal;
+              if (savings > 0) {
+                return (
+                  <div className="bg-emerald-50 text-emerald-800 text-[10px] font-black rounded-lg px-2 py-1.5 border border-emerald-100 flex items-center gap-1 select-none">
+                    <span>🎁 Buy {qty} for ₹{bundleTotal.toLocaleString()}</span>
+                    <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[8px] font-extrabold font-mono shrink-0">
+                      Save ₹{savings.toLocaleString()}!
+                    </span>
+                  </div>
+                );
+              }
+            }
+            return null;
+          })()}
 
           {/* Description */}
           <p className="text-[11px] text-slate-400 font-medium line-clamp-1">

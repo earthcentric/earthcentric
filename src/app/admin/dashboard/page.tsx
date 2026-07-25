@@ -803,9 +803,28 @@ function UserManagementView({ usersData, onInspectSeller, onInspectBuyer }: any)
 function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday = 0, reload, adminEmail }: { pendingProducts: any[], approvedToday?: number, rejectedToday?: number, reload: () => void, adminEmail?: string }) {
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [approveId, setApproveId] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [allCategories, setAllCategories] = useState<{id: string; name: string; slug: string}[]>([]);
 
-  const handleApprove = async (id: string) => {
-    await approveProduct(id, adminEmail || "admin@earthcentric.com");
+  // Fetch categories when component mounts
+  React.useEffect(() => {
+    fetch("/api/categories")
+      .then(r => r.json())
+      .then(data => setAllCategories(data.categories || []))
+      .catch(() => setAllCategories([]));
+  }, []);
+
+  const handleApproveClick = (p: any) => {
+    setApproveId(p.id);
+    setSelectedCategoryId(p.categoryId || "");
+  };
+
+  const handleApproveConfirm = async () => {
+    if (!approveId) return;
+    await approveProduct(approveId, adminEmail || "admin@earthcentric.com", selectedCategoryId || undefined);
+    setApproveId(null);
+    setSelectedCategoryId("");
     reload();
   };
 
@@ -816,6 +835,7 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
     setRejectReason("");
     reload();
   };
+
 
   return (
     <div className="space-y-6">
@@ -905,7 +925,7 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
                   </TableCell>
                   <TableCell className="py-4 text-right pr-6">
                     <div className="flex items-center justify-end space-x-2">
-                      <Button size="sm" className="bg-[#1a3321] hover:bg-[#25422d] text-white text-[10px] h-7 px-3 rounded-full" onClick={() => handleApprove(p.id)}>Approve</Button>
+                      <Button size="sm" className="bg-[#1a3321] hover:bg-[#25422d] text-white text-[10px] h-7 px-3 rounded-full" onClick={() => handleApproveClick(p)}>Approve</Button>
                       <Button size="sm" variant="ghost" className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-[10px] h-7 px-3 rounded-full" onClick={() => setRejectId(p.id)}>Reject</Button>
                     </div>
                   </TableCell>
@@ -916,6 +936,35 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
         </Table>
       </Card>
 
+      {/* ── Category Assignment + Approve Modal ── */}
+      {approveId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setApproveId(null)} />
+          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+            <h3 className="font-bold text-sm text-[#1a3321]">✅ Approve Product</h3>
+            <p className="text-xs text-muted-foreground">Assign a category to this product before approving. This determines where it appears in the marketplace.</p>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Category</Label>
+              <select
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                className="w-full border border-input rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+              >
+                <option value="">-- Select a Category --</option>
+                {allCategories.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button variant="ghost" onClick={() => setApproveId(null)}>Cancel</Button>
+              <Button className="bg-[#1a3321] hover:bg-[#25422d] text-white" onClick={handleApproveConfirm}>Confirm Approve</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Reject Modal ── */}
       {rejectId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setRejectId(null)} />

@@ -13,6 +13,8 @@ export interface ProductFilter {
   search?: string;
   sortBy?: "newest" | "popular" | "rating" | "price-asc" | "price-desc";
   sellerId?: string;
+  dealsOnly?: boolean;
+  newArrivalsOnly?: boolean;
 }
 
 export interface SellerInfo {
@@ -44,6 +46,9 @@ export interface ProductItem {
   badgeType?: "verified" | "bestseller" | "eco";
   moq?: number;
   wholesalePrice?: number;
+  originalPrice?: number;
+  bulkPriceSlabs?: any;
+  createdAt?: Date;
 }
 
 // Global mock items for fallback mode
@@ -54,6 +59,7 @@ const MOCK_PRODUCTS: ProductItem[] = [
     slug: "plant-starch-spoon-pack-50",
     description: "Stronger than plastic, compostable. Heat resistant up to 104°C. Perfect for hot and cold foods.",
     price: 199,
+    originalPrice: 299,
     stock: 500,
     sustainabilityScore: 98,
     sustainabilityDetail: "Made from 100% plant-starch materials, GMO-free corn. Fully compostable in commercial facilities.",
@@ -62,6 +68,11 @@ const MOCK_PRODUCTS: ProductItem[] = [
     categoryId: "c_cutlery",
     isApproved: true,
     sellerId: "seller-pkg",
+    bulkPriceSlabs: [
+      { min: 1, price: 199 },
+      { min: 10, price: 179 },
+      { min: 50, price: 149 }
+    ],
     seller: {
       id: "seller-pkg",
       companyName: "Earth Centric",
@@ -70,7 +81,8 @@ const MOCK_PRODUCTS: ProductItem[] = [
     certifications: ["BPI Certified", "USDA Biobased"],
     rating: 4.8,
     reviewsCount: 212,
-    badgeType: "verified"
+    badgeType: "verified",
+    createdAt: new Date(),
   },
   {
     id: "pkg2",
@@ -94,7 +106,8 @@ const MOCK_PRODUCTS: ProductItem[] = [
     certifications: ["FSC Certified", "FDA Approved"],
     rating: 4.8,
     reviewsCount: 210,
-    badgeType: "verified"
+    badgeType: "verified",
+    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
   },
   {
     id: "pkg3",
@@ -118,7 +131,8 @@ const MOCK_PRODUCTS: ProductItem[] = [
     certifications: ["BPI Certified", "OK Compost"],
     rating: 4.8,
     reviewsCount: 198,
-    badgeType: "verified"
+    badgeType: "verified",
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
   },
   {
     id: "pkg4",
@@ -294,6 +308,7 @@ const MOCK_PRODUCTS: ProductItem[] = [
     slug: "organic-cotton-classic-tee",
     description: "Crafted from 100% GOTS-certified organic cotton, this t-shirt is dyed with non-toxic, eco-friendly pigments. Spun ethically in small batches by verified weavers. Zero microplastics, breathable, and designed for circular recycling.",
     price: 1899,
+    originalPrice: 2699,
     stock: 45,
     sustainabilityScore: 95,
     sustainabilityDetail: "Saves 2,000 liters of water compared to conventional cotton. GOTS certified organic, fair-trade manufacturing, colored using natural vegetable dyes.",
@@ -444,6 +459,36 @@ const MOCK_PRODUCTS: ProductItem[] = [
     certifications: ["FSC Upcycled Wood"],
     rating: 4.7,
     reviewsCount: 29
+  },
+  {
+    id: "p7",
+    name: "Organic Herbal Solid Shampoo Bar",
+    slug: "organic-herbal-solid-shampoo-bar",
+    description: "Sulfate-free, plastic-free organic shampoo bar. Gently cleanses and moisturizes with natural herbal extracts and pure essential oils.",
+    price: 120,
+    originalPrice: 150,
+    stock: 120,
+    sustainabilityScore: 98,
+    sustainabilityDetail: "100% biodegradable ingredients, completely zero-waste cardboard packaging. No synthetic preservatives or chemical surfactants.",
+    images: [
+      "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?w=800&auto=format&fit=crop&q=80"
+    ],
+    category: "Zero-Waste Living",
+    categoryId: "c2",
+    isApproved: true,
+    sellerId: "seller-2",
+    seller: {
+      id: "seller-2",
+      companyName: "SolTerra Systems",
+      badges: ["Verified Business", "Premium Verified Seller"],
+    },
+    certifications: ["Cruelty-Free Certified", "USDA Organic Ingredients"],
+    rating: 4.9,
+    reviewsCount: 42,
+    bulkPriceSlabs: [
+      { min: 1, price: 120, total: 120 },
+      { min: 2, price: 100, total: 200 }
+    ]
   }
 ];
 
@@ -532,6 +577,26 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       };
     }
 
+    if (filters.dealsOnly) {
+      andConditions.push({
+        OR: [
+          { originalPrice: { not: null } },
+          { NOT: { bulkPriceSlabs: null } }
+        ]
+      });
+    }
+
+    if (filters.newArrivalsOnly) {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+      whereClause.createdAt = {
+        gte: startOfDay,
+        lte: endOfDay,
+      };
+    }
+
     if (andConditions.length > 0) {
       whereClause.AND = andConditions;
     }
@@ -582,6 +647,9 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         certifications: [], // dynamically loaded
         rating,
         reviewsCount: p.reviews.length,
+        originalPrice: p.originalPrice || undefined,
+        bulkPriceSlabs: p.bulkPriceSlabs,
+        createdAt: p.createdAt,
       };
     });
   } catch (error) {
@@ -642,6 +710,9 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       reviewsCount: p.reviews.length,
       moq: p.moq || undefined,
       wholesalePrice: p.wholesalePrice || undefined,
+      originalPrice: p.originalPrice || undefined,
+      bulkPriceSlabs: p.bulkPriceSlabs,
+      createdAt: p.createdAt,
     };
   } catch (error) {
     console.warn("Database getProductById failed, using mock:", error);
@@ -662,6 +733,8 @@ export async function createProduct(data: {
   sellerName: string;
   moq?: number;
   wholesalePrice?: number;
+  originalPrice?: number;
+  bulkPriceSlabs?: any;
 }): Promise<ProductItem> {
   try {
     // Process/upload all product images to Cloudinary (will return JSON strings)
@@ -699,6 +772,9 @@ export async function createProduct(data: {
         reviewsCount: 0,
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : undefined,
+        originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+        bulkPriceSlabs: data.bulkPriceSlabs || null,
+        createdAt: new Date(),
       };
       
       dynamicProducts.push(newProduct);
@@ -741,6 +817,8 @@ export async function createProduct(data: {
         isApproved: autoApprove,
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
+        originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
+        bulkPriceSlabs: data.bulkPriceSlabs || null,
         images: {
           create: uploadedImages,
         },
@@ -785,6 +863,8 @@ export async function createProduct(data: {
       reviewsCount: 0,
       moq: p.moq || undefined,
       wholesalePrice: p.wholesalePrice || undefined,
+      originalPrice: p.originalPrice || undefined,
+      bulkPriceSlabs: p.bulkPriceSlabs,
     };
   } catch (error) {
     console.error("Failed to create product in DB:", error);
@@ -804,6 +884,8 @@ export async function updateProduct(
     sustainabilityDetail: string;
     moq?: number;
     wholesalePrice?: number;
+    originalPrice?: number;
+    bulkPriceSlabs?: any;
   }
 ): Promise<boolean> {
   try {
@@ -820,6 +902,8 @@ export async function updateProduct(
             category: data.categoryName,
             sustainabilityScore: Number(data.sustainabilityScore),
             sustainabilityDetail: data.sustainabilityDetail,
+            originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+            bulkPriceSlabs: data.bulkPriceSlabs || null,
           };
         }
         return p;
@@ -836,6 +920,8 @@ export async function updateProduct(
           category: data.categoryName,
           sustainabilityScore: Number(data.sustainabilityScore),
           sustainabilityDetail: data.sustainabilityDetail,
+          originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+          bulkPriceSlabs: data.bulkPriceSlabs || null,
         };
       }
       return true;
@@ -866,6 +952,8 @@ export async function updateProduct(
         isApproved: false,
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
+        originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
+        bulkPriceSlabs: data.bulkPriceSlabs || null,
       },
     });
 
@@ -885,6 +973,8 @@ export async function updateProduct(
           category: data.categoryName,
           sustainabilityScore: Number(data.sustainabilityScore),
           sustainabilityDetail: data.sustainabilityDetail,
+          originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+          bulkPriceSlabs: data.bulkPriceSlabs || null,
         };
       }
       return p;
@@ -901,6 +991,8 @@ export async function updateProduct(
         category: data.categoryName,
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
+        originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+        bulkPriceSlabs: data.bulkPriceSlabs || null,
       };
     }
     return true;
@@ -1004,6 +1096,20 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
 
   if (filters.priceRange) {
     list = list.filter((p) => p.price >= filters.priceRange![0] && p.price <= filters.priceRange![1]);
+  }
+
+  if (filters.dealsOnly) {
+    list = list.filter((p) => (p.originalPrice && p.originalPrice > p.price) || (p.bulkPriceSlabs && p.bulkPriceSlabs.length > 0));
+  }
+
+  if (filters.newArrivalsOnly) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    list = list.filter((p) => {
+      const pDate = p.createdAt ? new Date(p.createdAt) : new Date();
+      pDate.setHours(0, 0, 0, 0);
+      return pDate.getTime() === today.getTime();
+    });
   }
 
   if (filters.sortBy) {

@@ -39,8 +39,8 @@ export default function QuickViewModal({
   if (!isOpen || !product) return null;
 
   // Compute pricing
-  const originalPrice = product.price > 500 ? Math.round(product.price * 1.25) : undefined;
-  const discountPercent = originalPrice ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
+  const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
+  const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
 
   // Generate deterministic breakdown scores from the overall score
   const baseScore = product.sustainabilityScore;

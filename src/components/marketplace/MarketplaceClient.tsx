@@ -29,13 +29,6 @@ import TestimonialsSection from "@/components/marketplace/TestimonialsSection";
 import QuickViewModal from "@/components/marketplace/QuickViewModal";
 import ProductCard from "@/components/marketplace/ProductCard";
 
-const CATEGORIES_SLUGS = [
-  { id: "all", name: "All Products" },
-  { id: "organic-apparel", name: "Organic Apparel" },
-  { id: "zero-waste-living", name: "Zero-Waste Living" },
-  { id: "renewable-energy", name: "Renewable Energy" },
-  { id: "eco-home-goods", name: "Eco Home Goods" },
-];
 
 const CERTIFICATIONS = [
   "GOTS Organic",
@@ -173,6 +166,8 @@ export default function MarketplaceClient() {
   const initialMinScore = Number(searchParams.get("minScore") || "50");
   const initialVerified = searchParams.get("verified") === "true";
   const initialSort = (searchParams.get("sort") || "newest") as ProductFilter["sortBy"] | "eco-score" | "best-rated";
+  const initialDealsOnly = searchParams.get("deals") === "true";
+  const initialNewArrivalsOnly = searchParams.get("newArrivals") === "true";
 
   // Filter States
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -183,6 +178,8 @@ export default function MarketplaceClient() {
   const [verifiedOnly, setVerifiedOnly] = useState(initialVerified);
   const [pricePreset, setPricePreset] = useState<string>(initialPricePreset);
   const [sortBy, setSortBy] = useState<ProductFilter["sortBy"] | "eco-score" | "best-rated">(initialSort);
+  const [dealsOnly, setDealsOnly] = useState(initialDealsOnly);
+  const [newArrivalsOnly, setNewArrivalsOnly] = useState(initialNewArrivalsOnly);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   
   // Custom Storefront state
@@ -198,6 +195,16 @@ export default function MarketplaceClient() {
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
 
+  const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string}[]>([]);
+
+  // Fetch live categories from API
+  useEffect(() => {
+    fetch("/api/categories")
+      .then(r => r.json())
+      .then(data => setNavCategories(data.categories || []))
+      .catch(() => {});
+  }, []);
+
   // Synchronize state with URL change
   useEffect(() => {
     const cat = searchParams.get("category");
@@ -208,6 +215,16 @@ export default function MarketplaceClient() {
     const q = searchParams.get("search");
     if (q !== null) {
       setSearch(q);
+      setShowCatalogExplicitly(true);
+    }
+    const deals = searchParams.get("deals");
+    if (deals !== null) {
+      setDealsOnly(deals === "true");
+      setShowCatalogExplicitly(true);
+    }
+    const newArrivals = searchParams.get("newArrivals");
+    if (newArrivals !== null) {
+      setNewArrivalsOnly(newArrivals === "true");
       setShowCatalogExplicitly(true);
     }
   }, [searchParams]);
@@ -221,10 +238,12 @@ export default function MarketplaceClient() {
     if (minScore !== 50) params.set("minScore", minScore.toString());
     if (verifiedOnly) params.set("verified", "true");
     if (sortBy !== "newest") params.set("sort", sortBy as string);
+    if (dealsOnly) params.set("deals", "true");
+    if (newArrivalsOnly) params.set("newArrivals", "true");
     
     const url = `/marketplace?${params.toString()}`;
     window.history.pushState({ path: url }, "", url);
-  }, [category, search, pricePreset, minScore, verifiedOnly, sortBy]);
+  }, [category, search, pricePreset, minScore, verifiedOnly, sortBy, dealsOnly, newArrivalsOnly]);
 
   // Load wishlist from database on mount
   const { user } = useAuth();
@@ -257,6 +276,8 @@ export default function MarketplaceClient() {
         verifiedOnly: verifiedOnly,
         priceRange: priceRange,
         sortBy: isDbSort ? (sortBy as ProductFilter["sortBy"]) : undefined,
+        dealsOnly: dealsOnly,
+        newArrivalsOnly: newArrivalsOnly,
       };
 
       try {
@@ -283,7 +304,7 @@ export default function MarketplaceClient() {
 
     const timer = setTimeout(loadProducts, 300); // Debouncing queries
     return () => clearTimeout(timer);
-  }, [search, category, minScore, verifiedOnly, pricePreset, sortBy]);
+  }, [search, category, minScore, verifiedOnly, pricePreset, sortBy, dealsOnly, newArrivalsOnly]);
 
   // Carousel slide timer
   useEffect(() => {
@@ -347,6 +368,8 @@ export default function MarketplaceClient() {
     setVerifiedOnly(false);
     setPricePreset("all");
     setSortBy("newest");
+    setDealsOnly(false);
+    setNewArrivalsOnly(false);
   };
 
   // Compute active filters count
@@ -356,6 +379,8 @@ export default function MarketplaceClient() {
   if (pricePreset !== "all") activeFiltersCount++;
   if (minScore !== 50) activeFiltersCount++;
   if (verifiedOnly) activeFiltersCount++;
+  if (dealsOnly) activeFiltersCount++;
+  if (newArrivalsOnly) activeFiltersCount++;
 
   const showStorefront = !showCatalogExplicitly && category === "all" && search === "";
 
@@ -388,8 +413,7 @@ export default function MarketplaceClient() {
         </div>
       )}
 
-      {/* Impact Stats Bar */}
-      <ImpactCounterBar />
+
 
       {showStorefront ? (
         <div className="space-y-10 pb-16">
@@ -627,45 +651,7 @@ export default function MarketplaceClient() {
           <TestimonialsSection />
         </div>
       ) : (
-        <div className="w-full pb-16 space-y-8 text-left">
-          {/* Wave Hero Banner */}
-          <div className="w-full bg-[#0c4c35] text-white py-14 px-6 md:px-12 relative overflow-hidden flex flex-col justify-center rounded-b-[40px] md:rounded-b-[80px]">
-            {/* Wave backgrounds/decorations */}
-            <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-emerald-800/15 to-transparent pointer-events-none rounded-l-full" />
-            <div className="absolute -right-24 -bottom-24 w-80 h-80 bg-[#0F6E56]/20 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute left-10 bottom-4 w-40 h-40 bg-white/5 rounded-full pointer-events-none" />
-
-            <div className="max-w-7xl mx-auto w-full relative z-10 space-y-4">
-              <div className="flex items-center space-x-2 text-[11px] text-emerald-300 font-bold uppercase tracking-wider">
-                <button onClick={() => setShowCatalogExplicitly(false)} className="hover:underline text-emerald-300 border-none bg-transparent cursor-pointer">
-                  Marketplace
-                </button>
-                <span>&gt;</span>
-                <span className="text-white">Catalog</span>
-              </div>
-
-              <div className="space-y-1">
-                <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white uppercase font-serif">
-                  Eco-Friendly Packaging
-                </h1>
-                <p className="text-xs sm:text-sm text-emerald-100 font-medium">
-                  {products.length} products • Sugarcane Bagasse, Paper & Plant-Based Materials
-                </p>
-              </div>
-
-              {/* Search input box inside wave hero */}
-              <div className="relative max-w-md w-full pt-2">
-                <Search className="absolute left-4 top-5 h-4 w-4 text-white/70" />
-                <input
-                  type="text"
-                  placeholder="Search packaging products..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-black/15 border border-white/20 rounded-full pl-11 pr-4 py-3 text-xs text-white placeholder:text-white/60 focus:outline-none focus:ring-1 focus:ring-emerald-400 focus:border-emerald-400 focus:bg-black/25 transition-all shadow-inner"
-                />
-              </div>
-            </div>
-          </div>
+        <div className="w-full pb-16 space-y-8 text-left pt-8">
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
             
@@ -749,40 +735,58 @@ export default function MarketplaceClient() {
                     </div>
                   </div>
 
-                  {/* Category Filter */}
-                  <div className="space-y-2.5 border-t border-slate-100 pt-4">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Category</span>
-                    <div className="space-y-1.5">
-                      {CATEGORIES_SLUGS.map((cat) => (
-                        <label
-                          key={cat.id}
-                          className={`flex items-center space-x-2.5 px-2.5 py-2 rounded-xl cursor-pointer transition-all text-xs font-semibold ${
-                            category === cat.id
-                              ? "bg-[#ebf5f0] text-[#0F6E56]"
-                              : "text-slate-600 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-                            category === cat.id
-                              ? "border-[#0F6E56]"
-                              : "border-slate-300"
-                          }`}>
-                            {category === cat.id && (
-                              <span className="h-2 w-2 rounded-full bg-[#0F6E56]" />
-                            )}
-                          </span>
-                          <input
-                            type="radio"
-                            name="category-filter"
-                            value={cat.id}
-                            checked={category === cat.id}
-                            onChange={() => setCategory(cat.id)}
-                            className="sr-only"
-                          />
-                          <span>{cat.name}</span>
-                        </label>
+                  {/* Category Filter - live from DB */}
+                  <div className="space-y-2.5 border-t border-slate-100 pt-4 text-left">
+                    <label htmlFor="category-select" className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">Category</label>
+                    <select
+                      id="category-select"
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:border-[#0F6E56] transition-all cursor-pointer shadow-sm"
+                    >
+                      <option value="all">All Products</option>
+                      {navCategories.map((cat) => (
+                        <option key={cat.slug} value={cat.slug}>
+                          {cat.name}
+                        </option>
                       ))}
+                    </select>
+                  </div>
+
+                  {/* Deals & Offers Toggle */}
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                    <div className="space-y-0.5 pr-2 text-left">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                        Deals & Discounts Only
+                      </span>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        Only show discounted products and bulk offers.
+                      </p>
                     </div>
+                    <input
+                      type="checkbox"
+                      checked={dealsOnly}
+                      onChange={(e) => setDealsOnly(e.target.checked)}
+                      className="h-4.5 w-4.5 rounded border-slate-300 text-[#0F6E56] focus:ring-[#0F6E56] cursor-pointer"
+                    />
+                  </div>
+
+                  {/* New Arrivals Toggle */}
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                    <div className="space-y-0.5 pr-2 text-left">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                        New Arrivals Only
+                      </span>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        Only show products launched today.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={newArrivalsOnly}
+                      onChange={(e) => setNewArrivalsOnly(e.target.checked)}
+                      className="h-4.5 w-4.5 rounded border-slate-300 text-[#0F6E56] focus:ring-[#0F6E56] cursor-pointer"
+                    />
                   </div>
 
                   {/* Price Range Filter */}
@@ -861,6 +865,8 @@ export default function MarketplaceClient() {
                       className="h-4.5 w-4.5 rounded border-slate-300 text-[#0F6E56] focus:ring-[#0F6E56] cursor-pointer"
                     />
                   </div>
+
+
                 </div>
               </div>
 

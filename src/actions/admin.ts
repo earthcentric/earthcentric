@@ -855,12 +855,12 @@ export async function getPendingProducts(): Promise<any[]> {
   }
 }
 
-export async function approveProduct(productId: string, adminEmail: string): Promise<boolean> {
+export async function approveProduct(productId: string, adminEmail: string, categoryId?: string): Promise<boolean> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       mockPendingProducts = mockPendingProducts.map(p => {
         if (p.id === productId) {
-          return { ...p, isApproved: true };
+          return { ...p, isApproved: true, ...(categoryId ? { categoryId } : {}) };
         }
         return p;
       });
@@ -868,9 +868,12 @@ export async function approveProduct(productId: string, adminEmail: string): Pro
       return true;
     }
 
+    const updateData: any = { isApproved: true, status: "APPROVED" };
+    if (categoryId) updateData.categoryId = categoryId;
+
     const product = await db.product.update({
       where: { id: productId },
-      data: { isApproved: true },
+      data: updateData,
       include: { seller: true }
     });
 
@@ -878,7 +881,7 @@ export async function approveProduct(productId: string, adminEmail: string): Pro
       data: {
         action: "APPROVE_PRODUCT",
         adminEmail,
-        details: `Approved product ${productId}`
+        details: `Approved product ${productId}${categoryId ? ` with category ${categoryId}` : ""}`
       }
     });
 
