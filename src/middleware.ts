@@ -1,11 +1,11 @@
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
+export default clerkMiddleware(async (auth, request) => {
   const sessionCookie = request.cookies.get('earthcentric_session')?.value;
   
   // Public paths that do not require authentication
-  const publicPaths = ['/', '/auth/login', '/auth/signup', '/marketplace', '/products', '/about', '/contact'];
+  const publicPaths = ['/', '/auth/login', '/auth/signup', '/marketplace', '/products', '/about', '/contact', '/sign-in', '/sign-up'];
   const isPublicPath = publicPaths.some(path => request.nextUrl.pathname === path || request.nextUrl.pathname.startsWith('/products/'));
 
   // Admin routes
@@ -66,10 +66,12 @@ export function middleware(request: NextRequest) {
   }
 
   return NextResponse.next();
-}
+});
 
 export const config = {
   matcher: [
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/(api|trpc)(.*)',
+    '/__clerk/:path*',
   ],
 };

@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { syncUserInDb, loginUser, signupUser, logoutUser } from "@/actions/auth";
 import { toast } from "sonner";
+import { useUser, useAuth as useClerkAuth } from "@clerk/nextjs";
 
 export type Role = "BUYER" | "SELLER" | "ADMIN";
 
@@ -59,6 +60,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  const { user: clerkUser, isLoaded: clerkLoaded, isSignedIn } = useUser();
+  const { signOut } = useClerkAuth();
+
+  // 1. Sync Clerk session state to AuthContext and database/cookies
+  useEffect(() => {
+    if (!clerkLoaded) return;
+
+    if (isSignedIn && clerkUser) {
+      const email = clerkUser.primaryEmailAddress?.emailAddress;
+      if (email && (!user || user.email !== email)) {
+        setIsLoading(true);
+        syncUserInDb({
+          id: clerkUser.id,
+          name: clerkUser.fullName || clerkUser.username || "Conscious Buyer",
+          email: email,
+          role: "BUYER", // Default role for new Clerk signups
+        }).then((synced) => {
+          const finalUser = synced || {
+            id: clerkUser.id,
+            name: clerkUser.fullName || clerkUser.username || "Conscious Buyer",
+            email: email,
+            role: "BUYER" as const,
+          };
+          setUser(finalUser);
+          localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
+          setIsLoading(false);
+        }).catch((err) => {
+          console.error("Error syncing Clerk user:", err);
+          setIsLoading(false);
+        });
+      }
+    } else if (!isSignedIn && user) {
+      // If user is not logged in via Clerk but local user exists, clean up
+      setUser(null);
+      localStorage.removeItem("earthcentric_user");
+      logoutUser().catch(console.error);
+    }
+  }, [isSignedIn, clerkUser, clerkLoaded]);
+
+  // 2. Initial background sync when already logged in
   useEffect(() => {
     const cachedUser = localStorage.getItem("earthcentric_user");
     let current: User | null = null;
@@ -69,6 +110,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         current = null;
       }
     }
+
+    // Only use cached user if it matches the current Clerk email (if signed in)
+    if (isSignedIn && clerkUser) {
+      const email = clerkUser.primaryEmailAddress?.emailAddress;
+      if (current && current.email !== email) {
+        current = null;
+      }
+    } else if (!isSignedIn) {
+      current = null;
+    }
+
     setUser(current);
     setIsLoading(false);
 
@@ -89,7 +141,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // Ensure server session is cleared if local state is empty
       logoutUser().catch(console.error);
     }
-  }, []);
+  }, [isSignedIn, clerkUser]);
 
   const login = async (email: string, password?: string) => {
     setIsLoading(true);
@@ -154,7 +206,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUser(null);
     localStorage.removeItem("earthcentric_user");
     await logoutUser();
-    router.push("/auth/login");
+    await signOut();
+    router.push("/");
   };
 
   const switchRole = async (role: Role) => {

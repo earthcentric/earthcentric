@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, Role } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { UserButton } from "@clerk/nextjs";
 import { Button, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { ScaleHover, AnimatePresence } from "@/components/FramerComponents";
 import { motion } from "framer-motion";
@@ -382,23 +383,26 @@ export default function Navbar() {
 
             {/* User Account Dropdown */}
             {user ? (
-              <div className="relative">
-                <button
-                  onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none border-none bg-transparent"
-                >
-                  <UserIcon className="h-5 w-5" />
-                  <span className="text-[10px] font-bold mt-1 max-w-[80px] truncate">
-                    {user.name.split(" ")[0]}
-                  </span>
-                </button>
+              <div className="flex items-center space-x-3">
+                <UserButton />
+                
+                <div className="relative">
+                  <button
+                    onClick={() => setIsProfileOpen(!isProfileOpen)}
+                    className="flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none border-none bg-transparent"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                    <span className="text-[10px] font-bold mt-1 max-w-[80px] truncate">
+                      {user.name.split(" ")[0]}
+                    </span>
+                  </button>
 
-                {isProfileOpen && (
-                  <div className="absolute right-0 mt-2 w-52 rounded-xl border border-slate-100 bg-white p-1.5 shadow-lg z-50 text-left">
-                    <div className="border-b border-slate-50 px-3 py-2.5 mb-1.5">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{user.name}</p>
-                      <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
-                    </div>
+                  {isProfileOpen && (
+                    <div className="absolute right-0 mt-2 w-52 rounded-xl border border-slate-100 bg-white p-1.5 shadow-lg z-50 text-left">
+                      <div className="border-b border-slate-50 px-3 py-2.5 mb-1.5">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{user.name}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
+                      </div>
 
                     <Link
                       href="/orders"
@@ -458,13 +462,16 @@ export default function Navbar() {
                   </div>
                 )}
               </div>
-            ) : (
-              <Link href="/auth/login">
-                <div className="flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none">
-                  <UserIcon className="h-5 w-5" />
-                  <span className="text-[10px] font-bold mt-1">Account</span>
-                </div>
-              </Link>
+            </div>
+          ) : (
+              <div className="flex items-center space-x-2">
+                <Link href="/sign-in" className="text-xs font-bold text-slate-500 hover:text-[#0F6E56] transition-colors px-2 py-1">
+                  Sign In
+                </Link>
+                <Link href="/sign-up" className="text-xs font-bold bg-[#0F6E56] text-white px-3 py-1.5 rounded-full hover:bg-[#0c5a46] transition-colors">
+                  Sign Up
+                </Link>
+              </div>
             )}
 
             {/* Shopping Cart Trigger */}
@@ -669,13 +676,20 @@ export default function Navbar() {
                 </button>
               </div>
             ) : (
-              <div className="border-t border-slate-100 pt-3 mt-3">
+              <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
                 <Link
-                  href="/auth/login"
-                  className="block text-base font-bold py-2 text-[#0F6E56] hover:text-[#0c5a46]"
+                  href="/sign-in"
+                  className="block text-base font-bold py-1.5 text-[#0F6E56] hover:text-[#0c5a46]"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  Sign In / Login
+                  Sign In
+                </Link>
+                <Link
+                  href="/sign-up"
+                  className="block text-base font-bold py-1.5 text-slate-500 hover:text-slate-700"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Create Account
                 </Link>
               </div>
             )}
