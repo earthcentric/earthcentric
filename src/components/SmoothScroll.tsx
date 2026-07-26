@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import Lenis from "lenis";
+import { usePathname } from "next/navigation";
 
 interface SmoothScrollProps {
   children: React.ReactNode;
@@ -9,10 +10,17 @@ interface SmoothScrollProps {
 
 export default function SmoothScroll({ children }: SmoothScrollProps) {
   const lenisRef = useRef<Lenis | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     // Only run on client-side and verify window is available
     if (typeof window === "undefined") return;
+
+    // Do not initialize Lenis on seller/admin dashboards as they use native/nested scroll layout structures
+    const isDashboard = pathname.startsWith("/seller") || pathname.startsWith("/admin");
+    if (isDashboard) {
+      return;
+    }
 
     // Initialize Lenis smooth scrolling
     const lenis = new Lenis({
@@ -40,7 +48,7 @@ export default function SmoothScroll({ children }: SmoothScrollProps) {
       lenis.destroy();
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [pathname]);
 
   return <>{children}</>;
 }

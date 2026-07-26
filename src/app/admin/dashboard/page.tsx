@@ -734,17 +734,25 @@ function UserManagementView({ usersData, onInspectSeller, onInspectBuyer }: any)
         <p className="text-sm text-muted-foreground mt-1">View and manage all registered users and their recent order history.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
-          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Registered Users</p>
+          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Users</p>
           <h3 className="text-3xl font-black text-[#1a3321]">{displayData.totalUsers}</h3>
         </Card>
         <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
-          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Orders Booked</p>
+          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Buyers</p>
+          <h3 className="text-3xl font-black text-[#1a3321]">{displayData.users.filter((u: any) => u.role === "BUYER").length}</h3>
+        </Card>
+        <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Sellers</p>
+          <h3 className="text-3xl font-black text-[#1a3321]">{displayData.users.filter((u: any) => u.role === "SELLER").length}</h3>
+        </Card>
+        <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
+          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Orders Booked</p>
           <h3 className="text-3xl font-black text-[#1a3321]">{displayData.totalOrdersBooked}</h3>
         </Card>
         <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
-          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Revenue Generated</p>
+          <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-2">Total Revenue</p>
           <h3 className="text-3xl font-black text-[#1a3321]">₹{displayData.totalRevenue.toLocaleString()}</h3>
         </Card>
       </div>
