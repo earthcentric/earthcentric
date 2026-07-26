@@ -68,11 +68,7 @@ export default function Footer() {
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-primary dark:text-accent mb-4">For Partners</h4>
             <ul className="space-y-2.5 text-sm">
-              <li>
-                <Link href="/seller/verification" className="text-muted-foreground hover:text-foreground transition-colors">
-                  Seller Verification Flow
-                </Link>
-              </li>
+
               <li>
                 <Link href="/seller/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
                   Seller Dashboard

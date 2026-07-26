@@ -15,7 +15,7 @@ const QA_DATABASE: QA[] = [
   {
     keywords: ["become", "seller", "sell", "vendor", "registration", "onboard", "join", "supplier"],
     question: "How do I become a seller on EarthCentric?",
-    answer: "To become a seller, click 'Become a Seller' in your user account dropdown. You will fill out our onboarding form and upload sustainability verification documents (GOTS, FSC, USDA, etc.). Once submitted, Super Admin will audit your certificates and approve your profile within 24-48 hours. Approved sellers immediately unlock their Seller Dashboard."
+    answer: "Our seller verification and registration process is currently undergoing a complete update to enhance vendor onboarding standards. Please check back soon or contact support for seller inquiries."
   },
   {
     keywords: ["eco", "score", "ecoscore", "sustainability", "rating", "points", "impact"],

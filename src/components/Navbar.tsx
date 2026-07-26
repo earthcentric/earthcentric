@@ -649,15 +649,7 @@ export default function Navbar() {
                     Admin Dashboard
                   </Link>
                 )}
-                {user.role === "BUYER" && (
-                  <Link
-                    href="/seller/verification"
-                    className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    Become a Seller
-                  </Link>
-                )}
+
                 <Link
                   href="/wishlist"
                   className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"

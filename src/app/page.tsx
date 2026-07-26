@@ -506,11 +506,6 @@ export default function Homepage() {
                       <ArrowRight className="h-4 w-4" />
                     </LiquidButton>
                   </Link>
-                  <Link href="/seller/verification" className="w-full sm:w-auto">
-                    <Button size="lg" variant="cool" className="w-full sm:w-auto justify-center">
-                      Become a Seller
-                    </Button>
-                  </Link>
                 </div>
 
                 <div className="pt-6 border-t border-[#d0c6b8]/30 max-w-xl grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs text-muted-foreground font-semibold">
@@ -846,14 +841,7 @@ export default function Homepage() {
                 <p className="text-base text-muted-foreground leading-relaxed">
                   We believe greenwashing hurts our planet. EarthCentric enforces strict verification, computes shipment carbon footprint offsets, and audits material life cycles so you can trade with absolute peace of mind.
                 </p>
-                <div className="pt-2">
-                  <Link href="/seller/verification">
-                    <Button variant="cool" className="flex items-center space-x-2">
-                      <span>Read Verification Guidelines</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                </div>
+
               </div>
             </FadeInStaggerItem>
 
@@ -951,13 +939,7 @@ export default function Homepage() {
                   <span className="font-semibold text-sm">Verified Environmental Impact & Carbon Offsetting</span>
                 </div>
               </div>
-              <div className="pt-4">
-                <Link href="/seller/verification">
-                  <MetalButton variant="gold" className="w-full sm:w-auto">
-                    Get Your Brand Verified
-                  </MetalButton>
-                </Link>
-              </div>
+
             </div>
 
             <div className="relative h-56 sm:h-80 lg:h-full min-h-[200px] sm:min-h-[350px] rounded-2xl overflow-hidden shadow-2xl">

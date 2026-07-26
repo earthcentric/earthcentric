@@ -657,10 +657,7 @@ export default function MarketplaceClient() {
                     We vet every vendor before letting them sell. Legal identity, business registrations, and sustainable materials audits are strictly mandatory.
                   </p>
                 </div>
-                <Link href="/seller/verification" className="text-xs font-bold text-amber-400 hover:text-amber-350 flex items-center space-x-1 mt-4 w-fit">
-                  <span>Get verified as a supplier</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+
               </div>
             </div>
           </div>
