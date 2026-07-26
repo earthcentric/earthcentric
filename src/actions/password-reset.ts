@@ -17,6 +17,8 @@ function generateOTP(): string {
 export async function requestPasswordReset(email: string): Promise<{
   success: boolean;
   error?: string;
+  isMock?: boolean;
+  otp?: string;
 }> {
   if (!email || !email.includes("@")) {
     return { success: false, error: "Please enter a valid email address." };
@@ -63,12 +65,14 @@ export async function requestPasswordReset(email: string): Promise<{
   // Send OTP email
   const result = await sendForgotPasswordOTPEmail(normalizedEmail, otp);
 
-  if (!result.success) {
-    return { success: false, error: "Failed to send verification email. Please try again." };
-  }
+  const isMockOrFailed = !result.success || (result as any).isMock;
 
   console.log(`[OTP] Code sent to ${normalizedEmail}: ${otp}`);
-  return { success: true };
+  return {
+    success: true,
+    isMock: isMockOrFailed,
+    otp: process.env.NODE_ENV === "development" ? otp : undefined,
+  };
 }
 
 // ─── Verify OTP ────────────────────────────────────────────────────
@@ -116,6 +120,8 @@ export async function verifyPasswordResetOTP(
 export async function resendPasswordResetOTP(email: string): Promise<{
   success: boolean;
   error?: string;
+  isMock?: boolean;
+  otp?: string;
 }> {
   return requestPasswordReset(email);
 }

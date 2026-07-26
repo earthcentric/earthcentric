@@ -77,7 +77,7 @@ interface EmailPayload {
   from?: string;
 }
 
-export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; id?: string; error?: string }> {
+export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; id?: string; error?: string; isMock?: boolean }> {
   const smtpFrom = await getCredential("SMTP_FROM", "EarthCentric <noreply@earthcentric.com>");
   const fromAddress = payload.from || smtpFrom;
 
@@ -89,7 +89,7 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     console.log(`Subject: ${payload.subject}`);
     console.log(`Body (Preview): ${payload.html.replace(/<[^>]*>/g, '').substring(0, 200).trim()}...`);
     console.log("─────────────────────────────────────────");
-    return { success: true, id: `mock_email_${Date.now()}` };
+    return { success: true, id: `mock_email_${Date.now()}`, isMock: true };
   }
 
   try {
@@ -113,7 +113,7 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     console.log(`Subject: ${payload.subject}`);
     console.log(`Body (Plaintext): ${payload.html.replace(/<[^>]*>/g, '').trim()}`);
     console.log("─────────────────────────────────────────\n");
-    return { success: true, id: `fallback_mock_email_${Date.now()}` };
+    return { success: true, id: `fallback_mock_email_${Date.now()}`, isMock: true, error: error.message || String(error) };
   }
 }
 

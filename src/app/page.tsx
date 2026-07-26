@@ -565,10 +565,6 @@ export default function Homepage() {
                           <span className="bg-[#173528]/95 text-white text-[8px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider shadow-sm">
                             {item.category}
                           </span>
-                          <span className="bg-emerald-600 text-white text-[8px] font-extrabold px-2 py-0.5 rounded-md tracking-wider flex items-center gap-0.5 shadow-sm">
-                            <Leaf className="h-2.5 w-2.5 fill-white stroke-none" />
-                            <span>Eco Score: {item.sustainabilityScore}</span>
-                          </span>
                         </div>
                       </div>
                       <div className="p-4 space-y-1.5 text-left">
@@ -952,7 +948,7 @@ export default function Homepage() {
                 </div>
                 <div className="flex items-center space-x-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/20 text-accent font-bold">3</div>
-                  <span className="font-semibold text-sm">Dynamic Sustainability Scoring Assignment (1-100)</span>
+                  <span className="font-semibold text-sm">Verified Environmental Impact & Carbon Offsetting</span>
                 </div>
               </div>
               <div className="pt-4">

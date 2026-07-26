@@ -9,7 +9,6 @@ export interface SellerData {
   id: string;
   name: string;
   city: string;
-  sustainabilityScore: number;
   productCount: number;
   badge: "Premium Seller" | "Verified Business" | "Sustainable Mfr.";
 }
@@ -19,7 +18,6 @@ export const TOP_SELLERS: SellerData[] = [
     id: "s1",
     name: "GreenLeaf Organics",
     city: "Bangalore",
-    sustainabilityScore: 97,
     productCount: 142,
     badge: "Premium Seller",
   },
@@ -27,7 +25,6 @@ export const TOP_SELLERS: SellerData[] = [
     id: "s2",
     name: "EcoWeave Textiles",
     city: "Ahmedabad",
-    sustainabilityScore: 94,
     productCount: 88,
     badge: "Sustainable Mfr.",
   },
@@ -35,7 +32,6 @@ export const TOP_SELLERS: SellerData[] = [
     id: "s3",
     name: "SolarBright India",
     city: "Chennai",
-    sustainabilityScore: 96,
     productCount: 56,
     badge: "Verified Business",
   },
@@ -43,7 +39,6 @@ export const TOP_SELLERS: SellerData[] = [
     id: "s4",
     name: "HempHarvest Co.",
     city: "Pune",
-    sustainabilityScore: 92,
     productCount: 74,
     badge: "Sustainable Mfr.",
   },
@@ -51,7 +46,6 @@ export const TOP_SELLERS: SellerData[] = [
     id: "s5",
     name: "ZeroWaste Hub",
     city: "Mumbai",
-    sustainabilityScore: 98,
     productCount: 105,
     badge: "Premium Seller",
   },
@@ -59,7 +53,6 @@ export const TOP_SELLERS: SellerData[] = [
     id: "s6",
     name: "TerraCraft Studio",
     city: "Jaipur",
-    sustainabilityScore: 90,
     productCount: 63,
     badge: "Verified Business",
   },
@@ -95,9 +88,6 @@ export function SellerCard({ seller }: { seller: SellerData }) {
 
         {/* Badges/Tags */}
         <div className="flex flex-wrap gap-2 text-xs">
-          <Badge variant="premium" className="bg-emerald-600 text-white border-none py-0.5 px-2 text-[9px] font-bold">
-            Score: {seller.sustainabilityScore}/100
-          </Badge>
           <Badge variant="secondary" className="bg-muted text-muted-foreground border-none py-0.5 px-2 text-[9px] font-semibold flex items-center">
             <ShoppingBag className="h-2.5 w-2.5 mr-0.5" />
             {seller.productCount} Products

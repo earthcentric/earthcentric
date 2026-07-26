@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useCart } from "@/context/CartContext";
@@ -8,7 +8,9 @@ import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
 import { getRazorpayKeyId } from "@/actions/credentials";
-import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2 } from "lucide-react";
+import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
+import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star } from "lucide-react";
+import Link from "next/link";
 
 export default function CheckoutPage() {
   const { cart, cartTotal, clearCart } = useCart();
@@ -16,17 +18,66 @@ export default function CheckoutPage() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  // Address Form State
-  const [street, setStreet] = useState("14 Green Ridge Lane");
-  const [city, setCity] = useState("Bangalore");
-  const [state, setState] = useState("Karnataka");
-  const [postalCode, setPostalCode] = useState("560001");
+  // Saved addresses
+  const [savedAddresses, setSavedAddresses] = useState<AddressData[]>([]);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [showNewAddressForm, setShowNewAddressForm] = useState(false);
+
+  // New address form state
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("India");
+  const [savingAddress, setSavingAddress] = useState(false);
 
   // Payment Status Simulator State
   const [showMockGateway, setShowMockGateway] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [activeRazorpayOrderId, setActiveRazorpayOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      getUserAddresses(user.id).then((addrs) => {
+        setSavedAddresses(addrs);
+        const def = addrs.find((a) => a.isDefault) || addrs[0];
+        if (def?.id) setSelectedAddressId(def.id);
+        if (addrs.length === 0) setShowNewAddressForm(true);
+        setAddressesLoading(false);
+      });
+    } else {
+      setAddressesLoading(false);
+      setShowNewAddressForm(true);
+    }
+  }, [user]);
+
+  const handleSaveNewAddress = async () => {
+    if (!street || !city || !state || !postalCode || !country) {
+      alert("Please fill in all address fields.");
+      return;
+    }
+    if (!user) return;
+    setSavingAddress(true);
+    const res = await addUserAddress(user.id, { street, city, state, postalCode, country });
+    setSavingAddress(false);
+    if (res.success && res.address) {
+      setSavedAddresses((prev) => [...prev, res.address!]);
+      setSelectedAddressId(res.address.id!);
+      setShowNewAddressForm(false);
+    }
+  };
+
+  const getSelectedAddress = (): AddressInput | null => {
+    if (selectedAddressId) {
+      const addr = savedAddresses.find((a) => a.id === selectedAddressId);
+      if (addr) return { street: addr.street, city: addr.city, state: addr.state, postalCode: addr.postalCode, country: addr.country };
+    }
+    if (showNewAddressForm && street && city && state && postalCode && country) {
+      return { street, city, state, postalCode, country };
+    }
+    return null;
+  };
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,11 +85,16 @@ export default function CheckoutPage() {
       alert("Please log in to complete your purchase.");
       return;
     }
-
     if (cart.length === 0) return;
 
+    const address = getSelectedAddress();
+    if (!address) {
+      alert("Please select or add a delivery address.");
+      return;
+    }
+
     startTransition(async () => {
-      const address: AddressInput = { street, city, state, postalCode, country };
+      const address = getSelectedAddress()!;
       const items = cart.map((item) => ({
         productId: item.id,
         name: item.name,
@@ -167,42 +223,101 @@ export default function CheckoutPage() {
       <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-primary">Secure Checkout</h1>
 
       <form onSubmit={handleCheckoutSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Delivery Address (Stripe style layout) */}
+        {/* Left Column: Delivery Address */}
         <div className="lg:col-span-7">
-          <Card className="border-border/40 p-6 space-y-6 bg-card">
+          <Card className="border-border/40 p-6 space-y-5 bg-card">
             <h3 className="font-bold text-sm text-primary uppercase tracking-wider flex items-center space-x-2 border-b border-border/20 pb-3">
               <CreditCard className="h-4 w-4" />
-              <span>Shipping Address Details</span>
+              <span>Delivery Address</span>
             </h3>
 
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <Label>Street Address</Label>
-                <Input value={street} onChange={(e) => setStreet(e.target.value)} required />
+            {addressesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
               </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Saved Address Cards */}
+                {savedAddresses.map((addr) => (
+                  <button
+                    key={addr.id}
+                    type="button"
+                    onClick={() => { setSelectedAddressId(addr.id!); setShowNewAddressForm(false); }}
+                    className={`w-full text-left rounded-xl border p-4 transition ${
+                      selectedAddressId === addr.id
+                        ? "border-primary bg-primary/5 shadow-sm"
+                        : "border-border/40 hover:border-primary/40"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        selectedAddressId === addr.id ? "border-primary bg-primary" : "border-muted-foreground/40"
+                      }`}>
+                        {selectedAddressId === addr.id && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                      </div>
+                      <div>
+                        {addr.isDefault && (
+                          <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full mr-2">Default</span>
+                        )}
+                        <p className="text-sm font-medium text-foreground">{addr.street}</p>
+                        <p className="text-xs text-muted-foreground">{addr.city}, {addr.state} — {addr.postalCode}, {addr.country}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label>City</Label>
-                  <Input value={city} onChange={(e) => setCity(e.target.value)} required />
-                </div>
-                <div className="space-y-1">
-                  <Label>State / Province</Label>
-                  <Input value={state} onChange={(e) => setState(e.target.value)} required />
-                </div>
-              </div>
+                {/* Add New Address Toggle */}
+                {savedAddresses.length > 0 && !showNewAddressForm && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowNewAddressForm(true); setSelectedAddressId(null); }}
+                    className="w-full flex items-center gap-2 rounded-xl border border-dashed border-primary/30 px-4 py-3 text-sm text-primary hover:bg-primary/5 transition"
+                  >
+                    <Plus className="h-4 w-4" /> Use a different / new address
+                  </button>
+                )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label>Postal / ZIP Code</Label>
-                  <Input value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required />
-                </div>
-                <div className="space-y-1">
-                  <Label>Country</Label>
-                  <Input value={country} onChange={(e) => setCountry(e.target.value)} required />
-                </div>
+                {/* New Address Inline Form */}
+                {showNewAddressForm && (
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+                    <p className="text-xs font-semibold text-primary mb-2">Enter New Address</p>
+                    <div className="space-y-1">
+                      <Label>Street Address</Label>
+                      <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="e.g. 14 Green Ridge Lane" required={!selectedAddressId} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1"><Label>City</Label><Input value={city} onChange={(e) => setCity(e.target.value)} required={!selectedAddressId} /></div>
+                      <div className="space-y-1"><Label>State</Label><Input value={state} onChange={(e) => setState(e.target.value)} required={!selectedAddressId} /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1"><Label>Postal Code</Label><Input value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required={!selectedAddressId} /></div>
+                      <div className="space-y-1"><Label>Country</Label><Input value={country} onChange={(e) => setCountry(e.target.value)} required={!selectedAddressId} /></div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      {user && (
+                        <button
+                          type="button"
+                          onClick={handleSaveNewAddress}
+                          disabled={savingAddress}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition disabled:opacity-60"
+                        >
+                          {savingAddress ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          Save & Use This Address
+                        </button>
+                      )}
+                      {savedAddresses.length > 0 && (
+                        <button type="button" onClick={() => { setShowNewAddressForm(false); const def = savedAddresses.find(a => a.isDefault) || savedAddresses[0]; setSelectedAddressId(def?.id ?? null); }} className="px-3 py-2 rounded-lg border text-xs text-muted-foreground hover:bg-muted/30 transition">
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Or <Link href="/account" className="underline text-primary">manage addresses</Link> in your account to save them for future orders.
+                    </p>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </Card>
         </div>
 

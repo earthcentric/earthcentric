@@ -22,7 +22,7 @@ function generateOtp(): string {
 export async function sendBuyerOtp(
   email: string,
   name: string
-): Promise<{ success: boolean; emailFailed?: boolean; error?: string }> {
+): Promise<{ success: boolean; emailFailed?: boolean; error?: string; otp?: string }> {
   try {
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -70,15 +70,16 @@ export async function sendBuyerOtp(
       otp
     );
 
-    if (!emailResult.success) {
-      return {
-        success: true,
-        emailFailed: true,
-        error: `SMTP delivery failed (${emailResult.error || "BadCredentials"}). Dev Mode: Check terminal console for the 6-digit OTP code!`,
-      };
-    }
+    const isMockOrFailed = !emailResult.success || (emailResult as any).isMock;
 
-    return { success: true, emailFailed: false };
+    return {
+      success: true,
+      emailFailed: isMockOrFailed,
+      otp: process.env.NODE_ENV === "development" ? otp : undefined,
+      error: isMockOrFailed
+        ? `SMTP delivery failed (${(emailResult as any).error || "BadCredentials"}). Dev Mode: Exposing OTP directly.`
+        : undefined
+    };
   } catch (error) {
     console.error("sendBuyerOtp failed:", error);
     return {

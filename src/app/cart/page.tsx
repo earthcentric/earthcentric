@@ -45,22 +45,26 @@ export default function CartPage() {
           <div className="lg:col-span-8 space-y-4">
             {cart.map((item) => (
               <Card key={item.id} className="border-border/40 bg-card p-5 flex flex-col sm:flex-row items-center gap-5">
-                <img
-                  src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
-                  alt={item.name}
-                  className="h-20 w-20 rounded-xl object-cover border border-border/20 shrink-0"
-                />
+                <Link href={`/products/${item.id}`} className="shrink-0 hover:opacity-90 transition-opacity">
+                  <img
+                    src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
+                    alt={item.name}
+                    className="h-20 w-20 rounded-xl object-cover border border-border/20 shrink-0 cursor-pointer"
+                  />
+                </Link>
                 
                 <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
-                    <h3 className="font-bold text-sm text-foreground truncate">{item.name}</h3>
-                    <span className="text-sm font-bold sm:ml-4 text-foreground">₹{item.price * item.quantity}</span>
+                    <Link href={`/products/${item.id}`} className="hover:text-primary transition-colors truncate">
+                      <h3 className="font-bold text-sm text-foreground truncate cursor-pointer">{item.name}</h3>
+                    </Link>
+                    <span className="text-sm font-bold sm:ml-4 text-foreground shrink-0">₹{item.price * item.quantity}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">by {item.sellerName}</p>
                   
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-1">
                     <Badge variant="primary" className="text-[10px] bg-primary/10 text-primary border-none">
-                      🌿 Eco Score: {item.sustainabilityScore}
+                      🌿 Sustainable Verified
                     </Badge>
                     <Badge variant="outline" className="text-[10px] text-muted-foreground border-border/40">
                       Carbon Neutral

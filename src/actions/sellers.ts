@@ -859,3 +859,57 @@ export async function getVerifiedSellers() {
     return [];
   }
 }
+
+export async function getAllBrands() {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const uniqueMap = new Map<string, { id: string; companyName: string }>();
+      mockSellers.forEach(s => {
+        if (!uniqueMap.has(s.companyName)) {
+          uniqueMap.set(s.companyName, { id: s.id, companyName: s.companyName });
+        }
+      });
+      if (!uniqueMap.has("Earth Centric")) {
+        uniqueMap.set("Earth Centric", { id: "seller-pkg", companyName: "Earth Centric" });
+      }
+      return Array.from(uniqueMap.values()).sort((a, b) => a.companyName.localeCompare(b.companyName));
+    }
+
+    const sellers = await db.seller.findMany({
+      select: {
+        id: true,
+        companyName: true,
+      },
+      orderBy: {
+        companyName: "asc",
+      },
+    });
+
+    const uniqueMap = new Map<string, { id: string; companyName: string }>();
+    sellers.forEach(s => {
+      if (s.companyName && !uniqueMap.has(s.companyName)) {
+        uniqueMap.set(s.companyName, { id: s.id, companyName: s.companyName });
+      }
+    });
+
+    if (uniqueMap.size === 0) {
+      return [
+        { id: "seller-pkg", companyName: "Earth Centric" },
+        { id: "seller-1-profile", companyName: "EcoThreads Apparel" },
+        { id: "seller-2-profile", companyName: "BioKnit Textiles" },
+        { id: "seller-3-profile", companyName: "Forest Craft Co." }
+      ].sort((a, b) => a.companyName.localeCompare(b.companyName));
+    }
+
+    return Array.from(uniqueMap.values()).sort((a, b) => a.companyName.localeCompare(b.companyName));
+  } catch (e) {
+    console.error("Failed to fetch all brands", e);
+    return [
+      { id: "seller-pkg", companyName: "Earth Centric" },
+      { id: "seller-1-profile", companyName: "EcoThreads Apparel" },
+      { id: "seller-2-profile", companyName: "BioKnit Textiles" },
+      { id: "seller-3-profile", companyName: "Forest Craft Co." }
+    ].sort((a, b) => a.companyName.localeCompare(b.companyName));
+  }
+}
+

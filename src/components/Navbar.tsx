@@ -28,7 +28,15 @@ import {
   Heart,
   MapPin,
   Home,
+  Bell,
+  Package,
+  Tag,
+  Sparkles,
+  CheckCheck,
+  Clock,
+  AlertTriangle,
 } from "lucide-react";
+import { getUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/actions/notifications";
 
 interface NavbarSearchProps {
   onSearchComplete?: () => void;
@@ -66,6 +74,189 @@ function NavbarSearch({ onSearchComplete }: NavbarSearchProps) {
         className="w-full bg-muted/40 hover:bg-muted/65 focus:bg-card border border-border/40 rounded-full pl-9 pr-4 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
       />
     </form>
+  );
+}
+
+function formatTimeAgo(dateInput: Date | string) {
+  try {
+    const date = new Date(dateInput);
+    const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diffSec < 60) return "Just now";
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+  } catch (e) {
+    return "Recent";
+  }
+}
+
+function BuyerNotificationMenu({ userId }: { userId: string }) {
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [filter, setFilter] = useState<"ALL" | "ORDERS" | "OFFERS">("ALL");
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+
+  const loadNotifs = async () => {
+    setIsLoading(true);
+    try {
+      const data = await getUserNotifications(userId);
+      setNotifications(data || []);
+    } catch (e) {
+      console.error("Failed to load notifications:", e);
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    if (userId) {
+      loadNotifs();
+    }
+  }, [userId]);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  const handleItemClick = async (notif: any) => {
+    if (!notif.isRead) {
+      setNotifications((prev) => prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n)));
+      await markNotificationAsRead(notif.id).catch(() => {});
+    }
+    setIsOpen(false);
+    if (notif.actionUrl) {
+      router.push(notif.actionUrl);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    await markAllNotificationsAsRead(userId).catch(() => {});
+  };
+
+  const filteredNotifs = notifications.filter((n) => {
+    const isOrderType = n.type === "ORDER" || n.title.toLowerCase().includes("order");
+    const isOfferType =
+      n.type === "OFFER" ||
+      n.type === "DEAL" ||
+      n.title.toLowerCase().includes("deal") ||
+      n.title.toLowerCase().includes("offer") ||
+      n.title.toLowerCase().includes("welcome");
+
+    if (filter === "ORDERS") return isOrderType;
+    if (filter === "OFFERS") return isOfferType;
+    return true;
+  });
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => {
+          setIsOpen(!isOpen);
+          if (!isOpen) loadNotifs();
+        }}
+        className="relative flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none border-none bg-transparent"
+        title="Notifications"
+      >
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-bold text-white shadow-sm animate-pulse">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+        <span className="text-[10px] font-bold mt-1">Updates</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 sm:right-auto sm:-left-36 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl z-50 text-left">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2 px-1">
+            <div className="flex items-center space-x-2">
+              <span className="font-bold text-sm text-slate-800">Notifications</span>
+              {unreadCount > 0 && (
+                <span className="bg-[#0F6E56]/10 text-[#0F6E56] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {unreadCount} new
+                </span>
+              )}
+            </div>
+            {unreadCount > 0 && (
+              <button
+                onClick={handleMarkAllRead}
+                className="text-[11px] text-[#0F6E56] hover:underline font-semibold flex items-center space-x-1 border-none bg-transparent cursor-pointer"
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                <span>Mark all read</span>
+              </button>
+            )}
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex space-x-1 border-b border-slate-100 pb-2 mb-2">
+            {(["ALL", "ORDERS", "OFFERS"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border-none cursor-pointer ${
+                  filter === tab
+                    ? "bg-[#0F6E56] text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {tab === "ALL" ? "All" : tab === "ORDERS" ? "📦 Orders" : "🏷️ Offers & Deals"}
+              </button>
+            ))}
+          </div>
+
+          {/* List */}
+          <div className="max-h-80 overflow-y-auto space-y-1.5 pr-0.5">
+            {filteredNotifs.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 space-y-1">
+                <Bell className="h-8 w-8 mx-auto text-slate-200" />
+                <p className="text-xs font-semibold">No notifications found</p>
+                <p className="text-[10px]">Check back later for order updates & eco deals!</p>
+              </div>
+            ) : (
+              filteredNotifs.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={() => handleItemClick(n)}
+                  className={`p-2.5 rounded-xl transition-all cursor-pointer border ${
+                    !n.isRead
+                      ? "bg-emerald-50/60 border-emerald-100 hover:bg-emerald-50"
+                      : "bg-white border-slate-100 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-start space-x-2.5">
+                    <div className="mt-0.5 shrink-0 p-1.5 rounded-lg bg-slate-100">
+                      {n.title.toLowerCase().includes("cancelled") ? (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      ) : n.type === "ORDER" || n.title.toLowerCase().includes("order") ? (
+                        <Package className="h-4 w-4 text-[#0F6E56]" />
+                      ) : n.type === "OFFER" || n.type === "DEAL" || n.title.toLowerCase().includes("deal") || n.title.toLowerCase().includes("offer") ? (
+                        <Tag className="h-4 w-4 text-[#D97706]" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 text-[#0F6E56]" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between space-x-1">
+                        <p className="text-xs font-bold text-slate-800 truncate">{n.title}</p>
+                        <span className="text-[9px] text-slate-400 shrink-0">{formatTimeAgo(n.createdAt)}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 line-clamp-2 mt-0.5 leading-snug">{n.message}</p>
+                    </div>
+                    {!n.isRead && (
+                      <span className="h-2 w-2 rounded-full bg-[#0F6E56] shrink-0 mt-1" />
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -178,6 +369,11 @@ export default function Navbar() {
               </Link>
             )}
 
+            {/* Notification Bell (for registered buyers/users - placed between Search Bar and Wishlist) */}
+            {user && (
+              <BuyerNotificationMenu userId={user.id} />
+            )}
+
             {/* Wishlist Link */}
             <Link href="/wishlist" className="hidden sm:flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none">
               <Heart className="h-5 w-5" />
@@ -214,25 +410,18 @@ export default function Navbar() {
                     </Link>
 
                     {user.role === "BUYER" && (
-                      <>
-                        <Link
-                          href="/marketplace"
-                          className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <ShoppingBag className="h-4 w-4" />
-                          <span>Go to Shop</span>
-                        </Link>
-                        <Link
-                          href="/seller/verification"
-                          className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <Building className="h-4 w-4" />
-                          <span>Become a Seller</span>
-                        </Link>
-                      </>
+                      <Link
+                        href="/account"
+                        className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => setIsProfileOpen(false)}
+                      >
+                        <UserIcon className="h-4 w-4" />
+                        <span>My Account</span>
+                      </Link>
                     )}
+
+
+
 
                     {user.role === "SELLER" && (
                       <Link
@@ -649,15 +838,19 @@ export default function Navbar() {
                 ) : (
                   cart.map((item) => (
                     <div key={item.id} className="flex items-center space-x-4 border-b border-border/30 pb-4 last:border-b-0">
-                      <img
-                        src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
-                        alt={item.name}
-                        className="h-16 w-16 rounded-md object-cover border border-border/40"
-                      />
+                      <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="shrink-0 hover:opacity-90 transition-opacity">
+                        <img
+                          src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
+                          alt={item.name}
+                          className="h-16 w-16 rounded-md object-cover border border-border/40 cursor-pointer"
+                        />
+                      </Link>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between">
-                          <h4 className="text-sm font-semibold text-foreground truncate">{item.name}</h4>
-                          <span className="text-sm font-bold ml-2">₹{item.price * item.quantity}</span>
+                          <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="hover:text-[#0F6E56] transition-colors truncate">
+                            <h4 className="text-sm font-semibold text-foreground truncate cursor-pointer">{item.name}</h4>
+                          </Link>
+                          <span className="text-sm font-bold ml-2 shrink-0">₹{item.price * item.quantity}</span>
                         </div>
                         <p className="text-xs text-muted-foreground truncate">by {item.sellerName}</p>
                         

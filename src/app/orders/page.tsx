@@ -4,7 +4,9 @@ import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { getOrdersByUser, OrderDetail } from "@/actions/orders";
-import { Card, Badge, Button } from "@/components/ui/shared";
+import { addProductReview } from "@/actions/products";
+import { toast } from "sonner";
+import { Card, Badge, Button, Textarea } from "@/components/ui/shared";
 import { 
   ShoppingBag, 
   Loader2, 
@@ -17,7 +19,9 @@ import {
   AlertCircle,
   Package,
   XCircle,
-  HelpCircle
+  HelpCircle,
+  Star,
+  X
 } from "lucide-react";
 
 export default function UserOrdersPage() {
@@ -26,6 +30,12 @@ export default function UserOrdersPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Product Review Modal State
+  const [reviewModalProduct, setReviewModalProduct] = useState<{ id: string; name: string; image: string } | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState<string>("");
+  const [submittingReview, setSubmittingReview] = useState<boolean>(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -212,16 +222,16 @@ export default function UserOrdersPage() {
               {/* Order Items */}
               <div className="p-6 divide-y divide-border/30">
                 {order.items.map((item, index) => (
-                  <div key={index} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+                  <div key={index} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-4">
                       {item.image ? (
                         <img
                           src={item.image}
                           alt={item.name}
-                          className="w-12 h-12 object-cover rounded-lg border border-slate-100 bg-slate-50"
+                          className="w-12 h-12 object-cover rounded-lg border border-slate-100 bg-slate-50 shrink-0"
                         />
                       ) : (
-                        <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
+                        <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
                           <Package className="w-6 h-6" />
                         </div>
                       )}
@@ -232,6 +242,21 @@ export default function UserOrdersPage() {
                         </p>
                       </div>
                     </div>
+
+                    {/* Review Button for Delivered Products Only */}
+                    {order.status === "DELIVERED" && (
+                      <button
+                        onClick={() => {
+                          setReviewModalProduct({ id: item.productId, name: item.name, image: item.image || "" });
+                          setReviewRating(5);
+                          setReviewComment("");
+                        }}
+                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1 shrink-0"
+                      >
+                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                        <span>Write Review</span>
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -246,6 +271,101 @@ export default function UserOrdersPage() {
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Write Review Modal for Delivered Products */}
+      {reviewModalProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4 border border-slate-100 text-left animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setReviewModalProduct(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 border-none bg-transparent cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="flex items-center space-x-3 border-b border-slate-100 pb-3">
+              <img
+                src={reviewModalProduct.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=200"}
+                alt={reviewModalProduct.name}
+                className="h-12 w-12 object-cover rounded-xl border border-slate-200 shrink-0"
+              />
+              <div>
+                <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-100">
+                  ✓ Verified Delivery Review
+                </span>
+                <h3 className="font-extrabold text-sm text-slate-800 line-clamp-1 mt-0.5">
+                  {reviewModalProduct.name}
+                </h3>
+              </div>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!user?.id || !reviewComment.trim()) return;
+                setSubmittingReview(true);
+                const res = await addProductReview({
+                  userId: user.id,
+                  productId: reviewModalProduct.id,
+                  rating: reviewRating,
+                  comment: reviewComment,
+                });
+                setSubmittingReview(false);
+                if (res.success) {
+                  toast.success("Thank you! Your verified purchase review has been submitted. ⭐");
+                  setReviewModalProduct(null);
+                } else {
+                  toast.error(res.error || "Failed to submit review.");
+                }
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Your Rating</span>
+                <div className="flex space-x-1.5 pt-1">
+                  {[1, 2, 3, 4, 5].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setReviewRating(val)}
+                      className="focus:outline-none cursor-pointer border-none bg-transparent"
+                    >
+                      <Star
+                        className={`h-7 w-7 transition-all ${
+                          val <= reviewRating ? "fill-amber-400 text-amber-400 scale-110" : "text-slate-200"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Review Comments</span>
+                <Textarea
+                  placeholder="How was the quality, packaging, and eco-friendliness of this product?"
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  required
+                  className="text-xs bg-slate-50 border-slate-200 min-h-[90px] rounded-xl focus:bg-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submittingReview}
+                className="w-full h-11 bg-[#0c3c26] hover:bg-[#082b1b] text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer border-none flex items-center justify-center space-x-2 disabled:opacity-50"
+              >
+                {submittingReview ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <span>Submit Verified Review ⭐</span>
+                )}
+              </button>
+            </form>
+          </div>
         </div>
       )}
     </div>

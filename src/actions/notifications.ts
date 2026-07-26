@@ -283,47 +283,68 @@ export async function markNotificationAsRead(id: string) {
 export async function getUserNotifications(userId: string) {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
+  // Default eco offers & deals for all buyers
+  const defaultOffers = [
+    {
+      id: "offer-deal-1",
+      title: "🔥 Special Eco Deal: 20% OFF",
+      message: "Use coupon code EARTH20 at checkout for 20% off all sustainable packaging & tableware!",
+      type: "OFFER",
+      actionUrl: "/marketplace",
+      isRead: false,
+      createdAt: new Date(Date.now() - 3600000 * 2)
+    },
+    {
+      id: "offer-deal-2",
+      title: "🌱 Welcome to EarthCentric!",
+      message: "Thank you for joining our carbon-neutral marketplace! Get 15% off your first order with WELCOME15.",
+      type: "DEAL",
+      actionUrl: "/marketplace",
+      isRead: false,
+      createdAt: new Date(Date.now() - 86400000)
+    },
+    {
+      id: "offer-deal-3",
+      title: "⚡ Free Shipping Weekend",
+      message: "Enjoy zero carbon-offset delivery fees on all orders above ₹499 this weekend.",
+      type: "OFFER",
+      actionUrl: "/marketplace",
+      isRead: false,
+      createdAt: new Date(Date.now() - 3600000 * 12)
+    }
+  ];
+
+  const isSellerAlert = (n: any) => {
+    const t = (n.title || "").toLowerCase();
+    const a = (n.actionUrl || "").toLowerCase();
+    return (
+      t.includes("new bulk quote enquiry") ||
+      t.includes("payout requested") ||
+      t.includes("payout settled") ||
+      t.includes("product approval") ||
+      t.includes("seller onboarding") ||
+      a.includes("/seller/dashboard?tab=enquiries")
+    );
+  };
+
   if (isMock) {
     if (!mockUserNotifications[userId]) {
-      mockUserNotifications[userId] = [
-        {
-          id: "user-mock-n1",
-          title: "Welcome to EarthCentric",
-          message: "Your seller account setup is complete. Start listing products!",
-          actionUrl: "dashboard",
-          isRead: false,
-          createdAt: new Date(Date.now() - 86400000)
-        },
-        {
-          id: "user-mock-n2",
-          title: "Product Approved",
-          message: "Your listing 'Bamboo Fiber Sheets' has been approved and is now live.",
-          actionUrl: "products",
-          isRead: false,
-          createdAt: new Date(Date.now() - 3600000 * 4)
-        },
-        {
-          id: "user-mock-n3",
-          title: "New Message",
-          message: "You have a new message from Super Admin.",
-          actionUrl: "messages",
-          isRead: false,
-          createdAt: new Date(Date.now() - 3600000 * 2)
-        }
-      ];
+      mockUserNotifications[userId] = [...defaultOffers];
     }
-    return mockUserNotifications[userId].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const filteredMock = mockUserNotifications[userId].filter((n) => !isSellerAlert(n));
+    return filteredMock.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   try {
+    // 1. Fetch DB notifications
     const dbNotifs = await db.notification.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" }
     });
-    
-    return dbNotifs.map(n => {
+
+    const notifList = dbNotifs.map(n => {
       let displayMessage = n.message;
-      let actionUrl = n.actionUrl || "dashboard";
+      let actionUrl = n.actionUrl || "/orders";
 
       if (n.message.includes("|redirect:")) {
         const parts = n.message.split("|redirect:");
@@ -335,13 +356,94 @@ export async function getUserNotifications(userId: string) {
         id: n.id,
         title: n.title,
         message: displayMessage,
+        type: n.title.toLowerCase().includes("order") ? "ORDER" : n.title.toLowerCase().includes("deal") || n.title.toLowerCase().includes("offer") ? "OFFER" : "SYSTEM",
         actionUrl,
         isRead: n.isRead,
         createdAt: n.createdAt
       };
     });
+
+    // 2. Fetch Buyer's Orders to auto-generate Order Booked / Cancelled / Shipped notifications if missing
+    try {
+      const userOrders = await db.order.findMany({
+        where: { userId },
+        select: { id: true, status: true, totalAmount: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 10
+      });
+
+      userOrders.forEach(ord => {
+        const exists = notifList.some(n => n.message.includes(ord.id) || n.id.includes(ord.id));
+        if (!exists) {
+          let title = "Order Placed 📦";
+          let message = `Your order ${ord.id} of ₹${ord.totalAmount} has been placed successfully.`;
+          let type = "ORDER";
+
+          if (ord.status === "CONFIRMED") {
+            title = "Order Booked & Confirmed ✅";
+            message = `Your order ${ord.id} has been confirmed and sent to fulfillment!`;
+          } else if (ord.status === "CANCELLED") {
+            title = "Order Cancelled ❌";
+            message = `Your order ${ord.id} was cancelled. Any charged amount will be refunded.`;
+          } else if (ord.status === "SHIPPED") {
+            title = "Order Out for Delivery 🚚";
+            message = `Your order ${ord.id} has been shipped and is on its way.`;
+          } else if (ord.status === "DELIVERED") {
+            title = "Order Delivered 🎉";
+            message = `Your order ${ord.id} has been delivered. Enjoy your eco-friendly product!`;
+          }
+
+          notifList.push({
+            id: `ord-notif-${ord.id}`,
+            title,
+            message,
+            type,
+            actionUrl: `/orders/${ord.id}`,
+            isRead: false,
+            createdAt: ord.createdAt
+          });
+        }
+      });
+    } catch (e) {
+      console.warn("Failed to fetch user orders for notifications:", e);
+    }
+
+    // Combine with offers if user has few notifications
+    defaultOffers.forEach(offer => {
+      if (!notifList.some(n => n.id === offer.id)) {
+        notifList.push(offer);
+      }
+    });
+
+    // Filter out seller-management alerts from buyer notification menu
+    const buyerOnlyNotifs = notifList.filter((n) => !isSellerAlert(n));
+
+    return buyerOnlyNotifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (e) {
     console.error("getUserNotifications failed:", e);
-    return [];
+    return defaultOffers;
   }
 }
+
+export async function markAllNotificationsAsRead(userId: string) {
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+  if (isMock) {
+    if (mockUserNotifications[userId]) {
+      mockUserNotifications[userId].forEach(n => { n.isRead = true; });
+    }
+    return true;
+  }
+
+  try {
+    await db.notification.updateMany({
+      where: { userId, isRead: false },
+      data: { isRead: true }
+    });
+    return true;
+  } catch (e) {
+    console.error("markAllNotificationsAsRead failed:", e);
+    return false;
+  }
+}
+
