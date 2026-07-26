@@ -111,16 +111,19 @@ export default function WishlistPage() {
                 <div key={item.id} className="bg-white border border-slate-100 rounded-3xl p-4 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
                   <div className="space-y-4">
                     <div className="aspect-square relative overflow-hidden bg-[#ebf3ef] rounded-2xl p-4">
-                      <Image 
-                        src={p.images[0] || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400"}
-                        alt={p.name}
-                        fill
-                        sizes="(max-width: 768px) 100vw, 30vw"
-                        className="object-contain"
-                      />
+                      <Link href={`/products/${p.id}`} className="block w-full h-full cursor-pointer">
+                        <Image 
+                          src={p.images[0] || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400"}
+                          alt={p.name}
+                          fill
+                          sizes="(max-width: 768px) 100vw, 30vw"
+                          className="object-contain hover:scale-105 transition-transform duration-300"
+                        />
+                      </Link>
                       <button
                         onClick={() => handleRemove(item.productId)}
-                        className="absolute top-2 right-2 h-8 w-8 rounded-full bg-white flex items-center justify-center shadow-sm text-slate-400 hover:text-rose-500 transition-colors"
+                        className="absolute top-2 right-2 h-8 w-8 rounded-full bg-white flex items-center justify-center shadow-sm text-slate-400 hover:text-rose-500 transition-colors z-10 cursor-pointer"
+                        title="Remove from wishlist"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

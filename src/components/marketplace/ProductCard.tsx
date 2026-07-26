@@ -55,10 +55,9 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
   const hasBulkDeal = product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0;
 
   // Determine status badge class and label
-  const ecoScore = product.sustainabilityScore;
-  const badgeType = product.badgeType || (ecoScore >= 97 ? "verified" : ecoScore >= 94 ? "bestseller" : "eco");
+  const badgeType = product.badgeType || (product.rating >= 4.7 ? "verified" : product.reviewsCount > 20 ? "bestseller" : "eco");
 
-  let badgeLabel = "Eco";
+  let badgeLabel = "Eco-Friendly";
   let badgeStyle = "bg-[#ebf5f0] text-[#0F6E56] border border-[#d2e8dd]";
   let badgeIcon = <Leaf className="h-3 w-3 fill-[#0F6E56] stroke-none" />;
 
@@ -170,14 +169,6 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
             {product.description}
           </p>
 
-          {/* Eco Score Progress Bar */}
-          <div className="flex items-center text-[10px] font-extrabold text-[#0F6E56] bg-[#ebf5f0] rounded-xl px-2.5 py-1.5 border border-[#d2e8dd]/40">
-            <span className="shrink-0 flex items-center gap-0.5">🌱 Eco Score</span>
-            <div className="flex-1 mx-2 h-1 bg-slate-200/80 rounded-full overflow-hidden">
-              <div className="h-full bg-[#0F6E56] rounded-full transition-all duration-500" style={{ width: `${ecoScore}%` }} />
-            </div>
-            <span className="shrink-0 font-black">{ecoScore}/100</span>
-          </div>
 
           {/* Stars & Reviews */}
           <div className="flex items-center space-x-1 text-xs font-semibold text-slate-800">

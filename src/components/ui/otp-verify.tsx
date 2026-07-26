@@ -64,6 +64,9 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
     if (result.success) {
       setStep("otp");
       startCountdown();
+      if (result.isMock && result.otp) {
+        setError(`[Dev Mode] Email delivery failed, but you can use OTP code: ${result.otp}`);
+      }
     } else {
       setError(result.error || "Something went wrong. Please try again.");
     }
@@ -131,6 +134,9 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
       setOtp(["", "", "", ""]);
       startCountdown();
       inputRefs.current[0]?.focus();
+      if (result.isMock && result.otp) {
+        setError(`[Dev Mode] Email delivery failed, but you can use OTP code: ${result.otp}`);
+      }
     } else {
       setError(result.error || "Failed to resend code.");
     }
@@ -190,7 +196,11 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
                 />
 
                 {error && (
-                  <p className="text-red-300 text-xs text-center bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                  <p className={`text-xs text-center rounded-xl px-3 py-2 border ${
+                    error.includes("[Dev Mode]")
+                      ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+                      : "text-red-300 bg-red-500/10 border-red-500/20"
+                  }`}>
                     {error}
                   </p>
                 )}
@@ -242,7 +252,11 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
               </div>
 
               {error && (
-                <p className="text-red-300 text-xs text-center mb-4 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                <p className={`text-xs text-center mb-4 rounded-xl px-3 py-2 border ${
+                  error.includes("[Dev Mode]")
+                    ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+                    : "text-red-300 bg-red-500/10 border-red-500/20"
+                }`}>
                   {error}
                 </p>
               )}

@@ -7,7 +7,7 @@ import { AdminSellerMessenger } from "@/components/ui/admin-seller-messenger";
 import { getSellerDashboardStats, getSellerProfile, SellerProfile, getSellerAnalyticsTimeSeries } from "@/actions/sellers";
 import { getUserNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getProducts, createProduct, archiveProduct, ProductItem, updateProductStock, updateProduct } from "@/actions/products";
-import { getOrdersBySeller, updateOrderStatus, OrderDetail } from "@/actions/orders";
+import { getOrdersBySeller, updateOrderStatus, trackOrderById, OrderDetail } from "@/actions/orders";
 import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
@@ -42,6 +42,12 @@ import {
   MessageSquare,
   Bell,
   Menu,
+  Search,
+  PackageCheck,
+  Truck,
+  Calendar,
+  MapPin,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -364,7 +370,7 @@ export default function SellerDashboard() {
           <FadeIn>
             {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
-            {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} />}
+            {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} sellerId={profile?.id || user?.id} />}
             {activeTab === "enquiries" && <EnquiriesView sellerId={profile?.id || ""} />}
             { activeTab === "complaints" && <ComplaintsView sellerId={profile?.id || ""} />}
             { activeTab === "messages" && <MessagesView sellerId={profile?.id || ""} /> }
@@ -1043,9 +1049,32 @@ function AddProductForm({ onBack, profile, reload }: any) {
 // --------------------------------------------------------------------------
 // ORDERS TAB VIEW
 // --------------------------------------------------------------------------
-function OrdersView({ orders, handleUpdateFulfillment }: any) {
+function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+
+  // Track Order state
+  const [trackInput, setTrackInput] = useState("");
+  const [trackedOrder, setTrackedOrder] = useState<any | null>(null);
+  const [isSearchingTrack, setIsSearchingTrack] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
+
+  const handleTrackSearch = async () => {
+    if (!trackInput.trim()) return;
+    setIsSearchingTrack(true);
+    setTrackError(null);
+    setTrackedOrder(null);
+
+    const res = await trackOrderById(trackInput, sellerId);
+    if (res.success && res.order) {
+      setTrackedOrder(res.order);
+      toast.success(`Found Order #${res.order.id}`);
+    } else {
+      setTrackError(res.error || "No order details found for your brand.");
+      toast.error(res.error || "Order not found");
+    }
+    setIsSearchingTrack(false);
+  };
 
   const pendingCount = orders.filter((o: any) => o.status !== "DELIVERED" && o.status !== "CANCELLED").length;
   const shippedCount = orders.filter((o: any) => o.status === "SHIPPED").length;
@@ -1061,9 +1090,165 @@ function OrdersView({ orders, handleUpdateFulfillment }: any) {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div>
-        <h1 className="text-2xl font-bold text-[#2d4a36]">Orders Fulfillment</h1>
-        <p className="text-sm text-muted-foreground mt-1">Track order requests, fulfill pending shipments, and review sales receipts.</p>
+        <h1 className="text-2xl font-bold text-[#2d4a36]">Orders Fulfillment & Tracking</h1>
+        <p className="text-sm text-muted-foreground mt-1">Track orders by ID, fulfill pending shipments, and view brand-isolated order details.</p>
       </div>
+
+      {/* Order Track ID Search Bar */}
+      <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-2xl space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Enter Order Track ID (e.g. ord-4r6wfg4-0)..."
+              value={trackInput}
+              onChange={(e) => setTrackInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2d4a36]"
+              onKeyDown={(e) => { if (e.key === "Enter") handleTrackSearch(); }}
+            />
+          </div>
+          <Button
+            onClick={handleTrackSearch}
+            disabled={isSearchingTrack || !trackInput.trim()}
+            className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs px-6 py-2 rounded-xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer"
+          >
+            {isSearchingTrack ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+            <span>Track Order</span>
+          </Button>
+        </div>
+
+        {trackError && (
+          <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium flex items-center space-x-2">
+            <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+            <span>{trackError}</span>
+          </div>
+        )}
+      </Card>
+
+      {/* Tracked Order Result Modal */}
+      {trackedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setTrackedOrder(null)} />
+          <Card className="relative w-full max-w-2xl p-6 bg-white border border-slate-200 rounded-3xl shadow-2xl z-10 space-y-5 text-left">
+            {/* Header Badge */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-emerald-100 flex items-center space-x-1 w-max mb-1.5">
+                  <Leaf className="h-3 w-3 text-emerald-600" />
+                  <span>Carbon-Neutral Dispatch</span>
+                </span>
+                <h2 className="text-xl font-black text-[#2d4a36]">
+                  Track Order #{trackedOrder.id}
+                </h2>
+                <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                  Created on {new Date(trackedOrder.createdAt).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}
+                </p>
+              </div>
+              <button
+                onClick={() => setTrackedOrder(null)}
+                className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 cursor-pointer border-none"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Brand Items List */}
+            <div className="space-y-3">
+              <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Your Brand Items ({trackedOrder.items?.length || 0})
+              </h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {trackedOrder.items?.map((it: any, idx: number) => (
+                  <div key={idx} className="flex items-center space-x-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <img
+                      src={it.image || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"}
+                      alt={it.name}
+                      className="h-12 w-12 object-cover rounded-xl border border-slate-200 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-xs text-slate-800 truncate">{it.name}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Qty: {it.quantity} × ₹{it.price}</p>
+                    </div>
+                    <span className="font-extrabold text-xs text-[#2d4a36]">
+                      ₹{it.quantity * it.price}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center bg-emerald-50/60 p-3 rounded-xl border border-emerald-100 text-xs">
+                <span className="font-bold text-[#2d4a36]">Your Brand Total</span>
+                <span className="font-black text-sm text-[#2d4a36]">₹{trackedOrder.brandTotalAmount || trackedOrder.totalAmount}</span>
+              </div>
+            </div>
+
+            {/* Buyer Delivery Details */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Customer Info</span>
+                <p className="font-bold text-slate-800">{trackedOrder.user?.name || "Customer"}</p>
+                <p className="text-slate-500">{trackedOrder.user?.email}</p>
+                <p className="text-slate-500">{trackedOrder.user?.phone}</p>
+              </div>
+
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Delivery Address</span>
+                {trackedOrder.address ? (
+                  <p className="text-slate-700 font-medium leading-snug">
+                    {trackedOrder.address.street}, {trackedOrder.address.city}, {trackedOrder.address.state} - {trackedOrder.address.postalCode}, {trackedOrder.address.country}
+                  </p>
+                ) : (
+                  <p className="text-slate-400 italic">No address provided</p>
+                )}
+              </div>
+            </div>
+
+            {/* Order Timeline */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Order Timeline Progress</span>
+              <div className="space-y-2 max-h-36 overflow-y-auto bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                {trackedOrder.timeline && trackedOrder.timeline.length > 0 ? (
+                  trackedOrder.timeline.map((step: any, idx: number) => (
+                    <div key={idx} className="flex items-start space-x-2.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-[#2d4a36] shrink-0 mt-1.5" />
+                      <div>
+                        <span className="font-bold text-slate-800 text-[11px]">{step.status}</span>
+                        <p className="text-[10px] text-slate-500">{step.description}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Order placed and pending processing.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTrackedOrder(null)}
+                className="text-xs"
+              >
+                Close Tracking
+              </Button>
+              {trackedOrder.status !== "DELIVERED" && trackedOrder.status !== "CANCELLED" && (
+                <Button
+                  size="sm"
+                  className="bg-[#2d4a36] text-white hover:bg-[#1e3425] text-xs"
+                  onClick={() => {
+                    handleUpdateFulfillment(trackedOrder.id, trackedOrder.status);
+                    setTrackedOrder(null);
+                  }}
+                >
+                  Advance Status Stage
+                </Button>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="flex items-center space-x-2 bg-white w-max p-1.5 rounded-full shadow-sm border border-[#e9ece6]">
         <Badge 
@@ -1470,6 +1655,12 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
   const [enquiries, setEnquiries] = useState<EnquiryData[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Extension Modal state
+  const [extendingEnquiry, setExtendingEnquiry] = useState<EnquiryData | null>(null);
+  const [proposedDate, setProposedDate] = useState("");
+  const [extensionNote, setExtensionNote] = useState("");
+  const [isSubmittingExt, setIsSubmittingExt] = useState(false);
+
   const loadEnquiries = async () => {
     setLoading(true);
     const data = await getSellerEnquiries(sellerId);
@@ -1481,22 +1672,30 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
     loadEnquiries();
   }, [sellerId]);
 
-  const handleUpdateStatus = async (enquiryId: string, status: string) => {
-    const success = await updateEnquiryStatus(enquiryId, status);
+  const handleUpdateStatus = async (
+    enquiryId: string,
+    status: string,
+    pDate?: string,
+    note?: string
+  ) => {
+    const success = await updateEnquiryStatus(enquiryId, status, pDate, note);
     if (success) {
-      toast.success(`Updated enquiry status to ${status}`);
+      toast.success(`Bulk Order Request updated. Notification sent to buyer.`);
       loadEnquiries();
+      setExtendingEnquiry(null);
+      setProposedDate("");
+      setExtensionNote("");
     } else {
-      toast.error("Failed to update status.");
+      toast.error("Failed to update enquiry status.");
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div>
-        <h1 className="text-2xl font-bold text-[#2d4a36]">Bulk Quote Enquiries</h1>
+        <h1 className="text-2xl font-bold text-[#2d4a36]">Bulk Order Quote Requests</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Review and respond to incoming wholesale quote requests from organic buyers.
+          Review bulk order quotes from buyers. Select an option to Approve, Decline, or Request Delivery Date Extension.
         </p>
       </div>
 
@@ -1504,63 +1703,182 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
         <Table>
           <TableHeader>
             <TableRow className="border-[#e9ece6]">
-              <TableHead className="text-xs">Date</TableHead>
-              <TableHead className="text-xs">Buyer</TableHead>
-              <TableHead className="text-xs">Product</TableHead>
-              <TableHead className="text-xs">Qty</TableHead>
-              <TableHead className="text-xs">Target Price</TableHead>
-              <TableHead className="text-xs">Location</TableHead>
-              <TableHead className="text-xs">Status</TableHead>
-              <TableHead className="text-xs text-right">Actions</TableHead>
+              <TableHead className="text-xs">DATE</TableHead>
+              <TableHead className="text-xs">BUYER</TableHead>
+              <TableHead className="text-xs">PRODUCT</TableHead>
+              <TableHead className="text-xs">QTY</TableHead>
+              <TableHead className="text-xs">TARGET PRICE</TableHead>
+              <TableHead className="text-xs">LOCATION</TableHead>
+              <TableHead className="text-xs">STATUS</TableHead>
+              <TableHead className="text-xs text-right pr-4">SELLER RESPONSE OPTIONS</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">Loading enquiries...</TableCell></TableRow>
             ) : enquiries.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">No bulk enquiries received yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">No bulk quote requests received yet.</TableCell></TableRow>
             ) : (
-              enquiries.map((enq) => (
-                <TableRow key={enq.id} className="border-[#e9ece6]/50">
-                  <TableCell className="text-xs">{new Date(enq.createdAt).toLocaleDateString()}</TableCell>
-                  <TableCell className="text-xs">
-                    <div className="font-bold">{enq.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{enq.email} | {enq.phone}</div>
-                  </TableCell>
-                  <TableCell className="text-xs font-semibold">{enq.productName}</TableCell>
-                  <TableCell className="text-xs">{enq.quantity} units</TableCell>
-                  <TableCell className="text-xs font-bold">
-                    {enq.targetPrice ? `₹${enq.targetPrice}` : "N/A"}
-                  </TableCell>
-                  <TableCell className="text-xs">{enq.location}</TableCell>
-                  <TableCell className="text-xs">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                      enq.status === "NEW" ? "bg-blue-100 text-blue-800" :
-                      enq.status === "VIEWED" ? "bg-amber-100 text-amber-800" :
-                      enq.status === "RESPONDED" ? "bg-emerald-100 text-emerald-800" :
-                      "bg-slate-100 text-slate-800"
-                    }`}>
-                      {enq.status}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-xs text-right space-x-1.5">
-                    {enq.status === "NEW" && (
-                      <Button size="sm" variant="cool" onClick={() => handleUpdateStatus(enq.id, "VIEWED")}>
-                        Mark Viewed
+              enquiries.map((enq) => {
+                const upperStatus = enq.status.toUpperCase();
+                const isApproved = upperStatus === "APPROVED" || upperStatus === "ACCEPTED";
+                const isRejected = upperStatus === "REJECTED" || upperStatus === "DECLINED";
+                const isExtension = upperStatus === "EXTEND_DELIVERY_DATE" || upperStatus === "EXTENSION_REQUESTED";
+
+                return (
+                  <TableRow key={enq.id} className="border-[#e9ece6]/50">
+                    <TableCell className="text-xs font-medium">
+                      {new Date(enq.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="font-bold text-slate-800">{enq.name}</div>
+                      <div className="text-[10px] text-muted-foreground">{enq.email} | {enq.phone}</div>
+                    </TableCell>
+                    <TableCell className="text-xs font-semibold text-[#2d4a36]">{enq.productName}</TableCell>
+                    <TableCell className="text-xs font-bold">{enq.quantity} units</TableCell>
+                    <TableCell className="text-xs font-bold text-emerald-700">
+                      {enq.targetPrice ? `₹${enq.targetPrice}` : "N/A"}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600 max-w-[150px] truncate">{enq.location}</TableCell>
+                    <TableCell className="text-xs">
+                      <span className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase ${
+                        isApproved ? "bg-emerald-100 text-emerald-800" :
+                        isRejected ? "bg-red-100 text-red-800" :
+                        isExtension ? "bg-amber-100 text-amber-900" :
+                        "bg-blue-100 text-blue-800"
+                      }`}>
+                        {isApproved ? "APPROVED" : isRejected ? "DECLINED" : isExtension ? "DATE EXTENSION" : enq.status}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-right space-x-1.5 py-4">
+                      {/* Option 1: Approve Order */}
+                      <Button
+                        size="sm"
+                        disabled={isApproved}
+                        onClick={() => handleUpdateStatus(enq.id, "APPROVED")}
+                        className={`text-[11px] h-7 px-3 rounded-lg border-none transition-all cursor-pointer ${
+                          isApproved
+                            ? "bg-emerald-100 text-emerald-800 cursor-default"
+                            : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                        }`}
+                      >
+                        ✓ Approve
                       </Button>
-                    )}
-                    {enq.status !== "RESPONDED" && enq.status !== "CLOSED" && (
-                      <Button size="sm" className="bg-[#2d4a36] hover:bg-[#1e3425] text-white cursor-pointer border-none" onClick={() => handleUpdateStatus(enq.id, "RESPONDED")}>
-                        Respond Quote
+
+                      {/* Option 2: Reject Order */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isRejected}
+                        onClick={() => handleUpdateStatus(enq.id, "REJECTED")}
+                        className={`text-[11px] h-7 px-3 rounded-lg transition-all ${
+                          isRejected
+                            ? "bg-red-50 text-red-500 border-red-200 cursor-default"
+                            : "text-rose-600 hover:bg-rose-50 border-rose-200 cursor-pointer"
+                        }`}
+                      >
+                        ✕ Decline
                       </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
+
+                      {/* Option 3: Extend Delivery Date */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setExtendingEnquiry(enq);
+                          const defaultDate = new Date();
+                          defaultDate.setDate(defaultDate.getDate() + 7);
+                          setProposedDate(defaultDate.toISOString().split("T")[0]);
+                        }}
+                        className="text-[11px] h-7 px-3 rounded-lg text-amber-700 border-amber-300 hover:bg-amber-50 cursor-pointer"
+                      >
+                        📅 Extend Date
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </Card>
+
+      {/* Extend Delivery Date Modal */}
+      {extendingEnquiry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 bg-white border border-slate-200 rounded-3xl shadow-2xl space-y-4 text-left">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="font-bold text-base text-[#2d4a36] flex items-center space-x-2">
+                <span>Request Delivery Date Extension</span>
+              </h3>
+              <button
+                onClick={() => setExtendingEnquiry(null)}
+                className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 cursor-pointer border-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              Specify proposed new delivery date and a note for buyer <strong>{extendingEnquiry.name}</strong> regarding <strong>{extendingEnquiry.productName}</strong>.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-slate-700">Proposed Delivery Date *</Label>
+                <Input
+                  type="date"
+                  value={proposedDate}
+                  onChange={(e) => setProposedDate(e.target.value)}
+                  className="text-xs bg-slate-50 border-slate-200"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-slate-700">Reason / Message for Buyer</Label>
+                <Textarea
+                  placeholder="e.g. Additional days needed for custom organic batch manufacturing and eco-packaging."
+                  value={extensionNote}
+                  onChange={(e) => setExtensionNote(e.target.value)}
+                  className="text-xs bg-slate-50 border-slate-200 min-h-[70px]"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setExtendingEnquiry(null)}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  if (!proposedDate) {
+                    toast.error("Please pick a proposed date.");
+                    return;
+                  }
+                  setIsSubmittingExt(true);
+                  await handleUpdateStatus(
+                    extendingEnquiry.id,
+                    "EXTEND_DELIVERY_DATE",
+                    proposedDate,
+                    extensionNote
+                  );
+                  setIsSubmittingExt(false);
+                }}
+                disabled={isSubmittingExt}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-xs border-none cursor-pointer"
+              >
+                {isSubmittingExt ? "Sending..." : "Send Extension Request to Buyer"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

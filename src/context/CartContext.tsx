@@ -38,13 +38,15 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const loadAndSyncCart = async () => {
       setIsLoaded(false);
+      setCart([]); // Reset cart on user session change to prevent cross-account leak
+
       if (user?.id) {
-        // Logged in: retrieve guest items from localStorage if any, and sync to DB
-        const storedCart = localStorage.getItem("earthcentric_cart");
+        // Logged in user: retrieve guest items from localStorage if any, and sync to DB
+        const storedGuestCart = localStorage.getItem("earthcentric_guest_cart");
         let guestItems = [];
-        if (storedCart) {
+        if (storedGuestCart) {
           try {
-            guestItems = JSON.parse(storedCart);
+            guestItems = JSON.parse(storedGuestCart);
           } catch (e) {
             console.error("Failed to parse guest cart data for sync", e);
           }
@@ -57,19 +59,18 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
             quantity: item.quantity,
           })));
           setCart(syncedCart);
-          // Clear guest cart from localStorage
-          localStorage.removeItem("earthcentric_cart");
+          localStorage.removeItem("earthcentric_guest_cart");
         } else {
-          // Load database cart
+          // Load user's database cart
           const dbCart = await getDbCart(user.id);
-          setCart(dbCart);
+          setCart(dbCart || []);
         }
       } else {
         // Guest user: load guest cart from localStorage
-        const storedCart = localStorage.getItem("earthcentric_cart");
-        if (storedCart) {
+        const storedGuestCart = localStorage.getItem("earthcentric_guest_cart");
+        if (storedGuestCart) {
           try {
-            setCart(JSON.parse(storedCart));
+            setCart(JSON.parse(storedGuestCart));
           } catch (e) {
             console.error("Failed to parse guest cart data", e);
             setCart([]);
@@ -87,7 +88,7 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   // Save guest cart to localStorage when it changes
   useEffect(() => {
     if (isLoaded && !user?.id) {
-      localStorage.setItem("earthcentric_cart", JSON.stringify(cart));
+      localStorage.setItem("earthcentric_guest_cart", JSON.stringify(cart));
     }
   }, [cart, isLoaded, user?.id]);
 

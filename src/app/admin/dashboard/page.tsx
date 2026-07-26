@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore } from "@/actions/admin";
 import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
-import { getAllOrdersForAdmin, updateOrderStatus } from "@/actions/orders";
+import { getAllOrdersForAdmin, updateOrderStatus, trackOrderById } from "@/actions/orders";
 import { SellerProfile } from "@/actions/sellers";
 import { getAdminNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getIntegrationCredentials, updateIntegrationCredential, CredentialItem } from "@/actions/credentials";
@@ -1334,13 +1334,64 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
 // --------------------------------------------------------------------------
 function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpdateStatus: () => void }) {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
-  
+  const [trackInput, setTrackInput] = useState("");
+  const [isSearchingTrack, setIsSearchingTrack] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
+
+  const handleTrackSearch = async () => {
+    if (!trackInput.trim()) return;
+    setIsSearchingTrack(true);
+    setTrackError(null);
+
+    const res = await trackOrderById(trackInput);
+    if (res.success && res.order) {
+      setSelectedOrder(res.order);
+      toast.success(`Found Order #${res.order.id}`);
+    } else {
+      setTrackError(res.error || "No order details found.");
+      toast.error(res.error || "Order not found");
+    }
+    setIsSearchingTrack(false);
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Order Tracking System</h1>
+        <h1 className="text-2xl font-extrabold text-[#1a3321]">Order Tracking & Management System</h1>
         <p className="text-sm text-muted-foreground mt-1">Platform-wide overview of all customer order stages, payment status, and carbon offsets.</p>
       </div>
+
+      {/* Admin Order Track Search Bar */}
+      <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-2xl space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Enter Order Track ID (e.g. ord-4r6wfg4-0 or EC-ORD-4729)..."
+              value={trackInput}
+              onChange={(e) => setTrackInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+              onKeyDown={(e) => { if (e.key === "Enter") handleTrackSearch(); }}
+            />
+          </div>
+          <Button
+            onClick={handleTrackSearch}
+            disabled={isSearchingTrack || !trackInput.trim()}
+            className="bg-[#1a3321] hover:bg-[#122417] text-white text-xs px-6 py-2 rounded-xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer"
+          >
+            <Search className="h-4 w-4" />
+            <span>Track Order</span>
+          </Button>
+        </div>
+
+        {trackError && (
+          <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium flex items-center space-x-2">
+            <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+            <span>{trackError}</span>
+          </div>
+        )}
+      </Card>
 
       <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
         <Table>

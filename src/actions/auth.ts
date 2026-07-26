@@ -118,6 +118,21 @@ export async function signupUser(
       });
     }
 
+    // Create Welcome Notification for new buyer
+    if (role === "BUYER") {
+      try {
+        const { createNotification } = await import("@/actions/notifications");
+        await createNotification(
+          user.id,
+          "Welcome to EarthCentric! 🌿",
+          `Thank you for registering, ${user.name || name}! Enjoy 15% OFF your first order using code WELCOME15 at checkout.`,
+          "/marketplace"
+        );
+      } catch (e) {
+        console.error("Failed to create welcome notification:", e);
+      }
+    }
+
     // Send welcome email in background
     sendWelcomeEmail(user.email, user.name || name).catch((err) =>
       console.error("Failed to send welcome email:", err)

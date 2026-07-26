@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { getProducts, ProductItem, ProductFilter } from "@/actions/products";
 import { getWishlistIds } from "@/actions/wishlist";
+import { getAllBrands } from "@/actions/sellers";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { Button, Card, Badge, Input } from "@/components/ui/shared";
@@ -163,9 +164,8 @@ export default function MarketplaceClient() {
   const initialCategory = searchParams.get("category") || "all";
   const initialSearch = searchParams.get("search") || "";
   const initialPricePreset = searchParams.get("pricePreset") || "all";
-  const initialMinScore = Number(searchParams.get("minScore") || "50");
   const initialVerified = searchParams.get("verified") === "true";
-  const initialSort = (searchParams.get("sort") || "newest") as ProductFilter["sortBy"] | "eco-score" | "best-rated";
+  const initialSort = (searchParams.get("sort") || "newest") as ProductFilter["sortBy"] | "best-rated";
   const initialDealsOnly = searchParams.get("deals") === "true";
   const initialNewArrivalsOnly = searchParams.get("newArrivals") === "true";
 
@@ -174,10 +174,12 @@ export default function MarketplaceClient() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(initialSearch);
   const [category, setCategory] = useState(initialCategory);
-  const [minScore, setMinScore] = useState(initialMinScore);
-  const [verifiedOnly, setVerifiedOnly] = useState(initialVerified);
+  const [selectedBrand, setSelectedBrand] = useState<string>(searchParams.get("brand") || "all");
+  const [brandsList, setBrandsList] = useState<{ id: string; companyName: string }[]>([]);
   const [pricePreset, setPricePreset] = useState<string>(initialPricePreset);
-  const [sortBy, setSortBy] = useState<ProductFilter["sortBy"] | "eco-score" | "best-rated">(initialSort);
+  const [minPrice, setMinPrice] = useState<string>(searchParams.get("minPrice") || "");
+  const [maxPrice, setMaxPrice] = useState<string>(searchParams.get("maxPrice") || "");
+  const [sortBy, setSortBy] = useState<ProductFilter["sortBy"] | "best-rated">(initialSort);
   const [dealsOnly, setDealsOnly] = useState(initialDealsOnly);
   const [newArrivalsOnly, setNewArrivalsOnly] = useState(initialNewArrivalsOnly);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -197,12 +199,17 @@ export default function MarketplaceClient() {
 
   const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string}[]>([]);
 
-  // Fetch live categories from API
+  // Fetch live categories & brands from API/DB
   useEffect(() => {
     fetch("/api/categories")
       .then(r => r.json())
       .then(data => setNavCategories(data.categories || []))
       .catch(() => {});
+
+    getAllBrands().then(list => {
+      const sorted = [...(list || [])].sort((a, b) => a.companyName.localeCompare(b.companyName));
+      setBrandsList(sorted);
+    });
   }, []);
 
   // Synchronize state with URL change
@@ -234,16 +241,19 @@ export default function MarketplaceClient() {
     const params = new URLSearchParams();
     if (category !== "all") params.set("category", category);
     if (search) params.set("search", search);
+    if (selectedBrand !== "all") params.set("brand", selectedBrand);
     if (pricePreset !== "all") params.set("pricePreset", pricePreset);
-    if (minScore !== 50) params.set("minScore", minScore.toString());
-    if (verifiedOnly) params.set("verified", "true");
+    if (pricePreset === "custom") {
+      if (minPrice) params.set("minPrice", minPrice);
+      if (maxPrice) params.set("maxPrice", maxPrice);
+    }
     if (sortBy !== "newest") params.set("sort", sortBy as string);
     if (dealsOnly) params.set("deals", "true");
     if (newArrivalsOnly) params.set("newArrivals", "true");
     
     const url = `/marketplace?${params.toString()}`;
     window.history.pushState({ path: url }, "", url);
-  }, [category, search, pricePreset, minScore, verifiedOnly, sortBy, dealsOnly, newArrivalsOnly]);
+  }, [category, search, selectedBrand, pricePreset, minPrice, maxPrice, sortBy, dealsOnly, newArrivalsOnly]);
 
   // Load wishlist from database on mount
   const { user } = useAuth();
@@ -264,7 +274,12 @@ export default function MarketplaceClient() {
       let priceRange: [number, number] | undefined = undefined;
       if (pricePreset === "under-500") priceRange = [0, 500];
       else if (pricePreset === "500-2000") priceRange = [500, 2000];
-      else if (pricePreset === "above-2000") priceRange = [2000, 100000];
+      else if (pricePreset === "above-2000") priceRange = [2000, 1000000];
+      else if (pricePreset === "custom") {
+        const min = minPrice ? parseFloat(minPrice) : 0;
+        const max = maxPrice ? parseFloat(maxPrice) : 1000000;
+        priceRange = [min, max];
+      }
 
       // Pass standard Prisma sorting parameters if they exist
       const isDbSort = ["newest", "popular", "rating", "price-asc", "price-desc"].includes(sortBy as string);
@@ -272,8 +287,7 @@ export default function MarketplaceClient() {
       const filters: ProductFilter = {
         search: search || undefined,
         category: category !== "all" ? category : undefined,
-        minSustainabilityScore: minScore,
-        verifiedOnly: verifiedOnly,
+        minSustainabilityScore: undefined,
         priceRange: priceRange,
         sortBy: isDbSort ? (sortBy as ProductFilter["sortBy"]) : undefined,
         dealsOnly: dealsOnly,
@@ -286,10 +300,14 @@ export default function MarketplaceClient() {
         startTransition(() => {
           let sortedResults = [...result];
           
+          if (selectedBrand !== "all") {
+            sortedResults = sortedResults.filter(
+              (p) => p.seller.companyName.toLowerCase() === selectedBrand.toLowerCase()
+            );
+          }
+
           // Apply custom client-side sorting overrides if requested
-          if (sortBy === "eco-score") {
-            sortedResults.sort((a, b) => b.sustainabilityScore - a.sustainabilityScore);
-          } else if (sortBy === "best-rated") {
+          if (sortBy === "best-rated") {
             sortedResults.sort((a, b) => b.rating - a.rating);
           }
           
@@ -304,7 +322,7 @@ export default function MarketplaceClient() {
 
     const timer = setTimeout(loadProducts, 300); // Debouncing queries
     return () => clearTimeout(timer);
-  }, [search, category, minScore, verifiedOnly, pricePreset, sortBy, dealsOnly, newArrivalsOnly]);
+  }, [search, category, selectedBrand, pricePreset, minPrice, maxPrice, sortBy, dealsOnly, newArrivalsOnly]);
 
   // Carousel slide timer
   useEffect(() => {
@@ -364,9 +382,10 @@ export default function MarketplaceClient() {
   const handleClearAllFilters = () => {
     setSearch("");
     setCategory("all");
-    setMinScore(50);
-    setVerifiedOnly(false);
+    setSelectedBrand("all");
     setPricePreset("all");
+    setMinPrice("");
+    setMaxPrice("");
     setSortBy("newest");
     setDealsOnly(false);
     setNewArrivalsOnly(false);
@@ -377,8 +396,7 @@ export default function MarketplaceClient() {
   if (category !== "all") activeFiltersCount++;
   if (search.trim() !== "") activeFiltersCount++;
   if (pricePreset !== "all") activeFiltersCount++;
-  if (minScore !== 50) activeFiltersCount++;
-  if (verifiedOnly) activeFiltersCount++;
+  if (selectedBrand !== "all") activeFiltersCount++;
   if (dealsOnly) activeFiltersCount++;
   if (newArrivalsOnly) activeFiltersCount++;
 
@@ -790,7 +808,7 @@ export default function MarketplaceClient() {
                   </div>
 
                   {/* Price Range Filter */}
-                  <div className="space-y-2.5 border-t border-slate-100 pt-4">
+                  <div className="space-y-2.5 border-t border-slate-100 pt-4 text-left">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Price Range</span>
                     <div className="space-y-1.5">
                       {[
@@ -798,72 +816,89 @@ export default function MarketplaceClient() {
                         { id: "under-500", label: "Under ₹500" },
                         { id: "500-2000", label: "₹500 – ₹2,000" },
                         { id: "above-2000", label: "Above ₹2,000" },
+                        { id: "custom", label: "Custom Range" },
                       ].map((preset) => (
-                        <label
-                          key={preset.id}
-                          className={`flex items-center space-x-2.5 px-2.5 py-2 rounded-xl cursor-pointer transition-all text-xs font-semibold ${
-                            pricePreset === preset.id
-                              ? "bg-[#ebf5f0] text-[#0F6E56]"
-                              : "text-slate-600 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-                            pricePreset === preset.id
-                              ? "border-[#0F6E56]"
-                              : "border-slate-300"
-                          }`}>
-                            {pricePreset === preset.id && (
-                              <span className="h-2 w-2 rounded-full bg-[#0F6E56]" />
-                            )}
-                          </span>
-                          <input
-                            type="radio"
-                            name="price-filter"
-                            value={preset.id}
-                            checked={pricePreset === preset.id}
-                            onChange={() => setPricePreset(preset.id)}
-                            className="sr-only"
-                          />
-                          <span>{preset.label}</span>
-                        </label>
+                        <div key={preset.id}>
+                          <label
+                            className={`flex items-center space-x-2.5 px-2.5 py-2 rounded-xl cursor-pointer transition-all text-xs font-semibold ${
+                              pricePreset === preset.id
+                                ? "bg-[#ebf5f0] text-[#0F6E56]"
+                                : "text-slate-600 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                              pricePreset === preset.id
+                                ? "border-[#0F6E56]"
+                                : "border-slate-300"
+                            }`}>
+                              {pricePreset === preset.id && (
+                                <span className="h-2 w-2 rounded-full bg-[#0F6E56]" />
+                              )}
+                            </span>
+                            <input
+                              type="radio"
+                              name="price-filter"
+                              value={preset.id}
+                              checked={pricePreset === preset.id}
+                              onChange={() => setPricePreset(preset.id)}
+                              className="sr-only"
+                            />
+                            <span>{preset.label}</span>
+                          </label>
+
+                          {preset.id === "custom" && pricePreset === "custom" && (
+                            <div className="pt-2 pb-1 px-1 space-y-2">
+                              <div className="flex items-center space-x-2">
+                                <div className="flex-1">
+                                  <label className="text-[10px] font-bold text-slate-500 mb-1 block">Min (₹)</label>
+                                  <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={minPrice}
+                                    onChange={(e) => setMinPrice(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F6E56]"
+                                    min={0}
+                                  />
+                                </div>
+                                <span className="text-slate-400 text-xs font-bold pt-4">–</span>
+                                <div className="flex-1">
+                                  <label className="text-[10px] font-bold text-slate-500 mb-1 block">Max (₹)</label>
+                                  <input
+                                    type="number"
+                                    placeholder="Max"
+                                    value={maxPrice}
+                                    onChange={(e) => setMaxPrice(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F6E56]"
+                                    min={0}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* Sustainability score range */}
-                  <div className="space-y-2.5 border-t border-slate-100 pt-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
-                        <span>Min Eco Score</span>
-                      </span>
-                      <span className="text-xs font-black text-[#0F6E56]">{minScore}+</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="50"
-                      max="100"
-                      value={minScore}
-                      onChange={(e) => setMinScore(Number(e.target.value))}
-                      className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-[#0F6E56]"
-                    />
-                  </div>
 
-                  {/* Verified Sellers Toggle */}
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-4">
-                    <div className="space-y-0.5 pr-2">
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                        Verified Brands Only
-                      </span>
-                      <p className="text-[10px] text-slate-400 font-medium">
-                        Only show verified sustainability profiles.
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={verifiedOnly}
-                      onChange={(e) => setVerifiedOnly(e.target.checked)}
-                      className="h-4.5 w-4.5 rounded border-slate-300 text-[#0F6E56] focus:ring-[#0F6E56] cursor-pointer"
-                    />
+                  {/* Seller Brands Dropdown Filter */}
+                  <div className="space-y-2 border-t border-slate-100 pt-4 text-left">
+                    <label htmlFor="brand-select" className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">
+                      Brand / Seller Company
+                    </label>
+                    <select
+                      id="brand-select"
+                      value={selectedBrand}
+                      onChange={(e) => setSelectedBrand(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:border-[#0F6E56] transition-all cursor-pointer shadow-sm"
+                    >
+                      <option value="all">All Brands &amp; Sellers</option>
+                      {brandsList.map((brand) => (
+                        <option key={brand.id || brand.companyName} value={brand.companyName}>
+                          {brand.companyName}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
 
@@ -914,7 +949,7 @@ export default function MarketplaceClient() {
                         <option value="best-rated">Highest Rated</option>
                         <option value="price-asc">Price: Low to High</option>
                         <option value="price-desc">Price: High to Low</option>
-                        <option value="eco-score">Eco Score: High to Low</option>
+
                       </select>
                     </div>
                   </div>

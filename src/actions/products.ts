@@ -1135,31 +1135,25 @@ export async function addProductReview(data: {
   imageUrls?: string[];
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return { success: true };
-    }
-
-    // Verify if this user has purchased and received this product
-    const deliveredOrders = await db.order.findMany({
-      where: {
-        userId: data.userId,
-        status: "DELIVERED",
-        items: {
-          some: {
-            productId: data.productId,
-          },
-        },
-      },
-    });
-
-    if (deliveredOrders.length === 0) {
+    const isEligible = await checkReviewEligibility(data.userId, data.productId);
+    if (!isEligible) {
       return {
         success: false,
-        error: "Only verified buyers who have received the product can submit reviews.",
+        error: "Only verified buyers who have received delivery of this item can leave a review.",
       };
     }
 
-    // Create the review
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const p = MOCK_PRODUCTS.find((mp) => mp.id === data.productId);
+      if (p) {
+        const totalRating = p.rating * p.reviewsCount + Number(data.rating);
+        p.reviewsCount += 1;
+        p.rating = totalRating / p.reviewsCount;
+      }
+      return { success: true };
+    }
+
+    // Create the review in DB
     await db.review.create({
       data: {
         userId: data.userId,
@@ -1180,7 +1174,14 @@ export async function addProductReview(data: {
 export async function checkReviewEligibility(userId: string, productId: string): Promise<boolean> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return true; // Auto-allow in mock mode
+      const { getOrdersByUser } = await import("@/actions/orders");
+      const userOrders = await getOrdersByUser(userId);
+      const hasDelivered = userOrders.some(
+        (o) =>
+          o.status === "DELIVERED" &&
+          o.items.some((i) => i.productId === productId || productId.includes(i.productId))
+      );
+      return hasDelivered;
     }
 
     const deliveredOrders = await db.order.findMany({

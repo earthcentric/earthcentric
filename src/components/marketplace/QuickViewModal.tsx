@@ -42,21 +42,6 @@ export default function QuickViewModal({
   const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
   const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
 
-  // Generate deterministic breakdown scores from the overall score
-  const baseScore = product.sustainabilityScore;
-  const materialSourcing = Math.min(100, Math.max(50, baseScore + 2));
-  const carbonFootprint = Math.min(100, Math.max(50, baseScore - 5));
-  const waterConservation = Math.min(100, Math.max(50, baseScore + 4));
-  const fairWages = Math.min(100, Math.max(50, baseScore - 1));
-
-  // Determine color for overall Eco Score
-  const scoreColorClass =
-    baseScore >= 90
-      ? "bg-emerald-600 text-white"
-      : baseScore >= 75
-      ? "bg-amber-500 text-white"
-      : "bg-gray-500 text-white";
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10">
       {/* Backdrop */}
@@ -91,10 +76,6 @@ export default function QuickViewModal({
             <Badge variant="primary" className="bg-primary/95 text-primary-foreground border-none text-[10px] uppercase font-bold py-1 px-2.5 shadow-md">
               {product.category}
             </Badge>
-            <div className={`flex items-center space-x-1 rounded-md px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide shadow-md ${scoreColorClass}`}>
-              <Leaf className="h-3 w-3 fill-white stroke-none" />
-              <span>Eco Score: {baseScore}</span>
-            </div>
           </div>
 
           {discountPercent && (
@@ -137,59 +118,7 @@ export default function QuickViewModal({
               )}
             </div>
 
-            {/* Eco Score Breakdown Bar */}
-            <div className="space-y-3 bg-muted/15 rounded-2xl p-4 border border-border/20">
-              <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-primary flex items-center">
-                <Leaf className="h-3.5 w-3.5 text-emerald-600 mr-1.5" />
-                <span>Sustainability Performance Metrics</span>
-              </h4>
-              
-              <div className="space-y-2.5 text-xs">
-                {/* Metric 1 */}
-                <div className="space-y-1">
-                  <div className="flex justify-between font-bold text-muted-foreground text-[10px]">
-                    <span>Material Sourcing</span>
-                    <span className="text-emerald-700">{materialSourcing}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${materialSourcing}%` }} />
-                  </div>
-                </div>
 
-                {/* Metric 2 */}
-                <div className="space-y-1">
-                  <div className="flex justify-between font-bold text-muted-foreground text-[10px]">
-                    <span>Carbon Offset Index</span>
-                    <span className="text-emerald-700">{carbonFootprint}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${carbonFootprint}%` }} />
-                  </div>
-                </div>
-
-                {/* Metric 3 */}
-                <div className="space-y-1">
-                  <div className="flex justify-between font-bold text-muted-foreground text-[10px]">
-                    <span>Water Conservation</span>
-                    <span className="text-emerald-700">{waterConservation}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${waterConservation}%` }} />
-                  </div>
-                </div>
-
-                {/* Metric 4 */}
-                <div className="space-y-1">
-                  <div className="flex justify-between font-bold text-muted-foreground text-[10px]">
-                    <span>Fair Labor Audits</span>
-                    <span className="text-emerald-700">{fairWages}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${fairWages}%` }} />
-                  </div>
-                </div>
-              </div>
-            </div>
 
             {/* Key Specifications */}
             <div className="space-y-2 text-xs">

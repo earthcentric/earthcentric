@@ -390,8 +390,13 @@ export default function SignupPage() {
         return;
       }
       if (res.emailFailed) {
-        toast.warning("Email delivery failed. Check your inbox or use Resend OTP.");
-        setFieldError("⚠️ Email delivery issue — click \"Resend OTP\" below once the timer ends, or check if your email is correct.");
+        if (res.otp) {
+          toast.success(`[Dev Mode] OTP generated: ${res.otp}`);
+          setFieldError(`✉️ [Dev Mode] Email delivery failed, but you can use OTP code: ${res.otp}`);
+        } else {
+          toast.warning("Email delivery failed. Check your inbox or use Resend OTP.");
+          setFieldError("⚠️ Email delivery issue — click \"Resend OTP\" below once the timer ends, or check if your email is correct.");
+        }
       } else {
         toast.success("OTP sent! Check your inbox.");
       }
@@ -440,8 +445,13 @@ export default function SignupPage() {
       }
       setResendCount((prev) => prev + 1);
       if (res.emailFailed) {
-        toast.success("Resend OTP sent! (Check Terminal or Email)");
-        setFieldError("📧 Resend OTP sent! (If email is delayed due to SMTP settings, check terminal console)");
+        if (res.otp) {
+          toast.success(`[Dev Mode] Resend OTP generated: ${res.otp}`);
+          setFieldError(`✉️ [Dev Mode] Email delivery failed. Resend OTP code is: ${res.otp}`);
+        } else {
+          toast.success("Resend OTP sent! (Check Terminal or Email)");
+          setFieldError("📧 Resend OTP sent! (If email is delayed due to SMTP settings, check terminal console)");
+        }
       } else {
         toast.success("Resend OTP sent to your email!");
         clearError();

@@ -7,9 +7,10 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
-import { Input, Textarea } from "@/components/ui/shared";
+import { Input, Textarea, Button } from "@/components/ui/shared";
 import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
 import { createEnquiry } from "@/actions/enquiries";
+import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
 import {
   Star,
   Heart,
@@ -25,6 +26,7 @@ import {
   Sparkles,
   MessageSquare,
   Loader2,
+  Bell,
 } from "lucide-react";
 
 interface ProductClientViewProps {
@@ -53,6 +55,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const [enquiryPhone, setEnquiryPhone] = useState("");
   const [enquiryMessage, setEnquiryMessage] = useState("");
   const [enquiryPending, setEnquiryPending] = useState(false);
+  const [enquirySubmitted, setEnquirySubmitted] = useState(false);
 
   // Sync user for enquiry
   useEffect(() => {
@@ -61,6 +64,63 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
       setEnquiryEmail(user.email || "");
     }
   }, [user]);
+
+  // Address Selection & Inline Add State for Bulk Quote Modal
+  const [userAddresses, setUserAddresses] = useState<AddressData[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string>("custom");
+  const [showAddNewAddressForm, setShowAddNewAddressForm] = useState(false);
+  const [newStreet, setNewStreet] = useState("");
+  const [newCity, setNewCity] = useState("");
+  const [newState, setNewState] = useState("");
+  const [newPostalCode, setNewPostalCode] = useState("");
+  const [newCountry, setNewCountry] = useState("India");
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
+
+  // Fetch user addresses when bulk quote modal opens
+  useEffect(() => {
+    if (showEnquiryModal && user?.id) {
+      getUserAddresses(user.id).then((addresses) => {
+        setUserAddresses(addresses || []);
+        if (addresses && addresses.length > 0) {
+          const defaultAddr = addresses.find((a) => a.isDefault) || addresses[0];
+          setSelectedAddressId(defaultAddr.id || "custom");
+          const formattedLoc = `${defaultAddr.street}, ${defaultAddr.city}, ${defaultAddr.state} - ${defaultAddr.postalCode}, ${defaultAddr.country}`;
+          setEnquiryLocation(formattedLoc);
+        }
+      });
+    }
+  }, [showEnquiryModal, user?.id]);
+
+  const handleSaveNewAddressInline = async () => {
+    if (!user?.id || !newStreet || !newCity || !newState || !newPostalCode) {
+      toast.error("Please fill in all required address fields.");
+      return;
+    }
+    setIsSavingAddress(true);
+    const res = await addUserAddress(user.id, {
+      street: newStreet,
+      city: newCity,
+      state: newState,
+      postalCode: newPostalCode,
+      country: newCountry || "India",
+    });
+    setIsSavingAddress(false);
+    if (res.success && res.address) {
+      toast.success("Address added and saved to your profile!");
+      const newAddr = res.address;
+      setUserAddresses((prev) => [newAddr, ...prev]);
+      setSelectedAddressId(newAddr.id || "custom");
+      const formattedLoc = `${newAddr.street}, ${newAddr.city}, ${newAddr.state} - ${newAddr.postalCode}, ${newAddr.country}`;
+      setEnquiryLocation(formattedLoc);
+      setShowAddNewAddressForm(false);
+      setNewStreet("");
+      setNewCity("");
+      setNewState("");
+      setNewPostalCode("");
+    } else {
+      toast.error(res.error || "Failed to save address.");
+    }
+  };
 
   // Check review eligibility
   useEffect(() => {
@@ -108,8 +168,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : 0;
 
   // Badge type
-  const ecoScore = product.sustainabilityScore;
-  const badgeType = product.badgeType || (ecoScore >= 97 ? "verified" : ecoScore >= 94 ? "bestseller" : "eco");
+  const badgeType = product.badgeType || (product.rating >= 4.7 ? "verified" : product.reviewsCount > 20 ? "bestseller" : "eco");
   let badgeLabel = "Eco Friendly";
   if (badgeType === "verified") badgeLabel = "VERIFIED";
   else if (badgeType === "bestseller") badgeLabel = "BEST SELLER";
@@ -469,23 +528,11 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               )}
             </div>
 
-            {/* ===== Eco Score Card ===== */}
-            <div className="bg-[#f0faf5] border border-[#d2e8dd] rounded-2xl p-5 space-y-3">
+            {/* ===== Sustainability Profile Card ===== */}
+            <div className="bg-[#f0faf5] border border-[#d2e8dd] rounded-2xl p-5 space-y-2">
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="h-5 w-5 text-[#0F6E56]" />
-                <span className="font-bold text-slate-800 text-base">Eco Score</span>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-baseline space-x-1">
-                  <span className="text-3xl font-black text-[#0F6E56]">{ecoScore}</span>
-                  <span className="text-base text-slate-500 font-semibold">/100</span>
-                </div>
-                <div className="w-full h-2.5 bg-[#d2e8dd] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#0F6E56] rounded-full transition-all duration-700"
-                    style={{ width: `${ecoScore}%` }}
-                  />
-                </div>
+                <span className="font-bold text-slate-800 text-base">Sustainability Profile</span>
               </div>
               <p className="text-sm text-slate-600 leading-relaxed">
                 {product.sustainabilityDetail || "Made from 100% renewable resources. Fully biodegradable in 90 days."}
@@ -813,23 +860,80 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 relative space-y-4 border border-slate-100">
             {/* Close Button */}
             <button
-              onClick={() => setShowEnquiryModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 cursor-pointer border-none bg-transparent text-lg font-bold"
+              onClick={() => {
+                setShowEnquiryModal(false);
+                setEnquirySubmitted(false);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 cursor-pointer border-none bg-transparent text-lg font-bold z-10"
             >
               ✕
             </button>
 
-            <div className="space-y-1.5 pr-6">
-              <span className="bg-[#f0faf5] text-[#0F6E56] text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider">
-                Wholesale Enquiry
-              </span>
-              <h3 className="font-extrabold text-xl text-slate-900 font-serif leading-snug">
-                Request Custom Quote
-              </h3>
-              <p className="text-xs text-slate-500">
-                Submit bulk requirements for <strong>{product.name}</strong> to the manufacturer.
-              </p>
-            </div>
+            {enquirySubmitted ? (
+              <div className="py-6 px-2 text-center space-y-5 animate-in zoom-in-95 duration-300">
+                {/* Animated Green Pulse & Checkmark Icon */}
+                <div className="relative mx-auto h-20 w-20 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" />
+                  <div className="absolute inset-1.5 rounded-full bg-emerald-500/30 animate-pulse" />
+                  <div className="relative h-16 w-16 rounded-full bg-gradient-to-tr from-[#0c3c26] to-[#0F6E56] text-white flex items-center justify-center shadow-lg shadow-emerald-600/30">
+                    <CheckCircle2 className="h-9 w-9 animate-bounce" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider border border-emerald-100">
+                    ✓ Quote Request Transmitted
+                  </span>
+                  <h3 className="text-2xl font-black text-slate-900 font-serif">
+                    Custom Quote Sent! 🎉
+                  </h3>
+                  <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">
+                    Your wholesale bulk quote request for <strong>{enquiryQty} units</strong> of <strong>{product.name}</strong> has been transmitted directly to the seller.
+                  </p>
+                </div>
+
+                {/* Live Notification Banner */}
+                <div className="bg-emerald-50/70 border border-emerald-100 p-3.5 rounded-2xl text-left text-xs space-y-1.5">
+                  <div className="flex items-center space-x-2 font-bold text-[#0F6E56]">
+                    <Bell className="h-4 w-4 animate-bounce" />
+                    <span>Live Buyer Notification Active</span>
+                  </div>
+                  <p className="text-slate-600 text-[11px] leading-relaxed">
+                    You will receive an instant notification in your top header bell menu as soon as the manufacturer approves your quote, declines, or requests a delivery date extension.
+                  </p>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      setShowEnquiryModal(false);
+                      setEnquirySubmitted(false);
+                      setEnquiryQty(100);
+                      setEnquiryPrice("");
+                      setEnquiryLocation("");
+                      setEnquiryDate("");
+                      setEnquiryPhone("");
+                      setEnquiryMessage("");
+                    }}
+                    className="w-full bg-[#0c3c26] hover:bg-[#082b1b] text-white font-bold text-xs py-3 rounded-xl shadow-md transition-all cursor-pointer border-none"
+                  >
+                    Done & Continue Shopping
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5 pr-6">
+                  <span className="bg-[#f0faf5] text-[#0F6E56] text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider">
+                    Wholesale Enquiry
+                  </span>
+                  <h3 className="font-extrabold text-xl text-slate-900 font-serif leading-snug">
+                    Request Custom Quote
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Submit bulk requirements for <strong>{product.name}</strong> to the manufacturer.
+                  </p>
+                </div>
 
             <form onSubmit={async (e) => {
               e.preventDefault();
@@ -855,13 +959,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               setEnquiryPending(false);
               if (res.success) {
                 toast.success("Bulk quote enquiry sent successfully!");
-                setShowEnquiryModal(false);
-                setEnquiryQty(100);
-                setEnquiryPrice("");
-                setEnquiryLocation("");
-                setEnquiryDate("");
-                setEnquiryPhone("");
-                setEnquiryMessage("");
+                setEnquirySubmitted(true);
               } else {
                 toast.error(res.error || "Failed to submit bulk quote enquiry.");
               }
@@ -891,26 +989,141 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Delivery Location *</span>
+              <div className="space-y-3 border-t border-slate-100 pt-3 text-left">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Delivery Location / Address *</span>
+                  {user?.id && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddNewAddressForm(!showAddNewAddressForm)}
+                      className="text-[10px] font-bold text-[#0F6E56] hover:underline border-none bg-transparent cursor-pointer"
+                    >
+                      {showAddNewAddressForm ? "← Select Saved Address" : "+ Add New Address"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Saved Profile Addresses Dropdown */}
+                {user?.id && userAddresses.length > 0 && !showAddNewAddressForm && (
+                  <div className="space-y-2">
+                    <select
+                      value={selectedAddressId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "new") {
+                          setShowAddNewAddressForm(true);
+                        } else {
+                          setSelectedAddressId(val);
+                          const addr = userAddresses.find((a) => a.id === val);
+                          if (addr) {
+                            setEnquiryLocation(`${addr.street}, ${addr.city}, ${addr.state} - ${addr.postalCode}, ${addr.country}`);
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] cursor-pointer"
+                    >
+                      {userAddresses.map((addr) => (
+                        <option key={addr.id} value={addr.id}>
+                          {addr.isDefault ? "📍 [Default] " : "📍 "}
+                          {addr.street}, {addr.city}, {addr.state} - {addr.postalCode}
+                        </option>
+                      ))}
+                      <option value="new">+ Add New Address to Profile</option>
+                    </select>
+
+                    <p className="text-[10px] text-slate-600 bg-emerald-50/60 border border-emerald-100 p-2 rounded-xl leading-snug">
+                      <strong>Selected Delivery Address:</strong> {enquiryLocation}
+                    </p>
+                  </div>
+                )}
+
+                {/* Inline Add New Address Form */}
+                {showAddNewAddressForm && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3 text-left">
+                    <span className="text-[10px] font-extrabold text-[#0F6E56] uppercase tracking-wider block">
+                      Add New Address to Your Profile
+                    </span>
+                    <div className="space-y-2 text-xs">
+                      <Input
+                        placeholder="Street Address / Building / Area *"
+                        value={newStreet}
+                        onChange={(e) => setNewStreet(e.target.value)}
+                        className="text-xs bg-white border-slate-200"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="City *"
+                          value={newCity}
+                          onChange={(e) => setNewCity(e.target.value)}
+                          className="text-xs bg-white border-slate-200"
+                        />
+                        <Input
+                          placeholder="State *"
+                          value={newState}
+                          onChange={(e) => setNewState(e.target.value)}
+                          className="text-xs bg-white border-slate-200"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Pincode / Postal Code *"
+                          value={newPostalCode}
+                          onChange={(e) => setNewPostalCode(e.target.value)}
+                          className="text-xs bg-white border-slate-200"
+                        />
+                        <Input
+                          placeholder="Country *"
+                          value={newCountry}
+                          onChange={(e) => setNewCountry(e.target.value)}
+                          className="text-xs bg-white border-slate-200"
+                        />
+                      </div>
+                      <div className="flex justify-end space-x-2 pt-1">
+                        {userAddresses.length > 0 && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowAddNewAddressForm(false)}
+                            className="text-[11px] h-7"
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleSaveNewAddressInline}
+                          disabled={isSavingAddress}
+                          className="bg-[#0F6E56] text-white hover:bg-[#0c5a46] text-[11px] h-7 border-none"
+                        >
+                          {isSavingAddress ? "Saving..." : "Save Address & Select"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom input fallback when user is not logged in or has no saved addresses and form isn't active */}
+                {(!user?.id || (userAddresses.length === 0 && !showAddNewAddressForm)) && (
                   <Input
-                    placeholder="e.g. Mumbai, Maharashtra"
+                    placeholder="e.g. Street, City, State - Pincode"
                     value={enquiryLocation}
                     onChange={(e) => setEnquiryLocation(e.target.value)}
                     required
                     className="text-xs bg-slate-50 border-slate-200"
                   />
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Expected By Date</span>
-                  <Input
-                    type="date"
-                    value={enquiryDate}
-                    onChange={(e) => setEnquiryDate(e.target.value)}
-                    className="text-xs bg-slate-50 border-slate-200 cursor-pointer"
-                  />
-                </div>
+                )}
+              </div>
+
+              <div className="space-y-1 pt-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Expected By Date</span>
+                <Input
+                  type="date"
+                  value={enquiryDate}
+                  onChange={(e) => setEnquiryDate(e.target.value)}
+                  className="text-xs bg-slate-50 border-slate-200 cursor-pointer"
+                />
               </div>
 
               <div className="border-t border-slate-100 pt-3 space-y-3">
@@ -980,9 +1193,11 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 )}
               </button>
             </form>
-          </div>
-        </div>
-      )}
-    </>
+          </>
+        )}
+      </div>
+    </div>
+  )}
+  </>
   );
 }
