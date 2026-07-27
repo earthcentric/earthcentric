@@ -726,7 +726,7 @@ function compressImageBase64(base64Str: string, maxWidth = 1000, quality = 0.7):
 
 function BecomeSellerTab({ userId }: { userId: string }) {
   const router = useRouter();
-  const { updateSellerStatus } = useAuth();
+  const { user, updateSellerStatus } = useAuth();
   const [loading, setLoading] = useState(true);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -927,7 +927,12 @@ function BecomeSellerTab({ userId }: { userId: string }) {
     );
   }
 
-  if (sellerProfile && sellerProfile.verificationStatus === "APPROVED") {
+  const isApproved = (sellerProfile && sellerProfile.verificationStatus === "APPROVED") || user?.role === "SELLER" || user?.sellerStatus === "APPROVED";
+
+  if (isApproved) {
+    const compName = sellerProfile?.companyName || user?.name || "Eco Brand";
+    const partnerId = sellerProfile?.id || "seller-1-profile";
+
     return (
       <div className="p-8 rounded-3xl bg-[#F0F9F0] border-2 border-[#2D5A40] text-center space-y-5 max-w-lg mx-auto my-6 shadow-md">
         <div className="h-16 w-16 bg-[#2D5A40] text-white rounded-2xl flex items-center justify-center mx-auto shadow-sm">
@@ -938,7 +943,7 @@ function BecomeSellerTab({ userId }: { userId: string }) {
           <p className="text-xs text-[#5A7A5A] mt-1">Welcome to the EarthCentric Partner Network</p>
         </div>
         <p className="text-xs text-[#5A7A5A] leading-relaxed">
-          Your business <span className="font-bold text-[#1F3A2E]">{sellerProfile.companyName}</span> is verified and approved. Your initial product is now live in the EarthCentric marketplace!
+          Your business <span className="font-bold text-[#1F3A2E]">{compName}</span> is verified and approved. Your initial product is now live in the EarthCentric marketplace!
         </p>
         <div className="p-4 rounded-2xl bg-white border border-[#E8F0E8] text-left text-xs space-y-2.5 shadow-inner">
           <div className="flex justify-between border-b border-[#F0F7F0] pb-1.5">
@@ -947,7 +952,7 @@ function BecomeSellerTab({ userId }: { userId: string }) {
           </div>
           <div className="flex justify-between border-b border-[#F0F7F0] pb-1.5">
             <span className="text-[#7A9A7A]">Partner ID:</span>
-            <span className="font-mono text-[#1F3A2E]">{sellerProfile.id}</span>
+            <span className="font-mono text-[#1F3A2E]">{partnerId}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-[#7A9A7A]">Seller Dashboard:</span>
