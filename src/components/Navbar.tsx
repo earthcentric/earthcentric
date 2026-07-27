@@ -38,7 +38,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { getUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/actions/notifications";
-import { setAdminSessionCookie } from "@/actions/auth";
+import { setAdminSessionCookie, setSellerSessionCookie } from "@/actions/auth";
 
 interface NavbarSearchProps {
   onSearchComplete?: () => void;
@@ -373,13 +373,18 @@ export default function Navbar() {
                 <span>Admin Portal</span>
               </button>
             ) : (user?.role === "SELLER" || user?.sellerStatus === "APPROVED") ? (
-              <Link 
-                href="/seller/dashboard" 
-                className="hidden md:flex items-center space-x-2 bg-[#0F6E56] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0c5a46] transition-colors shadow-sm"
+              <button 
+                onClick={async () => {
+                  if (user) {
+                    await setSellerSessionCookie(user.id, user.role === "ADMIN" ? "ADMIN" : "SELLER", "APPROVED");
+                  }
+                  router.push("/seller/dashboard");
+                }}
+                className="hidden md:flex items-center space-x-2 bg-[#0F6E56] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0c5a46] transition-colors shadow-sm cursor-pointer border-none"
               >
                 <Building className="h-4 w-4" />
                 <span>Seller Dashboard</span>
-              </Link>
+              </button>
             ) : (
               <Link 
                 href="/account?tab=seller" 
@@ -445,15 +450,18 @@ export default function Navbar() {
 
 
 
-                    {user.role === "SELLER" && (
-                      <Link
-                        href={user.sellerStatus === "APPROVED" ? "/seller/dashboard" : "/seller/verification"}
-                        className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                        onClick={() => setIsProfileOpen(false)}
+                    {(user.role === "SELLER" || user.sellerStatus === "APPROVED") && (
+                      <button
+                        onClick={async () => {
+                          setIsProfileOpen(false);
+                          await setSellerSessionCookie(user.id, user.role === "ADMIN" ? "ADMIN" : "SELLER", "APPROVED");
+                          router.push(user.sellerStatus === "APPROVED" || user.role === "SELLER" ? "/seller/dashboard" : "/seller/verification");
+                        }}
+                        className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 border-none bg-transparent cursor-pointer"
                       >
                         <Building className="h-4 w-4" />
-                        <span>{user.sellerStatus === "APPROVED" ? "Go to Dashboard" : "Seller Area"}</span>
-                      </Link>
+                        <span>{user.sellerStatus === "APPROVED" || user.role === "SELLER" ? "Go to Dashboard" : "Seller Area"}</span>
+                      </button>
                     )}
 
                     {user.role === "ADMIN" && (
@@ -654,13 +662,16 @@ export default function Navbar() {
               <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">My Account ({user.name.split(" ")[0]})</p>
                 {user.role === "SELLER" || user.sellerStatus === "APPROVED" ? (
-                  <Link
-                    href="/seller/dashboard"
-                    className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  <button
+                    onClick={async () => {
+                      setIsMobileMenuOpen(false);
+                      await setSellerSessionCookie(user.id, user.role === "ADMIN" ? "ADMIN" : "SELLER", "APPROVED");
+                      router.push("/seller/dashboard");
+                    }}
+                    className="w-full text-left text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56] cursor-pointer bg-transparent border-x-0 border-t-0"
                   >
                     Seller Dashboard
-                  </Link>
+                  </button>
                 ) : (
                   <Link
                     href="/account?tab=seller"
