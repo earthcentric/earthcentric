@@ -359,14 +359,30 @@ export default function Navbar() {
           {/* Right Action Items */}
           <div className="flex items-center space-x-6 shrink-0">
             
-            {/* Seller Dashboard Button */}
-            {user?.role === "SELLER" && (
+            {/* Start Selling / Seller Dashboard / Admin Portal Button */}
+            {user?.role === "ADMIN" ? (
               <Link 
-                href={user.sellerStatus === "APPROVED" ? "/seller/dashboard" : "/seller/verification"} 
+                href="/admin/dashboard" 
+                className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-[#1F3A2E] text-white px-4 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-md shrink-0 border border-emerald-400/30"
+              >
+                <ShieldCheck className="h-4 w-4 text-emerald-300" />
+                <span>Admin Portal</span>
+              </Link>
+            ) : user?.role === "SELLER" && user.sellerStatus === "APPROVED" ? (
+              <Link 
+                href="/seller/dashboard" 
                 className="hidden md:flex items-center space-x-2 bg-[#0F6E56] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0c5a46] transition-colors shadow-sm"
               >
                 <Building className="h-4 w-4" />
                 <span>Seller Dashboard</span>
+              </Link>
+            ) : (
+              <Link 
+                href="/account?tab=seller" 
+                className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-[#0F6E56] to-[#1F3A2E] text-white px-4 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-sm shrink-0"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                <span>Start Selling</span>
               </Link>
             )}
 
@@ -413,16 +429,14 @@ export default function Navbar() {
                       <span>My Orders & Tracking</span>
                     </Link>
 
-                    {user.role === "BUYER" && (
-                      <Link
-                        href="/account"
-                        className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                        onClick={() => setIsProfileOpen(false)}
-                      >
-                        <UserIcon className="h-4 w-4" />
-                        <span>My Account</span>
-                      </Link>
-                    )}
+                    <Link
+                      href="/account"
+                      className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      onClick={() => setIsProfileOpen(false)}
+                    >
+                      <UserIcon className="h-4 w-4 text-slate-500" />
+                      <span>My Account & Settings</span>
+                    </Link>
 
 
 
@@ -563,6 +577,10 @@ export default function Navbar() {
               <Link href="/#sustainability-mission" className="text-slate-200 hover:text-emerald-400 transition-colors">
                 About
               </Link>
+              <Link href="/account?tab=seller" className="text-amber-300 hover:text-amber-200 transition-colors font-bold flex items-center gap-1">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Start Selling</span>
+              </Link>
             </nav>
           </div>
 
@@ -631,13 +649,22 @@ export default function Navbar() {
             {user ? (
               <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">My Account ({user.name.split(" ")[0]})</p>
-                {user.role === "SELLER" && (
+                {user.role === "SELLER" && user.sellerStatus === "APPROVED" ? (
                   <Link
-                    href={user.sellerStatus === "APPROVED" ? "/seller/dashboard" : "/seller/verification"}
+                    href="/seller/dashboard"
                     className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
                     Seller Dashboard
+                  </Link>
+                ) : (
+                  <Link
+                    href="/account?tab=seller"
+                    className="block text-base font-bold py-2 border-b border-slate-50 text-[#0F6E56] hover:text-[#0c5a46] flex items-center gap-1.5"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <Sparkles className="h-4 w-4 text-amber-500" />
+                    <span>Start Selling</span>
                   </Link>
                 )}
                 {user.role === "ADMIN" && (
@@ -650,6 +677,20 @@ export default function Navbar() {
                   </Link>
                 )}
 
+                <Link
+                  href="/account"
+                  className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  My Account & Settings
+                </Link>
+                <Link
+                  href="/orders"
+                  className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  My Orders & Tracking
+                </Link>
                 <Link
                   href="/wishlist"
                   className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
@@ -675,6 +716,14 @@ export default function Navbar() {
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   Sign In
+                </Link>
+                <Link
+                  href="/account?tab=seller"
+                  className="block text-base font-bold py-1.5 text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span>Start Selling</span>
                 </Link>
                 <Link
                   href="/sign-up"

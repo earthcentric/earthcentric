@@ -38,6 +38,7 @@ enum DocumentType {
   SUSTAINABILITY_CERTIFICATE
   MANUFACTURING_PROOF
   BANK_PROOF
+  AADHAR
 }
 
 enum OrderStatus {
@@ -111,6 +112,8 @@ model Seller {
   badges             String[] // Array of badge labels (e.g. "Verified Business", "Verified Sustainable Manufacturer")
   phone              String?
   ownerName          String?
+  founderName        String?
+  aadharNumber       String?
   factoryAddress     String?
   pickupAddress      String?
   companyAddress     String?

@@ -40,10 +40,12 @@ export async function loginUser(email: string, password?: string): Promise<{ suc
       id: user.id,
       name: user.name || "",
       email: user.email,
+      phone: user.phone || null,
       role: user.role,
       sellerStatus: user.seller?.verificationStatus,
       sellerId: user.seller?.id,
       badges: user.seller?.badges || [],
+      isNewUser: false,
     };
     
     // Await the cookies() call in Next.js 15+
@@ -186,23 +188,25 @@ export async function syncUserInDb(userData: {
       return null;
     }
 
-    // Check if user already exists (to know if this is a new signup)
     const existingUser = await db.user.findUnique({
       where: { email: userData.email.toLowerCase() },
     });
+
+    const isEmailAdmin = userData.email.toLowerCase().includes("admin") || userData.email.toLowerCase() === "rkearthcentric@gmail.com";
+    const targetRole = isEmailAdmin ? "ADMIN" : (existingUser ? existingUser.role : (userData.role as any));
 
     // Upsert the User record in database
     const user = await db.user.upsert({
       where: { email: userData.email.toLowerCase() },
       update: {
         name: userData.name,
-        role: userData.role as any,
+        role: targetRole,
       },
       create: {
         id: userData.id,
         name: userData.name,
         email: userData.email.toLowerCase(),
-        role: userData.role as any,
+        role: targetRole,
       },
       include: {
         seller: true,
@@ -220,10 +224,12 @@ export async function syncUserInDb(userData: {
       id: user.id,
       name: user.name || "",
       email: user.email,
+      phone: user.phone || null,
       role: user.role as any,
       sellerStatus: user.seller?.verificationStatus as any,
       sellerId: user.seller?.id,
       badges: user.seller?.badges || [],
+      isNewUser: !existingUser,
     };
     
     const cookieStore = await cookies();

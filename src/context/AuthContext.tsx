@@ -16,6 +16,8 @@ export interface User {
   sellerStatus?: "PENDING" | "APPROVED" | "REJECTED";
   sellerId?: string;
   badges?: string[];
+  phone?: string | null;
+  isNewUser?: boolean;
 }
 
 interface AuthContextType {
@@ -70,22 +72,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (isSignedIn && clerkUser) {
       const email = clerkUser.primaryEmailAddress?.emailAddress;
       if (email && (!user || user.email !== email)) {
-        setIsLoading(true);
+        const isAdminEmail = email.toLowerCase().includes("admin") || email.toLowerCase() === "rkearthcentric@gmail.com";
         syncUserInDb({
           id: clerkUser.id,
           name: clerkUser.fullName || clerkUser.username || "Conscious Buyer",
           email: email,
-          role: "BUYER", // Default role for new Clerk signups
+          role: isAdminEmail ? "ADMIN" : "BUYER",
         }).then((synced) => {
-          const finalUser = synced || {
+          const finalUser: User = synced || {
             id: clerkUser.id,
             name: clerkUser.fullName || clerkUser.username || "Conscious Buyer",
             email: email,
-            role: "BUYER" as const,
+            role: isAdminEmail ? "ADMIN" : "BUYER",
+            phone: null,
+            isNewUser: true,
           };
           setUser(finalUser);
           localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
           setIsLoading(false);
+
+          const isProfileDone = localStorage.getItem("earthcentric_profile_done_" + finalUser.id) === "true";
+          if (finalUser.isNewUser && !isProfileDone) {
+            if (window.location.pathname !== "/account") {
+              router.push("/account?tab=profile&onboarding=true");
+            }
+          }
         }).catch((err) => {
           console.error("Error syncing Clerk user:", err);
           setIsLoading(false);
@@ -170,7 +181,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         router.push("/seller/verification");
       }
     } else {
-      router.push("/marketplace");
+      router.push("/");
     }
     
     return true;
@@ -196,7 +207,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (finalUser.role === "SELLER") {
       router.push("/seller/verification");
     } else {
-      router.push("/marketplace");
+      router.push("/account?tab=profile&onboarding=true");
     }
     
     return true;

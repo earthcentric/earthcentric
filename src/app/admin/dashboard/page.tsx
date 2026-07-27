@@ -671,7 +671,7 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
                       </div>
                       <div>
                         <p className="text-xs font-bold text-[#1a3321]">{seller.companyName}</p>
-                        <p className="text-[10px] text-muted-foreground flex items-center"><Users className="h-2.5 w-2.5 mr-1" /> {seller.user?.name || "Applicant"}</p>
+                        <p className="text-[10px] text-muted-foreground flex items-center"><Users className="h-2.5 w-2.5 mr-1" /> {seller.userName || seller.user?.name || seller.founderName || seller.ownerName || "Applicant"}</p>
                       </div>
                     </div>
                   </TableCell>

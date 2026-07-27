@@ -60,6 +60,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         disabled={isLoading || props.disabled}
+        suppressHydrationWarning
         {...props}
       >
         {isLoading && (
@@ -175,6 +176,7 @@ function LiquidButton({
           "relative",
           liquidbuttonVariants({ variant, size, className })
         )}
+        suppressHydrationWarning
         {...props}
       >
         <div className="absolute top-0 left-0 z-0 h-full w-full rounded-full 
@@ -379,6 +381,7 @@ const MetalButton = React.forwardRef<
         ref={ref}
         className={cn(variants.button, className)}
         style={variants.buttonStyle}
+        suppressHydrationWarning
         {...props}
         onMouseDown={handleInternalMouseDown}
         onMouseUp={handleInternalMouseUp}
@@ -417,6 +420,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           "flex w-full rounded-md border border-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none transition-all duration-150",
           className
         )}
+        suppressHydrationWarning
         {...props}
       >
       </input>
@@ -436,6 +440,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           "flex w-full rounded-md border border-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none min-h-[100px] transition-all duration-150",
           className
         )}
+        suppressHydrationWarning
         {...props}
       />
     );

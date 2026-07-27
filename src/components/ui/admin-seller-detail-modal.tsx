@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { getSellerProfileById, getSellerDashboardStats, getSellerAnalyticsTimeSeries, SellerProfile } from "@/actions/sellers";
-import { approveSeller, updateSellerVerificationStatus, updateSellerTrustScore } from "@/actions/admin";
+import { approveSeller, updateSellerVerificationStatus, updateSellerTrustScore, getSellerInitialProductForAdmin } from "@/actions/admin";
 import { getProducts, ProductItem } from "@/actions/products";
 import { AnalyticsData, SellerAnalyticsCharts } from "@/components/ui/seller-analytics-charts";
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shared";
@@ -23,6 +23,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
   const [stats, setStats] = useState({ revenue: 0, ordersCount: 0, productsCount: 0, rating: 4.8, mostSoldProduct: "" });
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [products, setProducts] = useState<ProductItem[]>([]);
+  const [initialProduct, setInitialProduct] = useState<any | null>(null);
   const [badges, setBadges] = useState<string[]>(["Verified Business"]);
   const [rejectReason, setRejectReason] = useState("");
   const [trustScore, setTrustScore] = useState<number>(0);
@@ -94,18 +95,39 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
     const fetchSellerDetails = async () => {
       setLoading(true);
       try {
-        const [profData, statData, aData, prodData] = await Promise.all([
+        const [profData, statData, aData, prodData, initProd] = await Promise.all([
           getSellerProfileById(sellerId),
           getSellerDashboardStats(sellerId),
           getSellerAnalyticsTimeSeries(sellerId),
-          getProducts({ sellerId })
+          getProducts({ sellerId }),
+          getSellerInitialProductForAdmin(sellerId)
         ]);
+
+        let initProdResult = initProd;
+        if (!initProdResult && profData?.userId) {
+          initProdResult = await getSellerInitialProductForAdmin(profData.userId);
+        }
+        if (!initProdResult && profData?.id) {
+          initProdResult = await getSellerInitialProductForAdmin(profData.id);
+        }
+
+        let allProds = prodData || [];
+        if (allProds.length === 0 && profData?.id) {
+          allProds = await getProducts({ sellerId: profData.id });
+        }
+        if (allProds.length === 0 && profData?.userId) {
+          allProds = await getProducts({ sellerId: profData.userId });
+        }
+        if (allProds.length === 0 && initProdResult) {
+          allProds = [initProdResult];
+        }
 
         if (mounted) {
           setProfile(profData);
           setStats(statData);
           setAnalyticsData(aData as AnalyticsData);
-          setProducts(prodData);
+          setProducts(allProds);
+          setInitialProduct(initProdResult);
         }
       } catch (err) {
         console.error("Failed to load seller detailed view:", err);
@@ -141,8 +163,13 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
               <Building className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-foreground leading-tight">
-                {profile?.companyName || "Loading Seller..."}
+              <h2 className="text-lg font-bold text-foreground leading-tight flex items-center gap-2">
+                <span>{profile?.companyName || "Loading Seller..."}</span>
+                {profile && (profile.userName || profile.user?.name) && (
+                  <span className="text-xs font-normal text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md border border-border/40">
+                    User Profile: {profile.userName || profile.user?.name}
+                  </span>
+                )}
               </h2>
               <div className="flex items-center space-x-2 mt-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
@@ -201,8 +228,20 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                         <p className="text-xs leading-relaxed text-muted-foreground line-clamp-3">{profile.description}</p>
                       </div>
                     )}
-                    {(profile.website || profile.gstNumber || profile.panNumber || profile.declaredRevenue) && (
+                    {(profile.website || profile.gstNumber || profile.panNumber || profile.declaredRevenue || profile.userName || profile.user?.name || profile.founderName || profile.ownerName || profile.aadharNumber) && (
                       <div className="pt-2 mt-2 border-t border-border/30 grid grid-cols-2 gap-3">
+                        {(profile.userName || profile.user?.name || profile.founderName || profile.ownerName) && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Founder / Owner Name</span>
+                            <p className="text-xs font-semibold text-foreground">{profile.userName || profile.user?.name || profile.founderName || profile.ownerName}</p>
+                          </div>
+                        )}
+                        {profile.aadharNumber && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Aadhar Number</span>
+                            <p className="text-xs font-mono font-bold text-primary">{profile.aadharNumber}</p>
+                          </div>
+                        )}
                         {profile.gstNumber && (
                           <div>
                             <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">GST Code</span>
@@ -324,7 +363,73 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                 </TabsContent>
 
                 {/* Tab: Catalog */}
-                <TabsContent value="catalog" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <TabsContent value="catalog" className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
+                  {(() => {
+                    const displayInitProd = initialProduct || (products.length > 0 ? products[0] : null);
+                    if (!displayInitProd) return null;
+                    return (
+                      <Card className="p-5 border-2 border-primary/40 bg-primary/5 space-y-4 shadow-md">
+                        <div className="flex items-center justify-between border-b border-primary/20 pb-3">
+                          <div className="flex items-center space-x-2">
+                            <Package className="h-5 w-5 text-primary" />
+                            <h4 className="text-sm font-bold text-primary uppercase tracking-wider">Initial Verification Product (Launch Candidate)</h4>
+                          </div>
+                          <Badge variant={displayInitProd.isApproved ? "primary" : "outline"} className="text-[10px]">
+                            {displayInitProd.isApproved ? "Approved & Live" : "Pending Audit Approval"}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="md:col-span-1 space-y-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block font-semibold">Image Gallery ({displayInitProd.images?.length || 0} Images)</span>
+                            <div className="grid grid-cols-5 gap-1.5">
+                              {(displayInitProd.images || []).map((imgUrl: string, idx: number) => (
+                                <a key={idx} href={imgUrl} target="_blank" rel="noreferrer" className="block aspect-square rounded overflow-hidden border border-border hover:opacity-80 transition-opacity">
+                                  <img src={imgUrl} alt={`Prod ${idx + 1}`} className="w-full h-full object-cover" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
+                            <div className="col-span-2 sm:col-span-3">
+                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Product Title</span>
+                              <p className="font-bold text-sm text-foreground">{displayInitProd.name}</p>
+                              <p className="text-muted-foreground line-clamp-2 mt-1">{displayInitProd.description}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Selling Price</span>
+                              <p className="font-mono font-bold text-emerald-600 text-sm">₹{displayInitProd.price}</p>
+                            </div>
+                            {displayInitProd.wholesalePrice && (
+                              <div>
+                                <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Wholesale Price</span>
+                                <p className="font-mono font-semibold text-foreground">₹{displayInitProd.wholesalePrice}</p>
+                              </div>
+                            )}
+                            {displayInitProd.originalPrice && (
+                              <div>
+                                <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Original Price</span>
+                                <p className="font-mono text-muted-foreground line-through">₹{displayInitProd.originalPrice}</p>
+                              </div>
+                            )}
+                            <div>
+                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Initial Inventory</span>
+                              <p className="font-semibold">{displayInitProd.stock} units</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Category</span>
+                              <p className="font-semibold">{displayInitProd.category}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Eco Score</span>
+                              <Badge variant="primary" className="text-[10px] bg-primary/10 text-primary border-none">
+                                🌱 {displayInitProd.sustainabilityScore}/100
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })()}
                   <Card className="border-border/40 bg-card shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
                       <Table>

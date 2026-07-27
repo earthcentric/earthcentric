@@ -3,11 +3,14 @@
 import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { createAdminNotification } from "@/actions/notifications";
+import { createProduct } from "./products";
 import { cookies } from "next/headers";
 
 export interface SellerProfile {
   id: string;
   userId: string;
+  userName?: string;
+  user?: { name: string | null; email: string };
   companyName: string;
   businessType: string;
   description?: string;
@@ -15,13 +18,15 @@ export interface SellerProfile {
   website?: string;
   gstNumber?: string;
   panNumber?: string;
-  verificationStatus: "PENDING" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  verificationStatus: "PENDING" | "UNDER_REVIEW" | "NEED_MORE_DOCS" | "APPROVED" | "REJECTED" | "SUSPENDED";
   declaredRevenue?: string;
   rejectionReason?: string;
   trustScore?: number;
   badges?: string[];
   phone?: string;
   ownerName?: string;
+  founderName?: string;
+  aadharNumber?: string;
   factoryAddress?: string;
   pickupAddress?: string;
   companyAddress?: string;
@@ -59,6 +64,8 @@ let mockSellers: SellerProfile[] = [
     website: "https://bioknit.in",
     gstNumber: "29AAACB1234A1Z1",
     panNumber: "AAACB1234A",
+    founderName: "Rohan Mehta",
+    aadharNumber: "9876 5432 1098",
     verificationStatus: "PENDING",
     badges: [],
     documents: [
@@ -152,6 +159,7 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       where: { userId },
       include: {
         documents: true,
+        user: true,
       },
     });
 
@@ -160,6 +168,8 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
     return {
       id: seller.id,
       userId: seller.userId,
+      userName: seller.user?.name || undefined,
+      user: seller.user ? { name: seller.user.name, email: seller.user.email } : undefined,
       companyName: seller.companyName,
       businessType: seller.businessType,
       description: seller.description || undefined,
@@ -173,7 +183,9 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       rejectionReason: seller.rejectionReason || undefined,
       trustScore: seller.trustScore,
       phone: seller.phone || undefined,
-      ownerName: seller.ownerName || undefined,
+      ownerName: seller.user?.name || seller.ownerName || undefined,
+      founderName: seller.user?.name || seller.founderName || undefined,
+      aadharNumber: seller.aadharNumber || undefined,
       factoryAddress: seller.factoryAddress || undefined,
       pickupAddress: seller.pickupAddress || undefined,
       companyAddress: seller.companyAddress || undefined,
@@ -201,7 +213,7 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
 
     const seller = await db.seller.findUnique({
       where: { id },
-      include: { documents: true },
+      include: { documents: true, user: true },
     });
 
     if (!seller) return null;
@@ -209,6 +221,8 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
     return {
       id: seller.id,
       userId: seller.userId,
+      userName: seller.user?.name || undefined,
+      user: seller.user ? { name: seller.user.name, email: seller.user.email } : undefined,
       companyName: seller.companyName,
       businessType: seller.businessType,
       description: seller.description || undefined,
@@ -222,7 +236,9 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       rejectionReason: seller.rejectionReason || undefined,
       trustScore: seller.trustScore,
       phone: seller.phone || undefined,
-      ownerName: seller.ownerName || undefined,
+      ownerName: seller.user?.name || seller.ownerName || undefined,
+      founderName: seller.user?.name || seller.founderName || undefined,
+      aadharNumber: seller.aadharNumber || undefined,
       factoryAddress: seller.factoryAddress || undefined,
       pickupAddress: seller.pickupAddress || undefined,
       companyAddress: seller.companyAddress || undefined,
@@ -260,7 +276,7 @@ export async function submitSellerVerification(data: {
   bankName?: string;
   bankIfsc?: string;
   documents: {
-    type: "GST" | "PAN" | "BUSINESS_REGISTRATION" | "SUSTAINABILITY_CERTIFICATE" | "MANUFACTURING_PROOF" | "BANK_PROOF";
+    type: "GST" | "PAN" | "BUSINESS_REGISTRATION" | "SUSTAINABILITY_CERTIFICATE" | "MANUFACTURING_PROOF" | "BANK_PROOF" | "AADHAR" | string;
     fileName: string;
     fileBase64: string; // Base64 representation of file
   }[];
@@ -387,6 +403,8 @@ export async function submitSellerVerification(data: {
         verificationStatus: "PENDING",
         phone: data.phone,
         ownerName: data.ownerName,
+        founderName: (data as any).founderName || data.ownerName,
+        aadharNumber: (data as any).aadharNumber,
         factoryAddress: data.factoryAddress,
         pickupAddress: data.pickupAddress,
         companyAddress: data.companyAddress,
@@ -413,6 +431,8 @@ export async function submitSellerVerification(data: {
         verificationStatus: "PENDING",
         phone: data.phone,
         ownerName: data.ownerName,
+        founderName: (data as any).founderName || data.ownerName,
+        aadharNumber: (data as any).aadharNumber,
         factoryAddress: data.factoryAddress,
         pickupAddress: data.pickupAddress,
         companyAddress: data.companyAddress,
@@ -458,6 +478,8 @@ export async function submitSellerVerification(data: {
       trustScore: seller.trustScore,
       phone: seller.phone || undefined,
       ownerName: seller.ownerName || undefined,
+      founderName: seller.founderName || undefined,
+      aadharNumber: seller.aadharNumber || undefined,
       factoryAddress: seller.factoryAddress || undefined,
       pickupAddress: seller.pickupAddress || undefined,
       companyAddress: seller.companyAddress || undefined,
@@ -911,5 +933,117 @@ export async function getAllBrands() {
       { id: "seller-3-profile", companyName: "Forest Craft Co." }
     ].sort((a, b) => a.companyName.localeCompare(b.companyName));
   }
+}
+
+export async function submit3StepSellerVerification(data: {
+  userId: string;
+  companyName: string;
+  founderName: string;
+  businessType: string;
+  description: string;
+  website?: string;
+  phone?: string;
+  gstNumber: string;
+  panNumber: string;
+  aadharNumber: string;
+  logoUrl?: string;
+  documents: {
+    type: string;
+    fileName: string;
+    fileBase64: string;
+  }[];
+  product: {
+    name: string;
+    description: string;
+    categoryName: string;
+    price: number;
+    wholesalePrice?: number;
+    originalPrice?: number;
+    stock: number;
+    unit?: string;
+    sustainabilityScore: number;
+    sustainabilityDetail: string;
+    materialUsed?: string;
+    imageUrls: string[];
+  };
+}): Promise<SellerProfile> {
+  const sellerProfile = await submitSellerVerification({
+    userId: data.userId,
+    companyName: data.companyName,
+    businessType: data.businessType,
+    description: data.description,
+    website: data.website || "",
+    gstNumber: data.gstNumber,
+    panNumber: data.panNumber,
+    phone: data.phone || "",
+    ownerName: data.founderName,
+    documents: data.documents as any,
+  });
+
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (isMock) {
+      const existing = mockSellers.find((s) => s.userId === data.userId || s.id === sellerProfile.id);
+      if (existing) {
+        existing.founderName = data.founderName;
+        existing.ownerName = data.founderName;
+        existing.aadharNumber = data.aadharNumber;
+        if (data.logoUrl) existing.logoUrl = data.logoUrl;
+      }
+    } else {
+      await db.seller.update({
+        where: { id: sellerProfile.id },
+        data: {
+          founderName: data.founderName,
+          ownerName: data.founderName,
+          aadharNumber: data.aadharNumber,
+          ...(data.logoUrl ? { logoUrl: data.logoUrl } : {})
+        }
+      });
+    }
+  } catch (err) {
+    console.error("Error updating extra seller fields in submit3StepSellerVerification:", err);
+  }
+
+  try {
+    const prod = await createProduct({
+      name: data.product.name,
+      description: data.product.description + (data.product.materialUsed ? `\n\nMaterial: ${data.product.materialUsed}` : "") + (data.product.unit ? `\n\nUnit: ${data.product.unit}` : ""),
+      price: Number(data.product.price),
+      wholesalePrice: data.product.wholesalePrice ? Number(data.product.wholesalePrice) : undefined,
+      originalPrice: data.product.originalPrice ? Number(data.product.originalPrice) : undefined,
+      stock: Number(data.product.stock),
+      categoryName: data.product.categoryName || "General",
+      sustainabilityScore: Number(data.product.sustainabilityScore || 90),
+      sustainabilityDetail: data.product.sustainabilityDetail || "Eco-friendly verified product",
+      imageUrls: data.product.imageUrls,
+      sellerId: sellerProfile.id,
+      sellerName: data.companyName,
+    });
+    if (prod) {
+      prod.isApproved = false;
+      const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+      if (!isMock) {
+        try {
+          await db.product.update({ where: { id: prod.id }, data: { isApproved: false, status: "PENDING_APPROVAL" as any } });
+        } catch {}
+      }
+    }
+  } catch (prodErr) {
+    console.error("Error creating initial product in submit3StepSellerVerification:", prodErr);
+  }
+
+  await createAdminNotification(
+    "New 3-Step Seller Application 🚀",
+    `Seller "${data.companyName}" submitted complete 3-step verification (Company, Documents, First Product).`,
+    "sellers"
+  );
+
+  return {
+    ...sellerProfile,
+    founderName: data.founderName,
+    ownerName: data.founderName,
+    aadharNumber: data.aadharNumber,
+  };
 }
 

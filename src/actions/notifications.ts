@@ -408,6 +408,71 @@ export async function getUserNotifications(userId: string) {
       console.warn("Failed to fetch user orders for notifications:", e);
     }
 
+    // 3. Check if Buyer has a Seller application needing attention (NEED_MORE_DOCS, REJECTED, APPROVED, SUSPENDED)
+    try {
+      const sellerApp = await db.seller.findFirst({
+        where: { userId },
+        select: { id: true, verificationStatus: true, rejectionReason: true, updatedAt: true, companyName: true }
+      });
+      if (sellerApp) {
+        if (sellerApp.verificationStatus === "NEED_MORE_DOCS") {
+          const notifId = `seller-docs-${sellerApp.id}`;
+          if (!notifList.some(n => n.id === notifId || n.title.includes("Additional Documents"))) {
+            notifList.unshift({
+              id: notifId,
+              title: "Action Required: Additional Documents Needed ⚠️",
+              message: `Super Admin requested more documents for your seller application (${sellerApp.companyName}): ${sellerApp.rejectionReason || "Please upload clear legal identity documents."}`,
+              type: "SYSTEM",
+              actionUrl: "/account?tab=seller",
+              isRead: false,
+              createdAt: sellerApp.updatedAt || new Date()
+            });
+          }
+        } else if (sellerApp.verificationStatus === "REJECTED") {
+          const notifId = `seller-rej-${sellerApp.id}`;
+          if (!notifList.some(n => n.id === notifId || n.title.includes("Application Rejected"))) {
+            notifList.unshift({
+              id: notifId,
+              title: "Seller Application Rejected ❌",
+              message: `Your seller application (${sellerApp.companyName}) could not be approved at this time. Reason: ${sellerApp.rejectionReason || "Criteria not met."}`,
+              type: "SYSTEM",
+              actionUrl: "/account?tab=seller",
+              isRead: false,
+              createdAt: sellerApp.updatedAt || new Date()
+            });
+          }
+        } else if (sellerApp.verificationStatus === "APPROVED") {
+          const notifId = `seller-appr-${sellerApp.id}`;
+          if (!notifList.some(n => n.id === notifId || n.title.includes("Verified Seller"))) {
+            notifList.unshift({
+              id: notifId,
+              title: "You Are a Verified Seller! 🎉",
+              message: `Congratulations! ${sellerApp.companyName} has been approved by Super Admin. Your seller dashboard is unlocked and ready!`,
+              type: "SYSTEM",
+              actionUrl: "/seller/dashboard",
+              isRead: false,
+              createdAt: sellerApp.updatedAt || new Date()
+            });
+          }
+        } else if (sellerApp.verificationStatus === "SUSPENDED") {
+          const notifId = `seller-susp-${sellerApp.id}`;
+          if (!notifList.some(n => n.id === notifId || n.title.includes("Account Suspended"))) {
+            notifList.unshift({
+              id: notifId,
+              title: "Account Suspended ⚠️",
+              message: `Your seller privileges have been suspended. Reason: ${sellerApp.rejectionReason || "Violation of terms."}`,
+              type: "SYSTEM",
+              actionUrl: "/account",
+              isRead: false,
+              createdAt: sellerApp.updatedAt || new Date()
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to check seller app status for notifications:", e);
+    }
+
     // Combine with offers if user has few notifications
     defaultOffers.forEach(offer => {
       if (!notifList.some(n => n.id === offer.id)) {

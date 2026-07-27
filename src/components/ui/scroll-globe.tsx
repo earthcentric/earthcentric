@@ -192,6 +192,7 @@ export default function ScrollGlobe({ sections, globeConfig = defaultGlobeConfig
                     block: 'center'
                   });
                 }}
+                suppressHydrationWarning
                 className={cn(
                   "relative w-2.5 h-2.5 lg:w-3.5 lg:h-3.5 rounded-full border-2 transition-all duration-300 hover:scale-125 focus:outline-none",
                   "before:absolute before:inset-0 before:rounded-full before:transition-all before:duration-300",

@@ -37,12 +37,18 @@ function generateOtp(): string {
 
 // ─── Profile Actions ──────────────────────────────────────────────────────────
 
-export async function getBuyerProfile(userId: string): Promise<BuyerProfileData | null> {
+export async function getBuyerProfile(userId: string, email?: string): Promise<BuyerProfileData | null> {
   try {
-    const user = await db.user.findUnique({
+    let user = await db.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, email: true, phone: true, image: true },
     });
+    if (!user && email) {
+      user = await db.user.findUnique({
+        where: { email: email.toLowerCase() },
+        select: { id: true, name: true, email: true, phone: true, image: true },
+      });
+    }
     if (!user) return null;
     return {
       id: user.id,
@@ -59,16 +65,44 @@ export async function getBuyerProfile(userId: string): Promise<BuyerProfileData 
 
 export async function updateBuyerProfile(
   userId: string,
-  data: { name: string; phone?: string }
+  data: { name: string; phone?: string; email?: string }
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await db.user.update({
-      where: { id: userId },
-      data: {
-        name: data.name.trim(),
-        phone: data.phone?.trim() || null,
-      },
-    });
+    if (data.email) {
+      await db.user.upsert({
+        where: { email: data.email.toLowerCase() },
+        update: {
+          name: data.name.trim(),
+          phone: data.phone?.trim() || null,
+        },
+        create: {
+          id: userId,
+          name: data.name.trim(),
+          email: data.email.toLowerCase(),
+          phone: data.phone?.trim() || null,
+          role: "BUYER",
+        },
+      });
+    } else {
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          name: data.name.trim(),
+          phone: data.phone?.trim() || null,
+        },
+      });
+    }
+
+    try {
+      await db.seller.updateMany({
+        where: { userId },
+        data: {
+          ownerName: data.name.trim(),
+          founderName: data.name.trim(),
+        }
+      });
+    } catch {}
+
     return { success: true };
   } catch (e) {
     console.error("updateBuyerProfile failed:", e);

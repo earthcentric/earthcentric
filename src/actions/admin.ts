@@ -4,7 +4,7 @@ import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { sendSellerVerificationUpdateEmail } from "@/lib/email";
 import { getMockSellersInternal, updateMockSellerStatusInternal, SellerProfile } from "./sellers";
-import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct } from "./products";
+import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId } from "./products";
 import { createNotification } from "./notifications";
 
 export interface PlatformStats {
@@ -29,15 +29,23 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
     }
 
     const sellers = await db.seller.findMany({
-      where: { verificationStatus: "PENDING" },
+      where: {
+        verificationStatus: {
+          in: ["PENDING", "UNDER_REVIEW", "NEED_MORE_DOCS", "APPROVED", "REJECTED", "SUSPENDED"]
+        }
+      },
       include: {
         documents: true,
+        user: true,
       },
+      orderBy: { createdAt: "desc" },
     });
 
     return sellers.map((s) => ({
       id: s.id,
       userId: s.userId,
+      userName: s.user?.name || undefined,
+      user: s.user ? { name: s.user.name, email: s.user.email } : undefined,
       companyName: s.companyName,
       businessType: s.businessType,
       description: s.description || undefined,
@@ -47,6 +55,8 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
       panNumber: s.panNumber || undefined,
       verificationStatus: s.verificationStatus as any,
       badges: s.badges,
+      ownerName: s.user?.name || s.ownerName || undefined,
+      founderName: s.user?.name || s.founderName || undefined,
       documents: s.documents.map((d) => ({
         id: d.id,
         type: d.type,
@@ -1109,6 +1119,49 @@ export async function updateSellerVerificationStatus(
         }
       });
       
+      if (status === "APPROVED") {
+        await db.product.updateMany({
+          where: {
+            OR: [
+              { sellerId: seller.id },
+              { seller: { userId: seller.userId } }
+            ],
+            isApproved: false,
+          },
+          data: {
+            isApproved: true,
+            status: "APPROVED" as any,
+          }
+        });
+        await createNotification(
+          seller.userId,
+          "Welcome to EarthCentric! 🎉",
+          "Your first product is launched successfully! Welcome to EarthCentric.",
+          "/seller/dashboard"
+        );
+      } else if (status === "NEED_MORE_DOCS") {
+        await createNotification(
+          seller.userId,
+          "Action Required: Additional Documents Needed ⚠️",
+          `Super Admin requested more documents for your seller application: ${reason || "Please upload clear identity and tax documents."}`,
+          "/account?tab=seller"
+        );
+      } else if (status === "REJECTED") {
+        await createNotification(
+          seller.userId,
+          "Seller Application Update ❌",
+          `Your seller application could not be approved at this time. Reason: ${reason || "Documents incomplete or invalid."}`,
+          "/account?tab=seller"
+        );
+      } else if (status === "SUSPENDED") {
+        await createNotification(
+          seller.userId,
+          "Account Suspended ⚠️",
+          `Your seller privileges have been suspended. Reason: ${reason || "Violation of terms."}`,
+          "/account"
+        );
+      }
+
       console.log(`Successfully updated seller ${seller.id} in DB to status ${status}`);
     } else {
       // In Mock Mode: find the userId corresponding to the sellerId if needed
@@ -1121,6 +1174,36 @@ export async function updateSellerVerificationStatus(
       
       // Call mock update
       await updateMockSellerStatusInternal(targetUserId, status as any, badges || [], reason);
+      if (status === "APPROVED") {
+        await approveAllSellerProductsBySellerId(targetUserId);
+        await approveAllSellerProductsBySellerId(sellerId);
+        mockPendingProducts = mockPendingProducts.map(p => {
+          if (p.sellerId === sellerId || p.sellerId === targetUserId || p.seller?.id === sellerId || p.seller?.id === targetUserId) {
+            return { ...p, isApproved: true };
+          }
+          return p;
+        });
+        await createNotification(
+          targetUserId,
+          "Welcome to EarthCentric! 🎉",
+          "Your first product is launched successfully! Welcome to EarthCentric.",
+          "/seller/dashboard"
+        );
+      } else if (status === "NEED_MORE_DOCS") {
+        await createNotification(
+          targetUserId,
+          "Action Required: Additional Documents Needed ⚠️",
+          `Super Admin requested more documents for your seller application: ${reason || "Please upload clear identity and tax documents."}`,
+          "/account?tab=seller"
+        );
+      } else if (status === "REJECTED") {
+        await createNotification(
+          targetUserId,
+          "Seller Application Update ❌",
+          `Your seller application could not be approved at this time. Reason: ${reason || "Documents incomplete or invalid."}`,
+          "/account?tab=seller"
+        );
+      }
       console.log(`Successfully updated mock seller ${targetUserId} to status ${status}`);
     }
 
@@ -1128,6 +1211,57 @@ export async function updateSellerVerificationStatus(
   } catch (e) {
     console.error("updateSellerVerificationStatus failed:", e);
     return false;
+  }
+}
+
+export async function getSellerInitialProductForAdmin(sellerId: string): Promise<any | null> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (!isMock) {
+      const dbProd = await db.product.findFirst({
+        where: {
+          OR: [
+            { sellerId: sellerId },
+            { seller: { userId: sellerId } }
+          ]
+        },
+        include: { category: true, images: true, seller: true },
+        orderBy: { createdAt: "desc" }
+      });
+      if (dbProd) {
+        return {
+          id: dbProd.id,
+          name: dbProd.name,
+          slug: dbProd.slug,
+          description: dbProd.description,
+          price: dbProd.price,
+          wholesalePrice: dbProd.wholesalePrice || undefined,
+          originalPrice: dbProd.originalPrice || undefined,
+          stock: dbProd.stock,
+          sustainabilityScore: dbProd.sustainabilityScore,
+          sustainabilityDetail: dbProd.sustainabilityDetail || "",
+          images: dbProd.images.map(img => getUrlFromDb(img.url)),
+          category: dbProd.category.name,
+          categoryId: dbProd.categoryId,
+          isApproved: dbProd.isApproved,
+          sellerId: dbProd.sellerId,
+          seller: { id: dbProd.seller.id, companyName: dbProd.seller.companyName, badges: dbProd.seller.badges }
+        };
+      }
+    }
+    const dynProds = await getDynamicProducts();
+    const dynMatch = dynProds.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+    if (dynMatch) return dynMatch;
+
+    const mockMatch = mockPendingProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+    if (mockMatch) return mockMatch;
+
+    return null;
+  } catch (e) {
+    console.error("getSellerInitialProductForAdmin error:", e);
+    const dynProds = await getDynamicProducts();
+    const dynMatch = dynProds.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+    return dynMatch || mockPendingProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId) || null;
   }
 }
 

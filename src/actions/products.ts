@@ -513,6 +513,89 @@ export async function rejectDynamicProduct(productId: string): Promise<void> {
   }
 }
 
+export async function approveAllSellerProductsBySellerId(sellerId: string): Promise<void> {
+  dynamicProducts.forEach((p) => {
+    if (p.sellerId === sellerId || p.seller?.id === sellerId) {
+      p.isApproved = true;
+    }
+  });
+  try {
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      await db.product.updateMany({
+        where: {
+          OR: [
+            { sellerId: sellerId },
+            { seller: { userId: sellerId } }
+          ],
+          isApproved: false,
+        },
+        data: {
+          isApproved: true,
+          status: "APPROVED" as any,
+        }
+      });
+    }
+  } catch (err) {
+    console.error("approveAllSellerProductsBySellerId DB error:", err);
+  }
+}
+
+export async function getSellerInitialProduct(sellerId: string): Promise<ProductItem | null> {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const p = dynamicProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+      return p || null;
+    }
+    const dbProd = await db.product.findFirst({
+      where: {
+        OR: [
+          { sellerId: sellerId },
+          { seller: { userId: sellerId } }
+        ]
+      },
+      include: {
+        images: true,
+        category: true,
+        seller: true,
+      },
+      orderBy: { createdAt: "desc" }
+    });
+    if (!dbProd) {
+      const p = dynamicProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+      return p || null;
+    }
+    return {
+      id: dbProd.id,
+      name: dbProd.name,
+      slug: dbProd.slug,
+      description: dbProd.description,
+      price: dbProd.price,
+      wholesalePrice: dbProd.wholesalePrice || undefined,
+      originalPrice: dbProd.originalPrice || undefined,
+      stock: dbProd.stock,
+      sustainabilityScore: dbProd.sustainabilityScore,
+      sustainabilityDetail: dbProd.sustainabilityDetail || "",
+      images: dbProd.images.map(img => getUrlFromDb(img.url)),
+      category: dbProd.category?.name || "General",
+      categoryId: dbProd.categoryId,
+      isApproved: dbProd.isApproved,
+      sellerId: dbProd.sellerId,
+      seller: {
+        id: dbProd.seller.id,
+        companyName: dbProd.seller.companyName,
+        badges: dbProd.seller.badges,
+      },
+      certifications: [],
+      rating: 5.0,
+      reviewsCount: 0,
+    };
+  } catch (e) {
+    console.error("getSellerInitialProduct error:", e);
+    const p = dynamicProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+    return p || null;
+  }
+}
+
 export async function getProducts(filters: ProductFilter = {}): Promise<ProductItem[]> {
   try {
     // Check database connection. If DATABASE_URL is not set or is 'mock', trigger fallback
