@@ -38,21 +38,22 @@ export default clerkMiddleware(async (auth, request) => {
       return NextResponse.redirect(new URL('/', request.url));
     }
 
-    // Prevent buyers/admins from accessing seller routes (except buyer accessing verification)
-    if (isSellerRoute && role !== 'SELLER') {
+    // Prevent non-sellers from accessing seller routes (except buyers/pending sellers accessing verification)
+    if (isSellerRoute) {
       const isVerificationRoute = request.nextUrl.pathname === '/seller/verification';
-      if (!(role === 'BUYER' && isVerificationRoute)) {
+      const isApprovedSeller = role === 'SELLER' || sellerStatus === 'APPROVED';
+
+      if (!isApprovedSeller) {
+        if (isVerificationRoute) {
+          return NextResponse.next();
+        }
+        if (sellerStatus && sellerStatus !== 'APPROVED') {
+          return NextResponse.redirect(new URL('/seller/verification', request.url));
+        }
         return NextResponse.redirect(new URL('/', request.url));
       }
-    }
 
-    // Redirect pending sellers away from seller dashboard to verification page
-    if (isSellerRoute && role === 'SELLER') {
-      const isVerificationRoute = request.nextUrl.pathname === '/seller/verification';
-      if (sellerStatus !== 'APPROVED' && !isVerificationRoute) {
-        return NextResponse.redirect(new URL('/seller/verification', request.url));
-      }
-      if (sellerStatus === 'APPROVED' && isVerificationRoute) {
+      if (isApprovedSeller && isVerificationRoute) {
         return NextResponse.redirect(new URL('/seller/dashboard', request.url));
       }
     }

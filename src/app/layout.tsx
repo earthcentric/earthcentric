@@ -21,14 +21,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
-      <body className="min-h-full flex flex-col bg-background text-foreground" suppressHydrationWarning>
+    <html lang="en" className="h-full antialiased overflow-x-hidden" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col bg-background text-foreground max-w-full overflow-x-hidden" suppressHydrationWarning>
         <ClerkProvider>
           <AuthProvider>
           <CartProvider>
           <SmoothScroll>
           <Navbar />
-          <main className="flex-1 flex flex-col">{children}</main>
+          <main className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">{children}</main>
           <Footer />
           <Toaster position="bottom-right" richColors />
           <ChatbotWidget />

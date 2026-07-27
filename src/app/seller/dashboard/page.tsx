@@ -263,11 +263,11 @@ export default function SellerDashboard() {
       {/* Main content area */}
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen">
         {/* Top Header */}
-        <div className="h-14 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10 bg-[#f4f5f3] border-b border-[#d8dcd3]/40">
-          <div className="flex items-center space-x-2 text-[#4a5d4e] font-bold text-sm tracking-tight">
+        <div className="h-14 flex items-center justify-between px-3 sm:px-8 sticky top-0 z-10 bg-[#f4f5f3] border-b border-[#d8dcd3]/40">
+          <div className="flex items-center space-x-2 text-[#4a5d4e] font-bold text-sm tracking-tight shrink-0">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1 text-[#4a5d4e] hover:text-[#2d4a36] md:hidden border-none bg-transparent cursor-pointer mr-2 flex items-center justify-center"
+              className="p-1 text-[#4a5d4e] hover:text-[#2d4a36] md:hidden border-none bg-transparent cursor-pointer mr-1 flex items-center justify-center"
               aria-label="Toggle Sidebar"
             >
               <Menu className="h-5 w-5" />
@@ -275,12 +275,12 @@ export default function SellerDashboard() {
             <Logo hideTextOnMobile={true} />
             <span className="ml-1 text-[10px] sm:text-xs font-semibold bg-[#2d4a36] text-white px-2 py-0.5 rounded-full">Seller</span>
           </div>
-          <div className="flex items-center space-x-6">
-            <a href="/" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer flex items-center space-x-1">
+          <div className="flex items-center space-x-2 sm:space-x-4 md:space-x-6 shrink-0">
+            <a href="/" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer flex items-center space-x-1 whitespace-nowrap">
               <Home className="h-3.5 w-3.5" />
-              <span>Back to Home</span>
+              <span className="hidden sm:inline">Back to Home</span>
             </a>
-            <a href="/marketplace" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer">View Marketplace</a>
+            <a href="/marketplace" className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer whitespace-nowrap hidden md:inline">View Marketplace</a>
             
             <div className="relative">
               <button 
@@ -296,7 +296,7 @@ export default function SellerDashboard() {
               {showNotifDropdown && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowNotifDropdown(false)} />
-                  <Card className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-card border border-border/60 rounded-xl shadow-2xl z-50 p-4 space-y-3">
+                  <Card className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:mt-2 w-[calc(100vw-24px)] sm:w-80 max-h-96 overflow-y-auto bg-card border border-border/60 rounded-xl shadow-2xl z-50 p-4 space-y-3">
                     <div className="flex justify-between items-center pb-2 border-b border-border/60">
                       <h4 className="font-bold text-xs text-[#1a3321]">Recent Notifications ({notifications.filter(n => !n.isRead).length})</h4>
                       {notifications.filter(n => !n.isRead).length > 0 && (
@@ -366,7 +366,7 @@ export default function SellerDashboard() {
         </div>
 
         {/* Tab Content */}
-        <div className="p-8">
+        <div className="p-3 sm:p-6 lg:p-8 max-w-full overflow-x-hidden">
           <FadeIn>
             {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
@@ -399,12 +399,12 @@ export default function SellerDashboard() {
 function DashboardView({ stats, products, setTab, profile }: any) {
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-[#2d4a36]">Seller Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Welcome back! Here's your business overview.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#2d4a36]">Seller Dashboard</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Welcome back! Here's your business overview.</p>
         </div>
-        <Button onClick={() => setTab("products")} className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs font-semibold rounded-full px-5 py-2 shadow-sm">
+        <Button onClick={() => setTab("products")} className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs font-semibold rounded-full px-5 py-2 shadow-sm w-fit">
           + Add Product
         </Button>
       </div>
@@ -611,12 +611,12 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-[#2d4a36]">Products Directory</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage your listed items, update stock levels, and monitor sales performance.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#2d4a36]">Products Directory</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Manage your listed items, update stock levels, and monitor sales performance.</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)} className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs font-semibold rounded-full px-5 py-2 shadow-sm">
+        <Button onClick={() => setShowAddForm(true)} className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs font-semibold rounded-full px-5 py-2 shadow-sm w-fit">
           + Add Product
         </Button>
       </div>
@@ -654,7 +654,7 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
             className="bg-[#f4f5f3] border-none text-xs rounded-xl py-2 px-4" 
           />
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mb-4">
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mb-4 max-w-full overflow-x-auto no-scrollbar py-1">
           <span className="font-semibold px-2 py-1">Filter:</span>
           {[
             { name: "All", slug: "all" },
@@ -708,8 +708,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="py-4">
-                      <div className="w-16 break-words">{p.category}</div>
+                    <TableCell className="py-4 whitespace-nowrap min-w-[110px]">
+                      <span className="text-xs font-medium text-foreground">{p.category}</span>
                     </TableCell>
                     <TableCell className="py-4">
                       <div className="flex items-center space-x-1">
@@ -1250,7 +1250,7 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
         </div>
       )}
 
-      <div className="flex items-center space-x-2 bg-white w-max p-1.5 rounded-full shadow-sm border border-[#e9ece6]">
+      <div className="flex items-center space-x-2 bg-white max-w-full overflow-x-auto no-scrollbar p-1.5 rounded-full shadow-sm border border-[#e9ece6]">
         <Badge 
           className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-semibold ${statusFilter === "all" ? "bg-[#2d4a36] text-white hover:bg-[#2d4a36]" : "bg-transparent text-muted-foreground hover:bg-[#e9ece6]"}`}
           onClick={() => setStatusFilter("all")}

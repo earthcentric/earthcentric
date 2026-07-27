@@ -38,6 +38,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { getUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/actions/notifications";
+import { setAdminSessionCookie } from "@/actions/auth";
 
 interface NavbarSearchProps {
   onSearchComplete?: () => void;
@@ -170,7 +171,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 sm:right-auto sm:-left-36 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl z-50 text-left">
+        <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:mt-2 w-[calc(100vw-24px)] sm:w-96 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl z-50 text-left">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2 px-1">
             <div className="flex items-center space-x-2">
@@ -357,18 +358,21 @@ export default function Navbar() {
           </form>
 
           {/* Right Action Items */}
-          <div className="flex items-center space-x-6 shrink-0">
+          <div className="flex items-center space-x-2.5 sm:space-x-5 md:space-x-6 shrink-0">
             
             {/* Start Selling / Seller Dashboard / Admin Portal Button */}
             {user?.role === "ADMIN" ? (
-              <Link 
-                href="/admin/dashboard" 
-                className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-[#1F3A2E] text-white px-4 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-md shrink-0 border border-emerald-400/30"
+              <button 
+                onClick={async () => {
+                  await setAdminSessionCookie(user.id);
+                  router.push("/admin/dashboard");
+                }}
+                className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-[#1F3A2E] text-white px-4 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-md shrink-0 border border-emerald-400/30 cursor-pointer"
               >
                 <ShieldCheck className="h-4 w-4 text-emerald-300" />
                 <span>Admin Portal</span>
-              </Link>
-            ) : user?.role === "SELLER" && user.sellerStatus === "APPROVED" ? (
+              </button>
+            ) : (user?.role === "SELLER" || user?.sellerStatus === "APPROVED") ? (
               <Link 
                 href="/seller/dashboard" 
                 className="hidden md:flex items-center space-x-2 bg-[#0F6E56] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0c5a46] transition-colors shadow-sm"
@@ -513,7 +517,7 @@ export default function Navbar() {
         </div>
 
         {/* 2. Sub-Navbar Section (Dark Forest Green) */}
-        <div className={`w-full bg-[#0c3c26] text-slate-100 text-xs py-2.5 px-4 sm:px-6 lg:px-8 shadow-md flex items-center justify-between border-t border-emerald-950 select-none whitespace-nowrap scrollbar-none ${isCategoriesOpen ? "overflow-visible" : "overflow-x-auto"}`}>
+        <div className={`w-full max-w-full bg-[#0c3c26] text-slate-100 text-xs py-2.5 px-3 sm:px-6 lg:px-8 shadow-md flex items-center justify-between border-t border-emerald-950 select-none whitespace-nowrap no-scrollbar ${isCategoriesOpen ? "overflow-visible" : "overflow-x-auto"}`}>
           <div className="flex items-center space-x-6">
             {/* All Categories Dropdown */}
             <div className="relative">
@@ -649,7 +653,7 @@ export default function Navbar() {
             {user ? (
               <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">My Account ({user.name.split(" ")[0]})</p>
-                {user.role === "SELLER" && user.sellerStatus === "APPROVED" ? (
+                {user.role === "SELLER" || user.sellerStatus === "APPROVED" ? (
                   <Link
                     href="/seller/dashboard"
                     className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
@@ -668,13 +672,16 @@ export default function Navbar() {
                   </Link>
                 )}
                 {user.role === "ADMIN" && (
-                  <Link
-                    href="/admin/dashboard"
-                    className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  <button
+                    onClick={async () => {
+                      setIsMobileMenuOpen(false);
+                      await setAdminSessionCookie(user.id);
+                      router.push("/admin/dashboard");
+                    }}
+                    className="w-full text-left text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56] cursor-pointer bg-transparent border-x-0 border-t-0"
                   >
                     Admin Dashboard
-                  </Link>
+                  </button>
                 )}
 
                 <Link

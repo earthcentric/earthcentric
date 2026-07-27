@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { syncUserInDb, loginUser, signupUser, logoutUser } from "@/actions/auth";
+import { syncUserInDb, loginUser, signupUser, logoutUser, setSellerSessionCookie, setAdminSessionCookie } from "@/actions/auth";
 import { toast } from "sonner";
 import { useUser, useAuth as useClerkAuth } from "@clerk/nextjs";
 
@@ -87,6 +87,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             phone: null,
             isNewUser: true,
           };
+          if (finalUser.role === "ADMIN") {
+            setAdminSessionCookie(finalUser.id).catch(console.error);
+          }
           setUser(finalUser);
           localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
           setIsLoading(false);
@@ -225,6 +228,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setIsLoading(true);
     const updated = { ...DEMO_USERS[role] };
 
+    if (role === "ADMIN") {
+      await setAdminSessionCookie(updated.id).catch(console.error);
+    } else if (role === "SELLER") {
+      await setSellerSessionCookie(updated.id, "SELLER", "APPROVED").catch(console.error);
+    }
+
     // Sync with DB
     const synced = await syncUserInDb({
       id: updated.id,
@@ -241,23 +250,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (role === "ADMIN") {
       router.push("/admin/dashboard");
     } else if (role === "SELLER") {
-      router.push("/");
+      router.push("/seller/dashboard");
     } else {
       router.push("/marketplace");
     }
   };
 
-  const updateSellerStatus = (status: "PENDING" | "APPROVED" | "REJECTED", badges?: string[]) => {
+  const updateSellerStatus = async (status: "PENDING" | "APPROVED" | "REJECTED", badges?: string[]) => {
     if (!user) return;
     
-    const updatedUser = {
+    const updatedUser: User = {
       ...user,
-      role: "SELLER" as Role,
+      role: (status === "APPROVED" || status === "PENDING") ? ("SELLER" as Role) : user.role,
       sellerStatus: status,
       badges: status === "APPROVED" ? (badges || ["Verified Business"]) : [],
     };
     setUser(updatedUser);
     localStorage.setItem("earthcentric_user", JSON.stringify(updatedUser));
+    await setSellerSessionCookie(user.id, updatedUser.role, status).catch(console.error);
   };
 
   return (

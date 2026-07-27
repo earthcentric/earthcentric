@@ -246,6 +246,35 @@ export async function syncUserInDb(userData: {
   }
 }
 
+export async function setSellerSessionCookie(userId: string, role: string = "SELLER", sellerStatus: string = "APPROVED") {
+  try {
+    const cookieStore = await cookies();
+    cookieStore.set('earthcentric_session', JSON.stringify({
+      id: userId,
+      role: role,
+      sellerStatus: sellerStatus
+    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+    return { success: true };
+  } catch (e) {
+    console.error("Failed to set seller session cookie:", e);
+    return { success: false };
+  }
+}
+
+export async function setAdminSessionCookie(userId: string = "admin-1") {
+  try {
+    const cookieStore = await cookies();
+    cookieStore.set('earthcentric_session', JSON.stringify({
+      id: userId,
+      role: 'ADMIN'
+    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+    return { success: true };
+  } catch (e) {
+    console.error("Failed to set admin session cookie:", e);
+    return { success: false };
+  }
+}
+
 export async function updateUserProfilePicture(userId: string, base64Image: string): Promise<string> {
   const resultJson = await uploadImage(base64Image, "buyer-profile");
   

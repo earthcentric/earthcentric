@@ -726,6 +726,7 @@ function compressImageBase64(base64Str: string, maxWidth = 1000, quality = 0.7):
 
 function BecomeSellerTab({ userId }: { userId: string }) {
   const router = useRouter();
+  const { updateSellerStatus } = useAuth();
   const [loading, setLoading] = useState(true);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -785,6 +786,9 @@ function BecomeSellerTab({ userId }: { userId: string }) {
           setGstNumber(p.gstNumber || "");
           setPanNumber(p.panNumber || "");
           setAadharNumber(p.aadharNumber || "");
+          if (p.verificationStatus === "APPROVED" && updateSellerStatus) {
+            updateSellerStatus("APPROVED", p.badges);
+          }
         }
         setLoading(false);
       }
@@ -951,8 +955,13 @@ function BecomeSellerTab({ userId }: { userId: string }) {
           </div>
         </div>
         <button
-          onClick={() => router.push("/seller/dashboard")}
-          className="w-full py-3.5 rounded-2xl bg-[#2D5A40] text-white text-xs font-bold hover:bg-[#1F3A2E] transition shadow-md flex items-center justify-center space-x-2"
+          onClick={async () => {
+            if (updateSellerStatus) {
+              await updateSellerStatus("APPROVED", sellerProfile?.badges);
+            }
+            router.push("/seller/dashboard");
+          }}
+          className="w-full py-3.5 rounded-2xl bg-[#2D5A40] text-white text-xs font-bold hover:bg-[#1F3A2E] transition shadow-md flex items-center justify-center space-x-2 cursor-pointer"
         >
           <span>Go to Seller Dashboard</span>
           <ArrowRight className="h-4 w-4" />

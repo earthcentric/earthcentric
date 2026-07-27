@@ -189,7 +189,7 @@ export default function ChatbotWidget() {
   ];
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 font-sans">
+    <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 font-sans max-w-[calc(100vw-32px)]">
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -197,7 +197,7 @@ export default function ChatbotWidget() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 50 }}
             transition={{ type: "spring", damping: 25, stiffness: 250 }}
-            className="w-96 h-[520px] rounded-3xl bg-white dark:bg-[#121c15] border border-slate-200 dark:border-emerald-950 shadow-2xl flex flex-col overflow-hidden mb-4"
+            className="w-[calc(100vw-32px)] sm:w-96 h-[480px] sm:h-[520px] rounded-3xl bg-white dark:bg-[#121c15] border border-slate-200 dark:border-emerald-950 shadow-2xl flex flex-col overflow-hidden mb-4"
           >
             {/* Header */}
             <div className="bg-[#0c3c26] text-white p-4 flex items-center justify-between shadow-md">

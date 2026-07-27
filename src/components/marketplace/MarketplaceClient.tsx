@@ -671,7 +671,7 @@ export default function MarketplaceClient() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
             
             {/* Horizontal Sub-category Pills */}
-            <div className="flex items-center gap-2 overflow-x-auto py-2 scrollbar-none whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="flex items-center gap-2 overflow-x-auto py-2 no-scrollbar whitespace-nowrap -mx-4 px-4 sm:mx-0 sm:px-0">
               {[
                 { id: "all", name: "All" },
                 { id: "bagasse-trays", name: "Bagasse Trays" },
@@ -691,7 +691,7 @@ export default function MarketplaceClient() {
                       setCategory(cat.id === "all" ? "all" : cat.name);
                       setSearch(""); // clear search
                     }}
-                    className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all border cursor-pointer ${
+                    className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all border cursor-pointer shrink-0 ${
                       isSelected
                         ? "bg-[#0F6E56] border-[#0F6E56] text-white shadow-sm"
                         : "bg-white border-slate-100 text-slate-700 hover:bg-slate-50"
