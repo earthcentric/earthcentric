@@ -32,6 +32,7 @@ export interface ProductItem {
   description: string;
   price: number;
   stock: number;
+  productDate?: Date | string;
   sustainabilityScore: number;
   sustainabilityDetail: string;
   images: string[];
@@ -732,6 +733,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         reviewsCount: p.reviews.length,
         originalPrice: p.originalPrice || undefined,
         bulkPriceSlabs: p.bulkPriceSlabs,
+        productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
         createdAt: p.createdAt,
       };
     });
@@ -795,6 +797,7 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       wholesalePrice: p.wholesalePrice || undefined,
       originalPrice: p.originalPrice || undefined,
       bulkPriceSlabs: p.bulkPriceSlabs,
+      productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
       createdAt: p.createdAt,
     };
   } catch (error) {
@@ -808,6 +811,7 @@ export async function createProduct(data: {
   description: string;
   price: number;
   stock: number;
+  productDate?: string | Date;
   categoryName: string;
   sustainabilityScore: number;
   sustainabilityDetail: string;
@@ -828,6 +832,8 @@ export async function createProduct(data: {
       })
     );
 
+    const productDateVal = data.productDate ? new Date(data.productDate) : new Date();
+
     const isMockDb = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMockDb) {
       const isSellerApproved = data.sellerId === "seller-1" || data.sellerId === "seller-pkg" || data.sellerId.includes("seller");
@@ -838,6 +844,7 @@ export async function createProduct(data: {
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
+        productDate: productDateVal.toISOString().split("T")[0],
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
         images: uploadedImages.map(img => getUrlFromDb(img.url)),
@@ -893,6 +900,7 @@ export async function createProduct(data: {
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
+        productDate: productDateVal,
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
         categoryId: category.id,
@@ -948,6 +956,7 @@ export async function createProduct(data: {
       wholesalePrice: p.wholesalePrice || undefined,
       originalPrice: p.originalPrice || undefined,
       bulkPriceSlabs: p.bulkPriceSlabs,
+      productDate: p.productDate ? new Date(p.productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
     };
   } catch (error) {
     console.error("Failed to create product in DB:", error);
@@ -962,6 +971,7 @@ export async function updateProduct(
     description: string;
     price: number;
     stock: number;
+    productDate?: string | Date;
     categoryName: string;
     sustainabilityScore: number;
     sustainabilityDetail: string;
@@ -982,6 +992,7 @@ export async function updateProduct(
             description: data.description,
             price: Number(data.price),
             stock: Number(data.stock),
+            ...(data.productDate ? { productDate: typeof data.productDate === 'string' ? data.productDate : new Date(data.productDate).toISOString().split("T")[0] } : {}),
             category: data.categoryName,
             sustainabilityScore: Number(data.sustainabilityScore),
             sustainabilityDetail: data.sustainabilityDetail,
@@ -1029,6 +1040,7 @@ export async function updateProduct(
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
+        ...(data.productDate ? { productDate: new Date(data.productDate) } : {}),
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
         categoryId: category.id,

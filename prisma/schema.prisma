@@ -178,6 +178,7 @@ model Product {
   deliveryTime         String?
   returnEligibility    String?
   stock                Int      @default(0)
+  productDate          DateTime @default(now())
   sustainabilityScore  Int      @default(50) // 1-100 score
   sustainabilityDetail String? // Explains why it's eco-friendly
   status               ProductStatus @default(DRAFT)

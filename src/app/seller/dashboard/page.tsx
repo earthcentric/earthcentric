@@ -547,6 +547,7 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editMoq, setEditMoq] = useState("");
   const [editWholesalePrice, setEditWholesalePrice] = useState("");
   const [editOriginalPrice, setEditOriginalPrice] = useState("");
+  const [editDate, setEditDate] = useState("");
   const [editSlabs, setEditSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
 
   const handleEditClick = (p: any) => {
@@ -555,6 +556,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditDesc(p.description);
     setEditPrice(p.price.toString());
     setEditStock(p.stock.toString());
+    const initialDate = p.productDate ? (typeof p.productDate === 'string' ? p.productDate.split("T")[0] : new Date(p.productDate).toISOString().split("T")[0]) : (p.createdAt ? (typeof p.createdAt === 'string' ? p.createdAt.split("T")[0] : new Date(p.createdAt).toISOString().split("T")[0]) : new Date().toISOString().split("T")[0]);
+    setEditDate(initialDate);
     setEditCat(p.category);
     setEditScore(p.sustainabilityScore.toString());
     setEditDetails(p.sustainabilityDetail || "");
@@ -572,6 +575,7 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       description: editDesc,
       price: Number(editPrice),
       stock: Number(editStock),
+      productDate: editDate,
       categoryName: editCat,
       sustainabilityScore: Number(editScore),
       sustainabilityDetail: editDetails,
@@ -787,6 +791,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                   <Input type="number" required value={editStock} onChange={(e) => setEditStock(e.target.value)} />
                 </div>
               </div>
+              <div className="space-y-1">
+                <Label>Product Date</Label>
+                <Input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label>MOQ (Min Order Qty)</Label>
@@ -888,6 +896,7 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodScore, setProdScore] = useState("90");
   const [prodDetails, setProdDetails] = useState("");
   const [prodOriginalPrice, setProdOriginalPrice] = useState("");
+  const [prodDate, setProdDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [prodSlabs, setProdSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
   const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -920,6 +929,7 @@ function AddProductForm({ onBack, profile, reload }: any) {
       description: prodDesc,
       price: Number(prodPrice),
       stock: Number(prodStock),
+      productDate: prodDate,
       categoryName: prodCat,
       sustainabilityScore: Number(prodScore),
       sustainabilityDetail: prodDetails,
@@ -951,6 +961,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
             <div className="space-y-1"><Label>Original Price / MRP (₹)</Label><Input type="number" placeholder="MRP" value={prodOriginalPrice} onChange={(e) => setProdOriginalPrice(e.target.value)} /></div>
             <div className="space-y-1"><Label>Active Sale Price (₹)</Label><Input type="number" required value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
             <div className="space-y-1"><Label>Stock</Label><Input type="number" required value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
+          </div>
+          <div className="space-y-1">
+            <Label>Product Date</Label>
+            <Input type="date" required value={prodDate} onChange={(e) => setProdDate(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1"><Label>Eco Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
