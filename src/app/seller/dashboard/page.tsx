@@ -201,26 +201,16 @@ export default function SellerDashboard() {
       <div className={`w-64 bg-[#e9ece6] border-r border-[#d8dcd3] flex flex-col fixed h-full z-30 transition-transform duration-300 md:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         
         {/* Profile Summary Card */}
-        <div className="p-6 pt-10">
+        <div className="p-6 pt-8">
           <div className="bg-[#f4f5f3] rounded-xl p-4 shadow-sm border border-[#d8dcd3]/50 flex flex-col items-center text-center">
             <div className="h-12 w-12 bg-primary/10 rounded-xl mb-3 flex items-center justify-center text-primary">
               <Leaf className="h-6 w-6" />
             </div>
             <h3 className="text-sm font-bold text-foreground mb-1">{profile?.companyName || "Your Company"}</h3>
-            <p className="text-[10px] text-muted-foreground mb-3">Bangalore, Karnataka</p>
+            <p className="text-[10px] text-muted-foreground mb-2.5">Bangalore, Karnataka</p>
             <Badge variant="success" className="text-[9px] bg-emerald-600 hover:bg-emerald-700 text-white border-none py-0.5 px-2">
               <CheckCircle2 className="w-3 h-3 mr-1 inline-block" /> Premium Verified
             </Badge>
-
-            <div className="w-full mt-4 space-y-1">
-              <div className="flex justify-between text-[10px] font-bold text-muted-foreground">
-                <span>Eco Score</span>
-                <span className="text-foreground">98/100</span>
-              </div>
-              <div className="h-1.5 w-full bg-muted/50 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-600 rounded-full" style={{ width: '98%' }}></div>
-              </div>
-            </div>
           </div>
         </div>
 
