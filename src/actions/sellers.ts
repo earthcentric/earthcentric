@@ -16,6 +16,7 @@ export interface SellerProfile {
   businessType: string;
   description?: string;
   logoUrl?: string;
+  companyLogo?: string;
   website?: string;
   gstNumber?: string;
   panNumber?: string;
@@ -175,6 +176,7 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       businessType: seller.businessType,
       description: seller.description || undefined,
       logoUrl: getUrlFromDb(seller.logoUrl) || undefined,
+      companyLogo: getUrlFromDb(seller.logoUrl) || undefined,
       website: seller.website || undefined,
       gstNumber: seller.gstNumber || undefined,
       panNumber: seller.panNumber || undefined,
@@ -228,6 +230,7 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       businessType: seller.businessType,
       description: seller.description || undefined,
       logoUrl: getUrlFromDb(seller.logoUrl) || undefined,
+      companyLogo: getUrlFromDb(seller.logoUrl) || undefined,
       website: seller.website || undefined,
       gstNumber: seller.gstNumber || undefined,
       panNumber: seller.panNumber || undefined,
@@ -488,6 +491,7 @@ export async function submitSellerVerification(data: {
       businessType: seller.businessType,
       description: seller.description || undefined,
       logoUrl: getUrlFromDb(seller.logoUrl) || undefined,
+      companyLogo: getUrlFromDb(seller.logoUrl) || undefined,
       declaredRevenue: seller.declaredRevenue || undefined,
       verificationStatus: seller.verificationStatus as any,
       badges: seller.badges,
@@ -519,6 +523,7 @@ export async function submitSellerVerification(data: {
       businessType: data.businessType,
       description: data.description,
       logoUrl: uploadedLogoUrl || undefined,
+      companyLogo: uploadedLogoUrl || undefined,
       website: data.website,
       gstNumber: data.gstNumber,
       panNumber: data.panNumber,
@@ -608,6 +613,7 @@ export async function updateSellerProfile(
       businessType: updatedSeller.businessType,
       description: updatedSeller.description || undefined,
       logoUrl: getUrlFromDb(updatedSeller.logoUrl) || undefined,
+      companyLogo: getUrlFromDb(updatedSeller.logoUrl) || undefined,
       website: updatedSeller.website || undefined,
       gstNumber: updatedSeller.gstNumber || undefined,
       panNumber: updatedSeller.panNumber || undefined,

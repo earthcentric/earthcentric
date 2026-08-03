@@ -26,6 +26,7 @@ export interface SellerInfo {
   companyName: string;
   badges: string[];
   logoUrl?: string;
+  companyLogo?: string;
   trustScore?: number;
 }
 
@@ -617,6 +618,8 @@ export async function getSellerInitialProduct(sellerId: string): Promise<Product
         id: dbProd.seller.id,
         companyName: dbProd.seller.companyName,
         badges: dbProd.seller.badges,
+        logoUrl: getUrlFromDb(dbProd.seller.logoUrl) || undefined,
+        companyLogo: getUrlFromDb(dbProd.seller.logoUrl) || undefined,
       },
       certifications: [],
       rating: 5.0,
@@ -797,6 +800,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
           companyName: p.seller.companyName,
           badges: p.seller.badges,
           logoUrl: getUrlFromDb(p.seller.logoUrl) || undefined,
+          companyLogo: getUrlFromDb(p.seller.logoUrl) || undefined,
         },
         certifications: [], // dynamically loaded
         rating,
@@ -866,6 +870,7 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
         companyName: p.seller.companyName,
         badges: p.seller.badges,
         logoUrl: getUrlFromDb(p.seller.logoUrl) || undefined,
+        companyLogo: getUrlFromDb(p.seller.logoUrl) || undefined,
       },
       certifications: [],
       rating,
@@ -1037,6 +1042,7 @@ export async function createProduct(data: {
         companyName: p.seller.companyName,
         badges: p.seller.badges,
         logoUrl: getUrlFromDb(p.seller.logoUrl) || undefined,
+        companyLogo: getUrlFromDb(p.seller.logoUrl) || undefined,
       },
       certifications: ["EarthCentric Verified"],
       rating: 5.0,
@@ -1332,7 +1338,13 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
     }
   }
 
-  return list;
+  return list.map(p => ({
+    ...p,
+    seller: {
+      ...p.seller,
+      companyLogo: p.seller.logoUrl || undefined,
+    }
+  }));
 }
 
 export async function addProductReview(data: {

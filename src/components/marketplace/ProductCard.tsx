@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { toggleWishlist } from "@/actions/wishlist";
 import { toast } from "sonner";
 import { isBuyXGetYActive, getEffectiveUnitPrice } from "@/lib/offers";
+import { SellerLogo } from "@/components/SellerLogo";
 
 interface ProductCardProps {
   product: ProductItem;
@@ -123,10 +124,25 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
 
         {/* Details Section */}
         <div className="space-y-2 text-left">
-          {/* Category • Seller Label */}
           <div className="flex items-center space-x-1.5 flex-wrap">
-            <p className="text-[10px] font-extrabold text-[#0F6E56] uppercase tracking-wider">
-              {product.category} • {product.seller.companyName}
+            <Link 
+              href={`/marketplace?search=${encodeURIComponent(product.seller.companyName)}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center space-x-1 hover:underline"
+            >
+              <SellerLogo
+                logoUrl={product.seller.logoUrl}
+                companyLogo={product.seller.companyLogo}
+                companyName={product.seller.companyName}
+                size="xs"
+              />
+              <span className="text-[10px] font-extrabold text-[#0F6E56] uppercase tracking-wider">
+                {product.seller.companyName}
+              </span>
+            </Link>
+            <span className="text-slate-300 text-[10px]">•</span>
+            <p className="text-[10px] font-extrabold text-[#0c3c26] uppercase tracking-wider">
+              {product.category}
             </p>
             {product.seller.trustScore && product.seller.trustScore > 4 ? (
               <span className="bg-amber-100 text-amber-800 text-[8px] px-1 py-0.5 rounded uppercase font-bold flex items-center">

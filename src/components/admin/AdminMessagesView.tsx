@@ -38,6 +38,7 @@ import {
   Maximize2,
   Leaf,
 } from "lucide-react";
+import { SellerLogo } from "@/components/SellerLogo";
 
 export function AdminMessagesView({
   onViewSellerProfile,
@@ -323,17 +324,11 @@ export function AdminMessagesView({
                 >
                   {/* Seller Avatar */}
                   <div className="relative shrink-0">
-                    <div className="h-11 w-11 rounded-full border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center relative">
-                      {c.avatarUrl && !c.avatarUrl.includes("unsplash") ? (
-                        <img
-                          src={c.avatarUrl}
-                          alt={c.companyName}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Leaf className="h-6 w-6 text-[#2d4a36]" />
-                      )}
-                    </div>
+                    <SellerLogo
+                      logoUrl={c.avatarUrl}
+                      companyName={c.companyName}
+                      size="md"
+                    />
                     {c.isOnline && (
                       <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white" />
                     )}
@@ -376,17 +371,12 @@ export function AdminMessagesView({
           {/* Conversation Header */}
           <div className="p-4 border-b border-[#e9ece6] bg-slate-50/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
             <div className="flex items-center space-x-3.5">
-              <div className="h-12 w-12 rounded-full border-2 border-[#1a3321] overflow-hidden bg-white flex items-center justify-center shrink-0">
-                {selectedSeller.avatarUrl && !selectedSeller.avatarUrl.includes("unsplash") ? (
-                  <img
-                    src={selectedSeller.avatarUrl}
-                    alt={selectedSeller.companyName}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <Leaf className="h-6 w-6 text-[#2d4a36]" />
-                )}
-              </div>
+              <SellerLogo
+                logoUrl={selectedSeller.avatarUrl}
+                companyName={selectedSeller.companyName}
+                size="lg"
+                className="border-2 border-[#1a3321]"
+              />
               <div>
                 <div className="flex items-center space-x-2">
                   <h3 className="text-sm font-extrabold text-slate-900">{selectedSeller.sellerName}</h3>
@@ -462,17 +452,12 @@ export function AdminMessagesView({
                     <div className={`flex ${isAdmin ? "justify-end" : "justify-start"} group`}>
                       <div className="flex items-end space-x-2 max-w-[80%] md:max-w-[70%]">
                         {!isAdmin && (
-                          <div className="h-7 w-7 rounded-full border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0 mb-1">
-                            {selectedSeller.avatarUrl && !selectedSeller.avatarUrl.includes("unsplash") ? (
-                              <img
-                                src={selectedSeller.avatarUrl}
-                                alt={selectedSeller.companyName}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <Leaf className="h-4 w-4 text-[#2d4a36]" />
-                            )}
-                          </div>
+                          <SellerLogo
+                            logoUrl={selectedSeller.avatarUrl}
+                            companyName={selectedSeller.companyName}
+                            size="sm"
+                            className="mb-1"
+                          />
                         )}
                         <div
                           className={`p-3.5 rounded-2xl text-xs space-y-2 shadow-xs transition-all ${

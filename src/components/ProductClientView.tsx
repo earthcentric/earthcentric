@@ -10,6 +10,7 @@ import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
 import { Input, Textarea, Button } from "@/components/ui/shared";
 import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
 import { createEnquiry } from "@/actions/enquiries";
+import { SellerLogo } from "@/components/SellerLogo";
 import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice, isIndividualDiscountActive } from "@/lib/offers";
 import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
 import {
@@ -421,6 +422,27 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
             <h1 className="text-3xl sm:text-4xl font-black text-slate-900 leading-tight tracking-tight font-serif">
               {product.name}
             </h1>
+
+            {/* Seller Info Widget */}
+            <div className="flex items-center space-x-2.5 bg-slate-50 border border-slate-100 rounded-2xl p-3 w-fit select-none">
+              <Link
+                href={`/marketplace?search=${encodeURIComponent(product.seller?.companyName || "")}`}
+                className="flex items-center space-x-2 hover:underline group"
+              >
+                <SellerLogo
+                  logoUrl={product.seller?.logoUrl}
+                  companyLogo={product.seller?.companyLogo}
+                  companyName={product.seller?.companyName}
+                  size="sm"
+                />
+                <div>
+                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Sold by</p>
+                  <h4 className="text-xs font-black text-slate-800 group-hover:text-[#0F6E56] transition-colors">
+                    {product.seller?.companyName || "Verified Partner"}
+                  </h4>
+                </div>
+              </Link>
+            </div>
 
             {/* Rating + Sustainably Sourced */}
             <div className="flex items-center flex-wrap gap-4">

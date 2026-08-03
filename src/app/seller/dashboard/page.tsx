@@ -18,6 +18,7 @@ import { FadeIn } from "@/components/FramerComponents";
 import ProductPreviewCard from "@/components/seller/ProductPreviewCard";
 import { SellerMessagesView } from "@/components/seller/SellerMessagesView";
 import { Logo } from "@/components/Logo";
+import { SellerLogo } from "@/components/SellerLogo";
 import {
   LayoutDashboard,
   Package,
@@ -237,15 +238,13 @@ export default function SellerDashboard() {
         {/* Profile Summary Card */}
         <div className="p-6 pt-8">
           <div className="bg-[#f4f5f3] rounded-xl p-4 shadow-sm border border-[#d8dcd3]/50 flex flex-col items-center text-center">
-            <div className="h-12 w-12 rounded-xl mb-3 flex items-center justify-center text-primary overflow-hidden relative">
-              {profile?.logoUrl ? (
-                <img src={profile.logoUrl} alt={profile.companyName} className="h-full w-full object-cover" />
-              ) : (
-                <div className="h-full w-full bg-primary/10 flex items-center justify-center">
-                  <Leaf className="h-6 w-6" />
-                </div>
-              )}
-            </div>
+            <SellerLogo
+              logoUrl={profile?.logoUrl}
+              companyLogo={profile?.companyLogo}
+              companyName={profile?.companyName}
+              size="lg"
+              className="mb-3"
+            />
             <h3 className="text-sm font-bold text-foreground mb-1">{profile?.companyName || "Your Company"}</h3>
             <p className="text-[10px] text-muted-foreground mb-2.5">Bangalore, Karnataka</p>
             <Badge variant="success" className="text-[9px] bg-emerald-600 hover:bg-emerald-700 text-white border-none py-0.5 px-2">
@@ -393,15 +392,12 @@ export default function SellerDashboard() {
               )}
             </div>
             <div className="flex items-center space-x-2 bg-white px-2.5 py-1 rounded-full shadow-sm border border-[#d8dcd3]">
-              <div className="h-5 w-5 rounded-full flex items-center justify-center overflow-hidden relative">
-                {profile?.logoUrl ? (
-                  <img src={profile.logoUrl} alt={profile.companyName} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="h-full w-full bg-primary/20 text-primary flex items-center justify-center">
-                    <Leaf className="h-3 w-3" />
-                  </div>
-                )}
-              </div>
+              <SellerLogo
+                logoUrl={profile?.logoUrl}
+                companyLogo={profile?.companyLogo}
+                companyName={profile?.companyName}
+                size="xs"
+              />
               <span className="text-[10px] font-bold pr-1">{profile?.companyName}</span>
             </div>
           </div>
@@ -3654,13 +3650,11 @@ function SettingsView({ profile, reload }: { profile: any; reload: () => void })
             </div>
             
             <div className="flex items-center space-x-5">
-              <div className="h-20 w-20 rounded-2xl border border-[#d8dcd3] overflow-hidden flex items-center justify-center bg-white relative">
-                {logoPreview && !removeLogo ? (
-                  <img src={logoPreview} alt="Preview" className="h-full w-full object-cover" />
-                ) : (
-                  <Leaf className="h-8 w-8 text-slate-300" />
-                )}
-              </div>
+              <SellerLogo
+                logoUrl={removeLogo ? null : logoPreview}
+                companyName={companyName}
+                size={80}
+              />
               
               <div className="space-y-2">
                 <div className="flex space-x-2">

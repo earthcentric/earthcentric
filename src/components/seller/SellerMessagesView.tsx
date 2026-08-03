@@ -30,6 +30,7 @@ import {
   Building2,
   Leaf,
 } from "lucide-react";
+import { SellerLogo } from "@/components/SellerLogo";
 
 export function SellerMessagesView({ sellerId }: { sellerId: string }) {
   const { user } = useAuth();
@@ -330,13 +331,11 @@ export function SellerMessagesView({ sellerId }: { sellerId: string }) {
                       </div>
                       
                       {isSellerSender && (
-                        <div className="h-7 w-7 rounded-full border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center mb-1 shrink-0">
-                          {logoUrl ? (
-                            <img src={logoUrl} alt="Logo" className="h-full w-full object-cover" />
-                          ) : (
-                            <Leaf className="h-4 w-4 text-[#2d4a36]" />
-                          )}
-                        </div>
+                        <SellerLogo
+                          logoUrl={logoUrl}
+                          size="sm"
+                          className="mb-1"
+                        />
                       )}
                     </div>
                   </div>
