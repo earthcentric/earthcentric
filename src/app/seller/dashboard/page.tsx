@@ -1,24 +1,31 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { AdminSellerMessenger } from "@/components/ui/admin-seller-messenger";
-import { getSellerDashboardStats, getSellerProfile, SellerProfile, getSellerAnalyticsTimeSeries } from "@/actions/sellers";
+import { getSellerDashboardStats, getSellerProfile, SellerProfile, getSellerAnalyticsTimeSeries, getSellerCustomers, SellerCustomer, updateSellerProfile } from "@/actions/sellers";
 import { getUserNotifications, markNotificationAsRead } from "@/actions/notifications";
-import { getProducts, createProduct, archiveProduct, ProductItem, updateProductStock, updateProduct } from "@/actions/products";
+import { getProducts, createProduct, archiveProduct, ProductItem, updateProductStock, updateProduct, TierDiscount, BuyXGetYOffer } from "@/actions/products";
 import { getOrdersBySeller, updateOrderStatus, trackOrderById, OrderDetail } from "@/actions/orders";
 import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
+import { getUnreadMessageCount } from "@/actions/messages";
 import * as XLSX from "xlsx";
 import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, MetalButton } from "@/components/ui/shared";
 import { FadeIn } from "@/components/FramerComponents";
+import ProductPreviewCard from "@/components/seller/ProductPreviewCard";
+import { SellerMessagesView } from "@/components/seller/SellerMessagesView";
 import { Logo } from "@/components/Logo";
 import {
   LayoutDashboard,
   Package,
   ShoppingBag,
+  Users,
+  Phone,
+  UserCheck,
+  UserX,
   BarChart2,
   ShieldCheck,
   Wallet,
@@ -38,16 +45,17 @@ import {
   Leaf,
   Star,
   Mail,
-  Home,
   MessageSquare,
+  Home,
   Bell,
   Menu,
   Search,
   PackageCheck,
   Truck,
-  Calendar,
-  MapPin,
   Loader2,
+  Calendar,
+  Sparkles,
+  MapPin,
 } from "lucide-react";
 import {
   BarChart,
@@ -83,6 +91,12 @@ export default function SellerDashboard() {
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequestInfo[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState<number>(0);
+  // Global Date Analytics & Inventory Filter State
+  const [filterType, setFilterType] = useState<"overall" | "daily" | "monthly" | "yearly">("overall");
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear().toString());
 
   // Sync data on load
   const loadDashboardData = async () => {
@@ -94,13 +108,13 @@ export default function SellerDashboard() {
 
     const sellerId = p?.id || user.id;
 
-    const s = await getSellerDashboardStats(sellerId || "seller-1");
+    const s = await getSellerDashboardStats(sellerId || "seller-1", filterType, selectedDate, selectedMonth, selectedYear);
     setStats(s);
 
     const aData = await getSellerAnalyticsTimeSeries(sellerId || "seller-1");
     setAnalyticsData(aData);
 
-    const sellerProducts = await getProducts({ sellerId: sellerId });
+    const sellerProducts = await getProducts({ sellerId: sellerId, filterType, selectedDate, selectedMonth, selectedYear });
     setProducts(sellerProducts);
 
     const sellerOrders = await getOrdersBySeller(sellerId);
@@ -115,12 +129,32 @@ export default function SellerDashboard() {
     const userNotifs = await getUserNotifications(user.id);
     setNotifications(userNotifs);
 
+    const unreadMsgs = await getUnreadMessageCount(sellerId || user.id);
+    setUnreadMessagesCount(unreadMsgs);
+
     setLoading(false);
   };
 
   useEffect(() => {
     loadDashboardData();
-  }, [user]);
+  }, [user, filterType, selectedDate, selectedMonth, selectedYear]);
+
+  // Poll unread messages count every 3 seconds for dynamic badge updates
+  useEffect(() => {
+    if (!user?.id) return;
+    const sellerId = profile?.id || user?.id || "seller-1";
+
+    const interval = setInterval(async () => {
+      try {
+        const unreadMsgs = await getUnreadMessageCount(sellerId);
+        setUnreadMessagesCount(unreadMsgs);
+      } catch (e) {
+        console.error("Error polling seller unread count:", e);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [profile?.id, user?.id]);
 
   // Actions
   const handleUpdateStock = async (id: string, newStock: number) => {
@@ -178,6 +212,7 @@ export default function SellerDashboard() {
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "products", label: "Products", icon: Package },
     { id: "orders", label: "Orders", icon: ShoppingBag },
+    { id: "customers", label: "Customers", icon: Users },
     { id: "enquiries", label: "Enquiries", icon: MessageSquare },
     { id: "complaints", label: "Complaints", icon: AlertCircle },
     { id: "analytics", label: "Analytics", icon: BarChart2 },
@@ -186,7 +221,6 @@ export default function SellerDashboard() {
     { id: "payments", label: "Payments", icon: Wallet },
     { id: "settings", label: "Settings", icon: Settings },
   ];
-
   return (
     <div className="flex min-h-screen bg-[#f4f5f3] font-sans text-foreground">
       {/* Mobile Sidebar backdrop */}
@@ -203,8 +237,14 @@ export default function SellerDashboard() {
         {/* Profile Summary Card */}
         <div className="p-6 pt-8">
           <div className="bg-[#f4f5f3] rounded-xl p-4 shadow-sm border border-[#d8dcd3]/50 flex flex-col items-center text-center">
-            <div className="h-12 w-12 bg-primary/10 rounded-xl mb-3 flex items-center justify-center text-primary">
-              <Leaf className="h-6 w-6" />
+            <div className="h-12 w-12 rounded-xl mb-3 flex items-center justify-center text-primary overflow-hidden relative">
+              {profile?.logoUrl ? (
+                <img src={profile.logoUrl} alt={profile.companyName} className="h-full w-full object-cover" />
+              ) : (
+                <div className="h-full w-full bg-primary/10 flex items-center justify-center">
+                  <Leaf className="h-6 w-6" />
+                </div>
+              )}
             </div>
             <h3 className="text-sm font-bold text-foreground mb-1">{profile?.companyName || "Your Company"}</h3>
             <p className="text-[10px] text-muted-foreground mb-2.5">Bangalore, Karnataka</p>
@@ -230,7 +270,14 @@ export default function SellerDashboard() {
               }`}
             >
               <item.icon className={`h-4 w-4 ${activeTab === item.id ? "text-[#2d4a36]" : "text-muted-foreground"}`} />
-              <span>{item.label}</span>
+              <div className="flex-1 flex items-center justify-between">
+                <span>{item.label}</span>
+                {item.id === "messages" && unreadMessagesCount > 0 && (
+                  <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs">
+                    {unreadMessagesCount}
+                  </span>
+                )}
+              </div>
             </button>
           ))}
         </div>
@@ -345,10 +392,15 @@ export default function SellerDashboard() {
                 </>
               )}
             </div>
-
             <div className="flex items-center space-x-2 bg-white px-2.5 py-1 rounded-full shadow-sm border border-[#d8dcd3]">
-              <div className="h-5 w-5 bg-primary/20 text-primary rounded-full flex items-center justify-center">
-                <Leaf className="h-3 w-3" />
+              <div className="h-5 w-5 rounded-full flex items-center justify-center overflow-hidden relative">
+                {profile?.logoUrl ? (
+                  <img src={profile.logoUrl} alt={profile.companyName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-primary/20 text-primary flex items-center justify-center">
+                    <Leaf className="h-3 w-3" />
+                  </div>
+                )}
               </div>
               <span className="text-[10px] font-bold pr-1">{profile?.companyName}</span>
             </div>
@@ -357,10 +409,82 @@ export default function SellerDashboard() {
 
         {/* Tab Content */}
         <div className="p-3 sm:p-6 lg:p-8 max-w-full overflow-x-hidden">
+          {/* Global Date Analytics & Inventory Filter Control (Only shown on Dashboard, Products, and Orders) */}
+          {(activeTab === "dashboard" || activeTab === "products" || activeTab === "orders") && (
+            <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-[#e9ece6] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="h-9 w-9 bg-[#e8f3ec] text-[#2d4a36] rounded-xl flex items-center justify-center shrink-0">
+                  <Calendar className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-[#2d4a36]">Analytics & Inventory Date Filter</h4>
+                  <p className="text-[10px] text-muted-foreground">Filter statistics, revenue, and product inventory by date range</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Filter Type Selector */}
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value as any)}
+                  className="bg-[#f4f5f3] text-xs font-bold text-[#2d4a36] px-3.5 py-2 rounded-xl border border-[#d8dcd3] outline-none cursor-pointer focus:ring-2 focus:ring-[#2d4a36]"
+                >
+                  <option value="overall">Overall (Lifetime)</option>
+                  <option value="daily">Daily View</option>
+                  <option value="monthly">Monthly View</option>
+                  <option value="yearly">Yearly View</option>
+                </select>
+
+                {/* Daily Date Picker */}
+                {filterType === "daily" && (
+                  <div className="flex items-center space-x-1.5 bg-[#f4f5f3] px-3 py-1.5 rounded-xl border border-[#d8dcd3]">
+                    <span className="text-[10px] font-bold text-muted-foreground">Date:</span>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="bg-white text-xs font-semibold text-[#2d4a36] px-2 py-1 rounded-lg border border-[#d8dcd3] outline-none focus:ring-2 focus:ring-[#2d4a36] cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {/* Monthly Picker */}
+                {filterType === "monthly" && (
+                  <div className="flex items-center space-x-1.5 bg-[#f4f5f3] px-3 py-1.5 rounded-xl border border-[#d8dcd3]">
+                    <span className="text-[10px] font-bold text-muted-foreground">Month:</span>
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      className="bg-white text-xs font-semibold text-[#2d4a36] px-2 py-1 rounded-lg border border-[#d8dcd3] outline-none focus:ring-2 focus:ring-[#2d4a36] cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {/* Yearly Selector */}
+                {filterType === "yearly" && (
+                  <div className="flex items-center space-x-1.5 bg-[#f4f5f3] px-3 py-1.5 rounded-xl border border-[#d8dcd3]">
+                    <span className="text-[10px] font-bold text-muted-foreground">Year:</span>
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(e.target.value)}
+                      className="bg-white text-xs font-semibold text-[#2d4a36] px-2 py-1 rounded-lg border border-[#d8dcd3] outline-none focus:ring-2 focus:ring-[#2d4a36] cursor-pointer"
+                    >
+                      {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <FadeIn>
             {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
             {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} sellerId={profile?.id || user?.id} />}
+            {activeTab === "customers" && <CustomersView sellerId={profile?.id || user?.id || ""} />}
             {activeTab === "enquiries" && <EnquiriesView sellerId={profile?.id || ""} />}
             { activeTab === "complaints" && <ComplaintsView sellerId={profile?.id || ""} />}
             { activeTab === "messages" && <MessagesView sellerId={profile?.id || ""} /> }
@@ -375,7 +499,7 @@ export default function SellerDashboard() {
               />
             )}
             {activeTab === "verification" && <VerificationView profile={profile} />}
-            {activeTab === "settings" && <SettingsView profile={profile} />}
+            {activeTab === "settings" && <SettingsView profile={profile} reload={loadDashboardData} />}
           </FadeIn>
         </div>
       </div>
@@ -550,6 +674,24 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editDate, setEditDate] = useState("");
   const [editSlabs, setEditSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
 
+  // Edit Product Offers state
+  const [editEnableTierDiscount, setEditEnableTierDiscount] = useState(false);
+  const [editTierDiscounts, setEditTierDiscounts] = useState<TierDiscount[]>([]);
+  const [editBuyXGetYEnabled, setEditBuyXGetYEnabled] = useState(false);
+  const [editBuyXBuyQty, setEditBuyXBuyQty] = useState("2");
+  const [editBuyXGetQty, setEditBuyXGetQty] = useState("1");
+  const [editBuyXMaxFree, setEditBuyXMaxFree] = useState("");
+  const [editBuyXStartDate, setEditBuyXStartDate] = useState("");
+  const [editBuyXEndDate, setEditBuyXEndDate] = useState("");
+
+  // Edit Individual Product Discount state
+  const [editEnableIndividualDiscount, setEditEnableIndividualDiscount] = useState(false);
+  const [editIndivDiscountType, setEditIndivDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
+  const [editIndivDiscountValue, setEditIndivDiscountValue] = useState("");
+  const [editIndivStartDate, setEditIndivStartDate] = useState("");
+  const [editIndivEndDate, setEditIndivEndDate] = useState("");
+  const [editIndivStatus, setEditIndivStatus] = useState<"PENDING" | "APPROVED" | "REJECTED">("PENDING");
+
   const handleEditClick = (p: any) => {
     setEditingProduct(p);
     setEditName(p.name);
@@ -565,11 +707,64 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditWholesalePrice(p.wholesalePrice?.toString() || "");
     setEditOriginalPrice(p.originalPrice?.toString() || "");
     setEditSlabs(p.bulkPriceSlabs || []);
+
+    setEditEnableTierDiscount(Array.isArray(p.tierDiscounts) && p.tierDiscounts.length > 0);
+    setEditTierDiscounts(Array.isArray(p.tierDiscounts) ? p.tierDiscounts : []);
+
+    if (p.individualDiscount) {
+      setEditEnableIndividualDiscount(true);
+      setEditIndivDiscountType(p.individualDiscount.discountType || "PERCENTAGE");
+      setEditIndivDiscountValue(p.individualDiscount.discountValue?.toString() || "");
+      setEditIndivStartDate(p.individualDiscount.startDate || "");
+      setEditIndivEndDate(p.individualDiscount.endDate || "");
+      setEditIndivStatus(p.individualDiscount.status || "PENDING");
+    } else {
+      setEditEnableIndividualDiscount(false);
+      setEditIndivDiscountType("PERCENTAGE");
+      setEditIndivDiscountValue("");
+      setEditIndivStartDate("");
+      setEditIndivEndDate("");
+      setEditIndivStatus("PENDING");
+    }
+
+    if (p.buyXGetYOffer && p.buyXGetYOffer.enabled) {
+      setEditBuyXGetYEnabled(true);
+      setEditBuyXBuyQty(p.buyXGetYOffer.buyQuantity?.toString() || "2");
+      setEditBuyXGetQty(p.buyXGetYOffer.getQuantity?.toString() || "1");
+      setEditBuyXMaxFree(p.buyXGetYOffer.maxFreeQuantity?.toString() || "");
+      setEditBuyXStartDate(p.buyXGetYOffer.startDate || "");
+      setEditBuyXEndDate(p.buyXGetYOffer.endDate || "");
+    } else {
+      setEditBuyXGetYEnabled(false);
+      setEditBuyXBuyQty("2");
+      setEditBuyXGetQty("1");
+      setEditBuyXMaxFree("");
+      setEditBuyXStartDate("");
+      setEditBuyXEndDate("");
+    }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
+
+    const tierDiscountsPayload = editEnableTierDiscount && editTierDiscounts.length > 0 ? editTierDiscounts : null;
+    const individualDiscountPayload = editEnableIndividualDiscount && Number(editIndivDiscountValue) > 0 ? {
+      discountType: editIndivDiscountType,
+      discountValue: Number(editIndivDiscountValue),
+      startDate: editIndivStartDate || null,
+      endDate: editIndivEndDate || null,
+      status: editIndivStatus === "APPROVED" ? ("APPROVED" as const) : ("PENDING" as const),
+    } : null;
+    const buyXGetYPayload = editBuyXGetYEnabled ? {
+      enabled: true,
+      buyQuantity: Number(editBuyXBuyQty) || 2,
+      getQuantity: Number(editBuyXGetQty) || 1,
+      maxFreeQuantity: editBuyXMaxFree ? Number(editBuyXMaxFree) : null,
+      startDate: editBuyXStartDate || null,
+      endDate: editBuyXEndDate || null,
+    } : null;
+
     await updateProduct(editingProduct.id, {
       name: editName,
       description: editDesc,
@@ -583,6 +778,9 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
       originalPrice: editOriginalPrice ? Number(editOriginalPrice) : undefined,
       bulkPriceSlabs: editSlabs.length > 0 ? editSlabs : undefined,
+      tierDiscounts: tierDiscountsPayload,
+      individualDiscount: individualDiscountPayload,
+      buyXGetYOffer: buyXGetYPayload,
     });
     setEditingProduct(null);
     reload();
@@ -870,6 +1068,337 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                   </div>
                 ))}
               </div>
+
+              {/* Product Offers Section */}
+              <div className="space-y-4 border-t pt-4">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="h-4 w-4 text-[#2d4a36]" />
+                  <Label className="font-bold text-xs text-[#2d4a36]">Product Offers & Promotional Rules</Label>
+                </div>
+
+                {/* 0. Individual Product Discount Section */}
+                <div className="bg-[#f8faf8] p-3.5 rounded-xl border border-[#e2ece4] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-[#1f3a2e] flex items-center gap-1.5">
+                        <span>🏷️</span>
+                        <span>Individual Product Discount</span>
+                      </span>
+                      <p className="text-[10px] text-muted-foreground">Normal discount on single product without quantity restrictions. Requires Admin Approval.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editEnableIndividualDiscount}
+                        onChange={(e) => setEditEnableIndividualDiscount(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#2d4a36]"></div>
+                    </label>
+                  </div>
+
+                  {editEnableIndividualDiscount && (
+                    <div className="space-y-3 pt-2 border-t border-[#e2ece4]">
+                      {/* Discount Type & Value */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-[#2d4a36]">Discount Type</Label>
+                          <select
+                            value={editIndivDiscountType}
+                            onChange={(e) => setEditIndivDiscountType(e.target.value as any)}
+                            className="w-full h-8 text-xs font-semibold bg-white border border-slate-300 rounded-md px-2 focus:outline-none focus:border-[#2d4a36]"
+                          >
+                            <option value="PERCENTAGE">Percentage Discount (%)</option>
+                            <option value="FIXED">Flat Amount Discount (₹)</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-[#2d4a36]">
+                            {editIndivDiscountType === "PERCENTAGE" ? "Discount Value (%)" : "Flat Discount (₹)"}
+                          </Label>
+                          <Input
+                            type="number"
+                            min="0.1"
+                            step="any"
+                            placeholder={editIndivDiscountType === "PERCENTAGE" ? "e.g. 20" : "e.g. 200"}
+                            value={editIndivDiscountValue}
+                            onChange={(e) => setEditIndivDiscountValue(e.target.value)}
+                            className="h-8 text-xs bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Start & End Dates */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-[#2d4a36]">Start Date (Optional)</Label>
+                          <Input
+                            type="date"
+                            value={editIndivStartDate}
+                            onChange={(e) => setEditIndivStartDate(e.target.value)}
+                            className="h-8 text-xs bg-white"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-[#2d4a36]">End Date (Optional)</Label>
+                          <Input
+                            type="date"
+                            value={editIndivEndDate}
+                            onChange={(e) => setEditIndivEndDate(e.target.value)}
+                            className="h-8 text-xs bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live Preview Card */}
+                      {(() => {
+                        const origPrice = Number(editPrice) || 0;
+                        const discVal = Number(editIndivDiscountValue) || 0;
+                        let finalSellingPrice = origPrice;
+                        let calculatedDiscount = 0;
+
+                        if (discVal > 0 && origPrice > 0) {
+                          if (editIndivDiscountType === "PERCENTAGE") {
+                            calculatedDiscount = (origPrice * discVal) / 100;
+                            finalSellingPrice = Math.max(0, origPrice - calculatedDiscount);
+                          } else {
+                            calculatedDiscount = discVal;
+                            finalSellingPrice = Math.max(0, origPrice - calculatedDiscount);
+                          }
+                        }
+
+                        return (
+                          <div className="p-3 bg-white rounded-xl border border-emerald-200/80 space-y-1.5 shadow-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-[#1f3a2e] uppercase tracking-wider">
+                                ⚡ Live Discount Preview
+                              </span>
+                              <Badge className={`text-[9px] font-extrabold ${
+                                editIndivStatus === "APPROVED" 
+                                  ? "bg-emerald-100 text-emerald-800" 
+                                  : editIndivStatus === "REJECTED" 
+                                  ? "bg-rose-100 text-rose-800" 
+                                  : "bg-amber-100 text-amber-800"
+                              }`}>
+                                {editIndivStatus === "APPROVED" ? "Approved & Active" : editIndivStatus === "REJECTED" ? "Rejected" : "Requires Admin Approval"}
+                              </Badge>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                              <div className="p-1.5 bg-slate-50 rounded-lg">
+                                <span className="text-[9px] text-muted-foreground block font-medium">Original Price</span>
+                                <span className="text-xs font-bold text-slate-700 line-through">₹{origPrice}</span>
+                              </div>
+                              <div className="p-1.5 bg-amber-50 rounded-lg">
+                                <span className="text-[9px] text-amber-800 block font-medium">Discount Amount</span>
+                                <span className="text-xs font-bold text-amber-700">-₹{calculatedDiscount.toLocaleString()}</span>
+                              </div>
+                              <div className="p-1.5 bg-emerald-50 rounded-lg">
+                                <span className="text-[9px] text-emerald-800 block font-medium">Final Selling Price</span>
+                                <span className="text-xs font-extrabold text-emerald-700">₹{finalSellingPrice.toLocaleString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* 1. Tier Discount Toggle & Form */}
+                <div className="bg-[#f8faf8] p-3.5 rounded-xl border border-[#e2ece4] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-[#1f3a2e]">Tier Discounts</span>
+                      <p className="text-[10px] text-muted-foreground">Offer volume percentage or fixed discount rates based on order quantity</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editEnableTierDiscount}
+                        onChange={(e) => {
+                          setEditEnableTierDiscount(e.target.checked);
+                          if (e.target.checked && editTierDiscounts.length === 0) {
+                            setEditTierDiscounts([{ minQuantity: 5, discountType: "PERCENTAGE", discountValue: 10 }]);
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#2d4a36]"></div>
+                    </label>
+                  </div>
+
+                  {editEnableTierDiscount && (
+                    <div className="space-y-2.5 pt-2 border-t border-[#e2ece4]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] font-semibold text-[#2d4a36]">Discount Tiers</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditTierDiscounts([...editTierDiscounts, { minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15 }])}
+                          className="text-[11px] h-6 px-2 text-[#2d4a36] border-[#2d4a36]/30 hover:bg-[#e8f3ec]"
+                        >
+                          + Add Tier
+                        </Button>
+                      </div>
+
+                      {editTierDiscounts.map((tier, idx) => (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-white p-2 rounded-lg border border-[#d8dcd3]">
+                          <div className="col-span-3">
+                            <span className="text-[10px] text-muted-foreground block font-medium">Min Qty</span>
+                            <Input
+                              type="number"
+                              min="1"
+                              required
+                              value={tier.minQuantity}
+                              onChange={(e) => {
+                                const updated = [...editTierDiscounts];
+                                updated[idx].minQuantity = Number(e.target.value);
+                                setEditTierDiscounts(updated);
+                              }}
+                              className="h-7 text-xs bg-slate-50"
+                            />
+                          </div>
+                          <div className="col-span-4">
+                            <span className="text-[10px] text-muted-foreground block font-medium">Discount Type</span>
+                            <select
+                              value={tier.discountType}
+                              onChange={(e) => {
+                                const updated = [...editTierDiscounts];
+                                updated[idx].discountType = e.target.value as any;
+                                setEditTierDiscounts(updated);
+                              }}
+                              className="w-full h-7 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-md px-1"
+                            >
+                              <option value="PERCENTAGE">Percentage (%)</option>
+                              <option value="FIXED">Fixed Amount (₹)</option>
+                            </select>
+                          </div>
+                          <div className="col-span-4">
+                            <span className="text-[10px] text-muted-foreground block font-medium">
+                              {tier.discountType === "PERCENTAGE" ? "Discount (%)" : "Discount (₹)"}
+                            </span>
+                            <Input
+                              type="number"
+                              min="0.1"
+                              step="any"
+                              required
+                              value={tier.discountValue}
+                              onChange={(e) => {
+                                const updated = [...editTierDiscounts];
+                                updated[idx].discountValue = Number(e.target.value);
+                                setEditTierDiscounts(updated);
+                              }}
+                              className="h-7 text-xs bg-slate-50"
+                            />
+                          </div>
+                          <div className="col-span-1 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setEditTierDiscounts(editTierDiscounts.filter((_, i) => i !== idx))}
+                              className="text-rose-500 hover:text-rose-700 p-1"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Buy X Get Y Offer Toggle & Form */}
+                <div className="bg-[#f8faf8] p-3.5 rounded-xl border border-[#e2ece4] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-[#1f3a2e]">Buy X Get Y Free Offer</span>
+                      <p className="text-[10px] text-muted-foreground">Reward customers with free items when purchasing target quantities (e.g. Buy 2, Get 1 Free)</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editBuyXGetYEnabled}
+                        onChange={(e) => setEditBuyXGetYEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#2d4a36]"></div>
+                    </label>
+                  </div>
+
+                  {editBuyXGetYEnabled && (
+                    <div className="space-y-3 pt-2 border-t border-[#e2ece4] bg-white p-3 rounded-lg border border-[#d8dcd3]">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label className="text-[10px]">Buy Quantity (X) *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            required
+                            placeholder="e.g. 2"
+                            value={editBuyXBuyQty}
+                            onChange={(e) => setEditBuyXBuyQty(e.target.value)}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Get Free Qty (Y) *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            required
+                            placeholder="e.g. 1"
+                            value={editBuyXGetQty}
+                            onChange={(e) => setEditBuyXGetQty(e.target.value)}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Max Free Items (Optional)</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            placeholder="No Limit"
+                            value={editBuyXMaxFree}
+                            onChange={(e) => setEditBuyXMaxFree(e.target.value)}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-[10px]">Offer Start Date</Label>
+                          <Input
+                            type="date"
+                            value={editBuyXStartDate}
+                            onChange={(e) => setEditBuyXStartDate(e.target.value)}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Offer End Date</Label>
+                          <Input
+                            type="date"
+                            value={editBuyXEndDate}
+                            onChange={(e) => setEditBuyXEndDate(e.target.value)}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {Number(editBuyXBuyQty) > 0 && Number(editBuyXGetQty) > 0 && (
+                        <div className="p-2 bg-[#e8f3ec] rounded-lg border border-[#c3decb] text-[11px] text-[#2d4a36] font-semibold flex items-center justify-between">
+                          <span>Offer Preview: <strong>Buy {editBuyXBuyQty} → Get {editBuyXGetQty} Free</strong></span>
+                          {editBuyXMaxFree && <span className="text-[10px] text-muted-foreground">(Max {editBuyXMaxFree} free/order)</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
               
               <div className="flex justify-end space-x-2 pt-2 border-t">
                 <Button variant="ghost" size="sm" type="button" onClick={() => setEditingProduct(null)}>Cancel</Button>
@@ -1063,6 +1592,12 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
   const [isSearchingTrack, setIsSearchingTrack] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
 
+  // Floating Product Preview Card state
+  const [activePreviewProductId, setActivePreviewProductId] = useState<string | null>(null);
+  const [activePreviewRect, setActivePreviewRect] = useState<DOMRect | null>(null);
+  const [activePreviewMousePos, setActivePreviewMousePos] = useState<{ x: number; y: number } | null>(null);
+  const [isMobilePreview, setIsMobilePreview] = useState(false);
+
   const handleTrackSearch = async () => {
     if (!trackInput.trim()) return;
     setIsSearchingTrack(true);
@@ -1098,8 +1633,8 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
         <p className="text-sm text-muted-foreground mt-1">Track orders by ID, fulfill pending shipments, and view brand-isolated order details.</p>
       </div>
 
-      {/* Order Track ID Search Bar */}
-      <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-2xl space-y-3">
+      {/* Order Track ID Search Bar matching Image 1 */}
+      <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-3xl space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -1108,14 +1643,14 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
               placeholder="Enter Order Track ID (e.g. ord-4r6wfg4-0)..."
               value={trackInput}
               onChange={(e) => setTrackInput(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2d4a36]"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#8fa495]"
               onKeyDown={(e) => { if (e.key === "Enter") handleTrackSearch(); }}
             />
           </div>
           <Button
             onClick={handleTrackSearch}
             disabled={isSearchingTrack || !trackInput.trim()}
-            className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs px-6 py-2 rounded-xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer"
+            className="bg-[#8fa495] hover:bg-[#788e7e] text-white text-xs font-extrabold px-6 py-2.5 rounded-2xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer shadow-xs transition-all disabled:opacity-50"
           >
             {isSearchingTrack ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
             <span>Track Order</span>
@@ -1164,15 +1699,37 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
               </h4>
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {trackedOrder.items?.map((it: any, idx: number) => (
-                  <div key={idx} className="flex items-center space-x-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <div
+                    key={idx}
+                    className="flex items-center space-x-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 cursor-pointer hover:border-emerald-300 transition-all"
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setActivePreviewRect(rect);
+                      setActivePreviewMousePos({ x: e.clientX, y: e.clientY });
+                      setActivePreviewProductId(it.productId || it.product?.id || it.id);
+                      setIsMobilePreview(window.innerWidth < 768);
+                    }}
+                    onMouseLeave={() => setActivePreviewProductId(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setActivePreviewRect(rect);
+                      setActivePreviewMousePos({ x: e.clientX, y: e.clientY });
+                      setActivePreviewProductId(it.productId || it.product?.id || it.id);
+                      setIsMobilePreview(true);
+                    }}
+                  >
                     <img
                       src={it.image || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"}
                       alt={it.name}
                       className="h-12 w-12 object-cover rounded-xl border border-slate-200 shrink-0"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-xs text-slate-800 truncate">{it.name}</p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Qty: {it.quantity} × ₹{it.price}</p>
+                      <p className="font-bold text-xs text-slate-800 truncate hover:text-[#0F6E56] flex items-center gap-1">
+                        <span>{it.name}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">ℹ️</span>
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Qty: {it.quantity} × ₹{it.price} • Hover/Tap preview</p>
                     </div>
                     <span className="font-extrabold text-xs text-[#2d4a36]">
                       ₹{it.quantity * it.price}
@@ -1307,13 +1864,38 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
                       <TableCell className="py-4">
                         <p className="text-xs font-bold">{o.user?.name || "Customer"}</p>
                         <p className="text-[9px] text-muted-foreground">{o.user?.email || "Retail Buyer"}</p>
+                        <p className="text-[9px] text-[#0F6E56] font-semibold">{o.user?.phone || "Not Available"}</p>
                       </TableCell>
                       <TableCell className="text-[11px] text-muted-foreground py-4">
                         {new Date(o.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </TableCell>
                       <TableCell className="py-4">
-                        <p className="text-[11px] font-medium text-[#2d4a36]">{o.items?.[0]?.product?.name || o.items?.[0]?.name || "Product"} (x{o.items?.[0]?.quantity || 1})</p>
-                        <p className="text-[9px] text-muted-foreground">{o.items?.length || 1} package units</p>
+                        <div
+                          className="group cursor-pointer inline-block"
+                          onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setActivePreviewRect(rect);
+                            setActivePreviewMousePos({ x: e.clientX, y: e.clientY });
+                            setActivePreviewProductId(o.items?.[0]?.productId || o.items?.[0]?.product?.id || o.items?.[0]?.id || "p1");
+                            setIsMobilePreview(window.innerWidth < 768);
+                          }}
+                          onMouseLeave={() => setActivePreviewProductId(null)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setActivePreviewRect(rect);
+                            setActivePreviewMousePos({ x: e.clientX, y: e.clientY });
+                            setActivePreviewProductId(o.items?.[0]?.productId || o.items?.[0]?.product?.id || o.items?.[0]?.id || "p1");
+                            setIsMobilePreview(true);
+                          }}
+                        >
+                          <p className="text-[11px] font-bold text-[#2d4a36] hover:underline flex items-center gap-1">
+                            <span>{o.items?.[0]?.product?.name || o.items?.[0]?.name || "Product"}</span>
+                            <span className="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded font-mono">x{o.items?.[0]?.quantity || 1}</span>
+                            <span className="text-slate-400 hover:text-emerald-700 ml-0.5 text-[10px]" title="Hover or tap for Product Preview">ℹ️</span>
+                          </p>
+                          <p className="text-[9px] text-muted-foreground">{o.items?.length || 1} package units • Hover for preview</p>
+                        </div>
                       </TableCell>
                       <TableCell className="text-[11px] font-bold py-4">₹{o.totalAmount}</TableCell>
                       <TableCell className="py-4">
@@ -1416,6 +1998,16 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
           </Card>
         </div>
       )}
+
+      {/* Floating Product Preview Card */}
+      <ProductPreviewCard
+        productId={activePreviewProductId || undefined}
+        triggerRect={activePreviewRect}
+        mousePos={activePreviewMousePos}
+        isOpen={!!activePreviewProductId}
+        onClose={() => setActivePreviewProductId(null)}
+        isMobile={isMobilePreview}
+      />
     </div>
   );
 }
@@ -1646,8 +2238,505 @@ function AnalyticsView({ stats, analyticsData }: any) {
           </div>
         </Card>
       </div>
+    </div>
+  );
+}
 
+// --------------------------------------------------------------------------
+// CUSTOMERS TAB VIEW
+// --------------------------------------------------------------------------
+function CustomersView({ sellerId }: { sellerId: string }) {
+  const [customers, setCustomers] = useState<SellerCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
 
+  // Search, Filter & Sort states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "vip" | "inactive">("all");
+  const [sortBy, setSortBy] = useState<
+    "name_asc" | "name_desc" | "date_desc" | "date_asc" | "orders_desc" | "orders_asc" | "spending_desc" | "spending_asc"
+  >("date_desc");
+
+  // Selected Customer Profile Modal state
+  const [selectedCustomer, setSelectedCustomer] = useState<SellerCustomer | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Generate autocomplete suggestions matching Name, Email, or Phone Number
+  const autocompleteSuggestions = useMemo(() => {
+    if (!searchQuery.trim() || searchQuery.trim().length < 1) return [];
+    const q = searchQuery.trim().toLowerCase();
+    const suggestions: { label: string; matchValue: string; type: "Name" | "Phone" | "Email" }[] = [];
+
+    customers.forEach((c) => {
+      if (c.name.toLowerCase().includes(q)) {
+        suggestions.push({ label: `${c.name} — ${c.email}`, matchValue: c.name, type: "Name" });
+      }
+      if (c.phone && c.phone !== "Not Available" && c.phone.toLowerCase().includes(q)) {
+        suggestions.push({ label: `${c.phone} — ${c.name}`, matchValue: c.phone, type: "Phone" });
+      }
+      if (c.email.toLowerCase().includes(q)) {
+        suggestions.push({ label: `${c.email} — ${c.name}`, matchValue: c.email, type: "Email" });
+      }
+    });
+
+    return suggestions.slice(0, 8);
+  }, [customers, searchQuery]);
+
+  const highlightMatch = (text: string, query: string) => {
+    if (!query) return text;
+    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"));
+    return (
+      <span>
+        {parts.map((part, i) =>
+          part.toLowerCase() === query.toLowerCase() ? (
+            <strong key={i} className="font-extrabold text-[#2d4a36] bg-emerald-100/60 px-0.5 rounded">
+              {part}
+            </strong>
+          ) : (
+            <span key={i}>{part}</span>
+          )
+        )}
+      </span>
+    );
+  };
+
+  // Debounce search query (300ms) to prevent unnecessary re-renders
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+    getSellerCustomers(sellerId).then((data) => {
+      if (isMounted) {
+        setCustomers(data);
+        setLoading(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [sellerId]);
+
+  // Combined Multi-field Search, Filtering, and Sorting logic
+  const processedCustomers = useMemo(() => {
+    let result = [...customers];
+
+    // 1. Multi-Field Search (Name, Phone, Email) - Case Insensitive & Partial Matching
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.email.toLowerCase().includes(q) ||
+          c.phone.toLowerCase().includes(q)
+      );
+    }
+
+    // 2. Status Filter
+    if (statusFilter !== "all") {
+      result = result.filter((c) => c.status.toLowerCase() === statusFilter.toLowerCase());
+    }
+
+    // 3. Sorting
+    result.sort((a, b) => {
+      if (sortBy === "name_asc") return a.name.localeCompare(b.name);
+      if (sortBy === "name_desc") return b.name.localeCompare(a.name);
+      if (sortBy === "date_desc") return new Date(b.registrationDate).getTime() - new Date(a.registrationDate).getTime();
+      if (sortBy === "date_asc") return new Date(a.registrationDate).getTime() - new Date(b.registrationDate).getTime();
+      if (sortBy === "orders_desc") return b.totalOrders - a.totalOrders;
+      if (sortBy === "orders_asc") return a.totalOrders - b.totalOrders;
+      if (sortBy === "spending_desc") return b.totalSpending - a.totalSpending;
+      if (sortBy === "spending_asc") return a.totalSpending - b.totalSpending;
+      return 0;
+    });
+
+    return result;
+  }, [customers, debouncedSearch, statusFilter, sortBy]);
+
+  const totalCustomersCount = customers.length;
+  const activeCount = customers.filter((c) => c.status === "ACTIVE" || c.status === "VIP").length;
+  const vipCount = customers.filter((c) => c.status === "VIP").length;
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-[#2d4a36]">Customer Management</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Review customer metrics, search by Name, Phone, or Email, and inspect individual buyer profiles.
+          </p>
+        </div>
+      </div>
+
+      {/* Stats Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="p-4 bg-white border border-[#e9ece6] shadow-xs rounded-2xl flex items-center space-x-4">
+          <div className="h-10 w-10 bg-[#e8f3ec] text-[#2d4a36] rounded-xl flex items-center justify-center shrink-0">
+            <Users className="h-5 w-5" />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Registered</span>
+            <h3 className="text-xl font-extrabold text-[#2d4a36]">{totalCustomersCount} Customers</h3>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-white border border-[#e9ece6] shadow-xs rounded-2xl flex items-center space-x-4">
+          <div className="h-10 w-10 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center shrink-0 border border-emerald-100">
+            <UserCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Active Accounts</span>
+            <h3 className="text-xl font-extrabold text-emerald-700">{activeCount} Active</h3>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-white border border-[#e9ece6] shadow-xs rounded-2xl flex items-center space-x-4">
+          <div className="h-10 w-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0 border border-amber-100">
+            <Star className="h-5 w-5 fill-amber-400 stroke-none" />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">VIP Buyers</span>
+            <h3 className="text-xl font-extrabold text-amber-600">{vipCount} VIPs</h3>
+          </div>
+        </Card>
+      </div>
+
+      {/* Multi-Field Search, Filter & Sort Controls */}
+      <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-3xl space-y-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* Search Bar matching Image 1 & Image 2 */}
+          <div className="flex-1 relative">
+            <div className="flex items-center space-x-2">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Enter Name, Phone Number (e.g. 987), or Email..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setShowSuggestions(true);
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-9 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#8fa495]"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setShowSuggestions(false);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 border-none bg-transparent cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+
+                {/* Autocomplete Suggestions Dropdown matching Image 2 */}
+                {showSuggestions && autocompleteSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 bg-white border border-slate-200 shadow-xl rounded-2xl py-2 mt-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150 text-left">
+                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 flex items-center justify-between">
+                      <span>Live Suggestions ({autocompleteSuggestions.length})</span>
+                      <span className="text-[9px] text-slate-400 font-normal">Name • Phone • Email</span>
+                    </div>
+                    {autocompleteSuggestions.map((item, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery(item.matchValue);
+                          setShowSuggestions(false);
+                        }}
+                        className="w-full px-3.5 py-2.5 hover:bg-slate-50 flex items-center justify-between text-xs text-left transition-colors cursor-pointer border-none bg-transparent"
+                      >
+                        <div className="flex items-center space-x-2.5 truncate">
+                          <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                          <span className="font-semibold text-slate-800 truncate">
+                            {highlightMatch(item.label, searchQuery)}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-[#0F6E56] bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 shrink-0 ml-2">
+                          {item.type}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Sage Green Action Button matching Image 1 */}
+              <Button
+                type="button"
+                onClick={() => setShowSuggestions(false)}
+                className="bg-[#8fa495] hover:bg-[#788e7e] text-white text-xs font-extrabold px-6 py-2.5 rounded-2xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer shadow-xs transition-all"
+              >
+                <Search className="h-4 w-4" />
+                <span>Search</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-bold text-slate-500 shrink-0">Sort By:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-[#2d4a36] outline-none cursor-pointer focus:ring-2 focus:ring-[#2d4a36]"
+            >
+              <option value="date_desc">Registration (Newest First)</option>
+              <option value="date_asc">Registration (Oldest First)</option>
+              <option value="name_asc">Name (A - Z)</option>
+              <option value="name_desc">Name (Z - A)</option>
+              <option value="orders_desc">Total Orders (High to Low)</option>
+              <option value="orders_asc">Total Orders (Low to High)</option>
+              <option value="spending_desc">Total Spending (High to Low)</option>
+              <option value="spending_asc">Total Spending (Low to High)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Status Filter Badges */}
+        <div className="flex items-center space-x-2 pt-1 overflow-x-auto no-scrollbar">
+          <span className="text-xs font-bold text-slate-400 mr-1">Filter Status:</span>
+          {[
+            { id: "all", label: `All (${customers.length})` },
+            { id: "active", label: `Active (${customers.filter((c) => c.status === "ACTIVE").length})` },
+            { id: "vip", label: `VIP (${customers.filter((c) => c.status === "VIP").length})` },
+            { id: "inactive", label: `Inactive (${customers.filter((c) => c.status === "INACTIVE").length})` },
+          ].map((f) => {
+            const isActive = statusFilter === f.id;
+            return (
+              <Badge
+                key={f.id}
+                className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-bold transition-all ${
+                  isActive ? "bg-[#2d4a36] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+                onClick={() => setStatusFilter(f.id as any)}
+              >
+                {f.label}
+              </Badge>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Customer Table List */}
+      <Card className="bg-white rounded-2xl shadow-xs border border-[#e9ece6] overflow-hidden p-2">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-[#e9ece6]">
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4 pl-4">CUSTOMER NAME</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">CONTACT DETAILS (EMAIL & PHONE)</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">REGISTRATION DATE</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">ORDERS & SPENDING</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">LAST ORDER</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4 text-right pr-4">ACTIONS</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-xs text-slate-400">
+                    <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2 text-[#2d4a36]" />
+                    Loading customer directory...
+                  </TableCell>
+                </TableRow>
+              ) : processedCustomers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-xs text-slate-400">
+                    No customers match your search or filter criteria.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                processedCustomers.map((c) => {
+                  const isVIP = c.status === "VIP";
+                  const isInactive = c.status === "INACTIVE";
+
+                  return (
+                    <TableRow key={c.id} className="border-b border-[#e9ece6]/50 hover:bg-slate-50/50">
+                      {/* Customer Avatar & Name */}
+                      <TableCell className="pl-4 py-4">
+                        <div className="flex items-center space-x-3">
+                          <img
+                            src={c.profilePicture || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100"}
+                            alt={c.name}
+                            className="h-10 w-10 rounded-full object-cover border border-slate-200 shrink-0"
+                          />
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-extrabold text-[#2d4a36]">{c.name}</span>
+                              {isVIP ? (
+                                <Badge className="bg-amber-100 text-amber-800 border border-amber-200 text-[9px] px-2 py-0.2 rounded-full font-bold">
+                                  ★ VIP
+                                </Badge>
+                              ) : isInactive ? (
+                                <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] px-2 py-0.2 rounded-full font-semibold">
+                                  Inactive
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] px-2 py-0.2 rounded-full font-semibold">
+                                  Active
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-400">ID: {c.id}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+
+                      {/* Contact Info: Email & Phone Number */}
+                      <TableCell className="py-4">
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                            <Mail className="h-3 w-3 text-slate-400 shrink-0" />
+                            <span>{c.email}</span>
+                          </p>
+                          <p className="text-[11px] font-bold text-[#0F6E56] flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 text-emerald-600 shrink-0" />
+                            <span>{c.phone}</span>
+                          </p>
+                        </div>
+                      </TableCell>
+
+                      {/* Registration Date */}
+                      <TableCell className="py-4 text-xs font-medium text-slate-600">
+                        {new Date(c.registrationDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </TableCell>
+
+                      {/* Orders & Spending */}
+                      <TableCell className="py-4">
+                        <p className="text-xs font-extrabold text-[#2d4a36]">₹{c.totalSpending.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-500 font-medium">{c.totalOrders} total orders</p>
+                      </TableCell>
+
+                      {/* Last Order Date */}
+                      <TableCell className="py-4 text-xs text-slate-600 font-medium">
+                        {new Date(c.lastOrderDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </TableCell>
+
+                      {/* Action Steps */}
+                      <TableCell className="py-4 text-right pr-4">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedCustomer(c)}
+                          className="text-xs font-bold text-[#2d4a36] border-[#c3decb] hover:bg-[#e8f3ec]"
+                        >
+                          View Profile
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
+      {/* Customer Profile Detail Modal */}
+      {selectedCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-xs" onClick={() => setSelectedCustomer(null)} />
+          <Card className="relative w-full max-w-lg p-6 bg-white border border-slate-200 rounded-3xl shadow-2xl z-10 space-y-5 text-left">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-4">
+                <img
+                  src={selectedCustomer.profilePicture || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200"}
+                  alt={selectedCustomer.name}
+                  className="h-16 w-16 rounded-full object-cover border-2 border-[#2d4a36] shadow-sm shrink-0"
+                />
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h2 className="text-lg font-black text-slate-900">{selectedCustomer.name}</h2>
+                    {selectedCustomer.status === "VIP" ? (
+                      <Badge className="bg-amber-100 text-amber-800 border border-amber-200 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                        ★ VIP
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                        {selectedCustomer.status}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Account ID: {selectedCustomer.id}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedCustomer(null)}
+                className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 cursor-pointer border-none"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Metrics Breakdown */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Lifetime Orders</span>
+                <p className="text-lg font-black text-[#2d4a36]">{selectedCustomer.totalOrders} Orders</p>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Lifetime Spent</span>
+                <p className="text-lg font-black text-[#2d4a36]">₹{selectedCustomer.totalSpending.toLocaleString()}</p>
+              </div>
+            </div>
+
+            {/* Customer Details List */}
+            <div className="space-y-3 bg-slate-50/70 p-4 rounded-2xl border border-slate-100 text-xs">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Email Address:</span>
+                <span className="font-bold text-slate-800">{selectedCustomer.email}</span>
+              </div>
+
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Phone Number:</span>
+                <span className="font-extrabold text-[#0F6E56]">{selectedCustomer.phone}</span>
+              </div>
+
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Member Registration Date:</span>
+                <span className="font-semibold text-slate-700">
+                  {new Date(selectedCustomer.registrationDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Most Recent Order Date:</span>
+                <span className="font-semibold text-slate-700">
+                  {new Date(selectedCustomer.lastOrderDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <Button variant="outline" size="sm" onClick={() => setSelectedCustomer(null)} className="text-xs">
+                Close
+              </Button>
+              {selectedCustomer.phone !== "Not Available" && (
+                <Button
+                  size="sm"
+                  className="bg-[#2d4a36] text-white hover:bg-[#1e3425] text-xs flex items-center space-x-1.5"
+                  onClick={() => window.open(`tel:${selectedCustomer.phone}`)}
+                >
+                  <Phone className="h-3.5 w-3.5" />
+                  <span>Call Customer</span>
+                </Button>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -2069,46 +3158,52 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
     setPayoutSuccess("");
     setRequestingPayout(true);
 
-    let paymentDetails = "";
-    if (paymentMethod === "BANK_TRANSFER") {
-      if (!accountNumber || !bankName || !ifscCode || !accountHolderName) {
-        setPayoutError("Please fill in all bank transfer details.");
-        setRequestingPayout(false);
-        return;
-      }
-      paymentDetails = `Holder: ${accountHolderName} | Bank: ${bankName} | A/C: ${accountNumber} | IFSC: ${ifscCode}`;
-    } else {
-      if (!upiId || !upiAccountHolderName) {
-        setPayoutError("Please fill in all UPI details.");
-        setRequestingPayout(false);
-        return;
-      }
-      paymentDetails = `Holder: ${upiAccountHolderName} | UPI ID: ${upiId}`;
+    const amountNum = Number(payoutAmount);
+    if (amountNum <= 0) {
+      setPayoutError("Withdrawal amount must be greater than zero.");
+      setRequestingPayout(false);
+      return;
     }
+
+    if (amountNum > (payoutStats?.availableBalance ?? 0)) {
+      setPayoutError("Cannot request more than Withdrawable Balance.");
+      setRequestingPayout(false);
+      return;
+    }
+
+    const methodSelected = paymentMethod === "BANK_TRANSFER" ? "BANK" : "UPI";
+    const bankDetailsPayload = paymentMethod === "BANK_TRANSFER" ? {
+      bankName,
+      accountNumber,
+      ifscCode,
+      accountHolderName
+    } : null;
+    const upiDetailsPayload = paymentMethod === "UPI" ? {
+      upiId,
+      accountHolderName: upiAccountHolderName
+    } : null;
 
     try {
       const res = await requestPayout(
         sellerId, 
-        Number(payoutAmount), 
+        amountNum, 
+        methodSelected,
+        bankDetailsPayload,
+        upiDetailsPayload,
         isUrgent, 
-        reason, 
-        paymentMethod, 
-        paymentDetails
+        reason
       );
       if (res.success) {
-        setPayoutSuccess(`Successfully requested ₹${payoutAmount}!`);
+        setPayoutSuccess(`Successfully requested ₹${amountNum.toLocaleString()}!`);
         setPayoutAmount("");
         setIsUrgent(false);
         setReason("");
-        
-        // Reset details
         setAccountNumber("");
         setBankName("");
         setIfscCode("");
         setAccountHolderName("");
         setUpiId("");
         setUpiAccountHolderName("");
-        
         reload();
       } else {
         setPayoutError(res.error || "Failed to request payout.");
@@ -2302,45 +3397,43 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
             <TableHeader>
               <TableRow className="border-[#e9ece6]">
                 <TableHead className="text-xs">Date</TableHead>
-                <TableHead className="text-xs">Amount</TableHead>
-                <TableHead className="text-xs">Type</TableHead>
+                <TableHead className="text-xs">Requested Amount</TableHead>
+                <TableHead className="text-xs">Payment Method</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs">Transaction ID</TableHead>
+                <TableHead className="text-xs">Admin Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {payoutRequests.length === 0 ? (
-                <TableRow><TableCell colSpan={4} className="text-center text-xs py-6">No past requests.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-xs py-6">No past requests.</TableCell></TableRow>
               ) : (
                 payoutRequests.map((req: any) => (
                   <TableRow key={req.id} className="border-[#e9ece6]/50">
                     <TableCell className="text-xs">{new Date(req.requestedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-xs">
-                      <div className="font-bold">₹{req.amount.toLocaleString()}</div>
-                      {req.notes && (
-                        <div className="text-[9px] text-[#6a7b6e] mt-0.5 font-normal max-w-[220px] truncate" title={req.notes}>
-                          {req.notes}
+                    <TableCell className="text-xs font-bold">
+                      ₹{req.amount.toLocaleString()}
+                      {req.status === "PARTIALLY_PAID" && (
+                        <div className="text-[10px] text-slate-500 font-normal">
+                          Remaining: ₹{req.remainingAmount?.toLocaleString()}
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-xs">
-                      {req.isUrgent ? (
-                        <Badge variant="danger" className="text-[9px] bg-red-100 text-red-700 border-none px-1.5 py-0.5">
-                          Urgent
-                        </Badge>
-                      ) : (
-                        <Badge className="text-[9px] bg-slate-100 text-slate-700 border-none px-1.5 py-0.5">
-                          Normal
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <span className={`capitalize font-bold ${
-                        req.status === "SETTLED" ? "text-emerald-600" :
+                    <TableCell className="text-xs font-semibold text-[#2d4a36]">{req.paymentMethod}</TableCell>
+                    <TableCell className="text-xs font-bold">
+                      <span className={`capitalize ${
+                        req.status === "PAID" || req.status === "SETTLED" ? "text-emerald-600" :
+                        req.status === "PARTIALLY_PAID" ? "text-cyan-600" :
+                        req.status === "APPROVED" ? "text-blue-600" :
                         req.status === "REJECTED" ? "text-red-600" :
                         "text-amber-500"
                       }`}>
-                        {req.status.toLowerCase()}
+                        {req.status === "PARTIALLY_PAID" ? "partially paid" : req.status.toLowerCase().replace("_", " ")}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-xs font-mono">{req.transactionId || "-"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {req.notes || (req.rejectedReason ? `Rejected: ${req.rejectedReason}` : "-")}
                     </TableCell>
                   </TableRow>
                 ))
@@ -2427,8 +3520,22 @@ function VerificationView({ profile }: any) {
               {profile?.documents?.length > 0 ? profile.documents.map((doc: any, i: number) => (
                 <div key={i} className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold text-foreground">{doc.type.replace(/_/g, " ")}</p>
-                    <p className="text-[10px] text-muted-foreground">{doc.fileName}</p>
+                    <a 
+                      href={doc.fileUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-xs font-bold text-[#2d4a36] hover:text-[#1a3321] hover:underline flex items-center gap-1.5"
+                    >
+                      <span>{doc.type.replace(/_/g, " ")}</span>
+                    </a>
+                    <a 
+                      href={doc.fileUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-[10px] text-muted-foreground hover:underline block mt-0.5"
+                    >
+                      {doc.fileName}
+                    </a>
                   </div>
                   <Badge variant="outline" className="bg-[#e8f3ec] text-emerald-600 border-none text-[9px] px-2 py-0.5"><CheckCircle2 className="h-3 w-3 inline mr-1" /> Verified</Badge>
                 </div>
@@ -2475,9 +3582,62 @@ function VerificationView({ profile }: any) {
 // --------------------------------------------------------------------------
 // SETTINGS TAB VIEW
 // --------------------------------------------------------------------------
-function SettingsView({ profile }: any) {
+function SettingsView({ profile, reload }: { profile: any; reload: () => void }) {
+  const [companyName, setCompanyName] = useState(profile?.companyName || "");
+  const [description, setDescription] = useState(profile?.description || "");
+  const [phone, setPhone] = useState(profile?.phone || "");
+  
+  // Bank details
+  const [bankName, setBankName] = useState(profile?.bankName || "");
+  const [bankAccountNo, setBankAccountNo] = useState(profile?.bankAccountNo || "");
+  const [bankIfsc, setBankIfsc] = useState(profile?.bankIfsc || "");
+
+  // Logo uploading states
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(profile?.logoUrl || null);
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setLogoBase64(reader.result as string);
+      setLogoPreview(reader.result as string);
+      setRemoveLogo(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile?.userId) return;
+    setSaving(true);
+    
+    const result = await updateSellerProfile(profile.userId, {
+      companyName,
+      description,
+      phone,
+      logoBase64,
+      removeLogo,
+      bankName,
+      bankAccountNo,
+      bankIfsc,
+    });
+
+    setSaving(false);
+    if (result.success) {
+      toast.success("Store settings saved successfully!");
+      reload();
+    } else {
+      toast.error(result.error || "Failed to save settings.");
+    }
+  };
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <form onSubmit={handleSave} className="space-y-6 animate-in fade-in duration-300">
       <div>
         <h1 className="text-2xl font-bold text-[#2d4a36]">Store Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Configure your public brand profile, contact information, and payment payout settings.</p>
@@ -2486,6 +3646,60 @@ function SettingsView({ profile }: any) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 p-6 bg-[#f4f5f3] border-none shadow-none rounded-2xl space-y-8">
           
+          {/* Store Logo Section */}
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 border-b border-[#d8dcd3] pb-2">
+              <ImagePlus className="h-4 w-4 text-[#2d4a36]" />
+              <h3 className="font-bold text-sm text-[#2d4a36]">Company Logo</h3>
+            </div>
+            
+            <div className="flex items-center space-x-5">
+              <div className="h-20 w-20 rounded-2xl border border-[#d8dcd3] overflow-hidden flex items-center justify-center bg-white relative">
+                {logoPreview && !removeLogo ? (
+                  <img src={logoPreview} alt="Preview" className="h-full w-full object-cover" />
+                ) : (
+                  <Leaf className="h-8 w-8 text-slate-300" />
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex space-x-2">
+                  <Button
+                    type="button"
+                    variant="cool"
+                    size="sm"
+                    className="text-xs border-none cursor-pointer"
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = "image/*";
+                      input.onchange = (e) => handleLogoChange(e as any);
+                      input.click();
+                    }}
+                  >
+                    Upload Logo
+                  </Button>
+                  {(logoPreview && !removeLogo) && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="text-xs cursor-pointer"
+                      onClick={() => {
+                        setLogoBase64(null);
+                        setLogoPreview(null);
+                        setRemoveLogo(true);
+                      }}
+                    >
+                      Remove Logo
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">JPG, PNG or GIF. Max size 2MB.</p>
+              </div>
+            </div>
+          </div>
+
           {/* Store Identity */}
           <div className="space-y-4">
             <div className="flex items-center space-x-2 border-b border-[#d8dcd3] pb-2">
@@ -2495,12 +3709,22 @@ function SettingsView({ profile }: any) {
             
             <div className="space-y-1.5">
               <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Registered Brand Name</Label>
-              <Input defaultValue={profile?.companyName || "GreenLeaf Organics"} className="bg-transparent border border-[#d8dcd3] shadow-none" />
+              <Input 
+                value={companyName} 
+                onChange={(e) => setCompanyName(e.target.value)} 
+                required
+                className="bg-transparent border border-[#d8dcd3] shadow-none" 
+              />
             </div>
 
             <div className="space-y-1.5">
               <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Eco Bio / Store Description</Label>
-              <Textarea defaultValue={profile?.description || "Handcrafting premium eco-friendly tableware, organic beeswax food wraps, and zero-waste bamboo dining sets."} className="bg-transparent border border-[#d8dcd3] shadow-none h-24 resize-none" />
+              <Textarea 
+                value={description} 
+                onChange={(e) => setDescription(e.target.value)} 
+                required
+                className="bg-transparent border border-[#d8dcd3] shadow-none h-24 resize-none" 
+              />
             </div>
           </div>
 
@@ -2514,17 +3738,22 @@ function SettingsView({ profile }: any) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Business Email</Label>
-                <Input defaultValue="payouts@greenleaf.com" className="bg-transparent border border-[#d8dcd3] shadow-none" />
+                <Input defaultValue={profile?.user?.email || "payouts@greenleaf.com"} disabled className="bg-transparent border border-[#d8dcd3] shadow-none opacity-60" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Contact Phone</Label>
-                <Input defaultValue="+91 98765 43210" className="bg-transparent border border-[#d8dcd3] shadow-none" />
+                <Input 
+                  value={phone} 
+                  onChange={(e) => setPhone(e.target.value)} 
+                  required
+                  className="bg-transparent border border-[#d8dcd3] shadow-none" 
+                />
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Warehouse Address</Label>
-              <Input defaultValue="Bannerghatta Road, Bangalore, Karnataka - 560076" className="bg-transparent border border-[#d8dcd3] shadow-none" />
+              <Input defaultValue={profile?.pickupAddress || "Bannerghatta Road, Bangalore, Karnataka - 560076"} disabled className="bg-transparent border border-[#d8dcd3] shadow-none opacity-60" />
             </div>
           </div>
 
@@ -2538,13 +3767,41 @@ function SettingsView({ profile }: any) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Bank Name</Label>
-                <Input defaultValue="State Bank of India" className="bg-transparent border border-[#d8dcd3] shadow-none" />
+                <Input 
+                  value={bankName} 
+                  onChange={(e) => setBankName(e.target.value)} 
+                  required
+                  className="bg-transparent border border-[#d8dcd3] shadow-none" 
+                />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">UPI ID</Label>
-                <Input defaultValue="payouts.greenleaf@sbi" className="bg-transparent border border-[#d8dcd3] shadow-none" />
+                <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">Bank Account Number</Label>
+                <Input 
+                  value={bankAccountNo} 
+                  onChange={(e) => setBankAccountNo(e.target.value)} 
+                  required
+                  className="bg-transparent border border-[#d8dcd3] shadow-none" 
+                />
               </div>
             </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-[#8ca193] tracking-wider uppercase">IFSC Code</Label>
+                <Input 
+                  value={bankIfsc} 
+                  onChange={(e) => setBankIfsc(e.target.value)} 
+                  required
+                  className="bg-transparent border border-[#d8dcd3] shadow-none" 
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-[#d8dcd3] flex justify-end">
+            <MetalButton type="submit" variant="success" disabled={saving}>
+              {saving ? "Saving Changes..." : "Save Store Settings"}
+            </MetalButton>
           </div>
 
         </Card>
@@ -2569,7 +3826,7 @@ function SettingsView({ profile }: any) {
           </Card>
         </div>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -2577,17 +3834,5 @@ function SettingsView({ profile }: any) {
 // MESSAGES TAB VIEW
 // --------------------------------------------------------------------------
 function MessagesView({ sellerId }: { sellerId: string }) {
-  return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-foreground">Messages</h2>
-          <p className="text-sm text-muted-foreground mt-1">Communicate with the EarthCentric Admin team</p>
-        </div>
-      </div>
-      <div className="max-w-4xl mx-auto">
-        <AdminSellerMessenger sellerId={sellerId} adminId={"admin@earthcentric.com"} />
-      </div>
-    </div>
-  );
+  return <SellerMessagesView sellerId={sellerId} />;
 }

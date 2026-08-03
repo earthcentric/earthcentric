@@ -4,6 +4,8 @@ import db from "@/lib/db";
 import { createRazorpayOrder, verifyPaymentSignature } from "@/lib/razorpay";
 import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "@/lib/email";
 import { createNotification, createAdminNotification } from "./notifications";
+import { getProductById } from "./products";
+import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 
 export interface OrderItemInput {
   productId: string;
@@ -52,6 +54,7 @@ export interface OrderDetail {
   user?: {
     name: string;
     email: string;
+    phone?: string;
   };
 }
 
@@ -66,9 +69,33 @@ export async function createOrder(data: {
   totalAmount: number;
 }) {
   const orderId = `ord-${Math.random().toString(36).substring(2, 9)}`;
-  const amountInPaise = Math.round(data.totalAmount * 100);
 
-  // Generate Razorpay Order
+  // Server-side recalculation & validation of item prices, individual product discounts, tier discounts & Buy X Get Y offers
+  let serverCalculatedTotal = 0;
+  const verifiedItems: OrderItemInput[] = [];
+
+  for (const item of data.items) {
+    const product = await getProductById(item.productId);
+    let unitPrice = item.price;
+    if (product) {
+      const effective = getEffectiveUnitPrice(product, item.quantity);
+      unitPrice = effective.unitPrice;
+    }
+
+    // Quantity in cart is the purchased/payable quantity. Free items are delivered at ₹0 extra cost.
+    const itemTotal = unitPrice * item.quantity;
+    serverCalculatedTotal += itemTotal;
+
+    verifiedItems.push({
+      ...item,
+      price: unitPrice,
+    });
+  }
+
+  const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : data.totalAmount;
+  const amountInPaise = Math.round(finalTotalAmount * 100);
+
+  // Generate Razorpay Order strictly with server-calculated payable amount
   const paymentOrder = await createRazorpayOrder({
     amount: amountInPaise,
     receipt: orderId,
@@ -78,7 +105,7 @@ export async function createOrder(data: {
     // Group items by sellerId
     const itemsBySeller: Record<string, OrderItemInput[]> = {};
     const mockSellerId = "mock-seller-id";
-    for (const item of data.items) {
+    for (const item of verifiedItems) {
       const sId = item.sellerId || mockSellerId;
       if (!itemsBySeller[sId]) {
         itemsBySeller[sId] = [];
@@ -600,6 +627,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
           {
             id: "ord-8834a",
             userId: "buyer-1",
+            user: { name: "Harshavardhan Sharma", email: "harsha.sharma@gmail.com", phone: "+91 98765 43210" },
             totalAmount: 1899,
             status: "CONFIRMED",
             createdAt: new Date(Date.now() - 3600000 * 4),
@@ -611,6 +639,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
           {
             id: "ord-4921b",
             userId: "buyer-2",
+            user: { name: "Aarav Patel", email: "aarav.patel@yahoo.com", phone: "+91 98123 45678" },
             totalAmount: 4198,
             status: "PLACED",
             createdAt: new Date(Date.now() - 3600000 * 2),

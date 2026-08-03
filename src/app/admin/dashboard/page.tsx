@@ -4,7 +4,7 @@ import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore } from "@/actions/admin";
+import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount } from "@/actions/admin";
 import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
 import { getAllOrdersForAdmin, updateOrderStatus, trackOrderById } from "@/actions/orders";
 import { SellerProfile } from "@/actions/sellers";
@@ -15,6 +15,8 @@ import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { AdminAnalyticsCharts, AdminAnalyticsData } from "@/components/ui/admin-analytics-charts";
 import { AdminSellerDetailModal } from "@/components/ui/admin-seller-detail-modal";
 import { AdminBuyerDetailModal } from "@/components/ui/admin-buyer-detail-modal";
+import { AdminMessagesView } from "@/components/admin/AdminMessagesView";
+import { getUnreadMessageCount } from "@/actions/messages";
 import { Logo } from "@/components/Logo";
 import {
   ShieldAlert,
@@ -45,6 +47,7 @@ import {
   ChevronDown,
   DollarSign,
   Menu,
+  Mail,
 } from "lucide-react";
 
 // Mock User Data for User Management View
@@ -78,6 +81,7 @@ export default function AdminDashboard() {
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequestInfo[]>([]);
   const [usersData, setUsersData] = useState<UserManagementData | null>(null);
   const [pendingProducts, setPendingProducts] = useState<any[]>([]);
+  const [pendingDiscounts, setPendingDiscounts] = useState<any[]>([]);
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -88,6 +92,7 @@ export default function AdminDashboard() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [credentials, setCredentials] = useState<CredentialItem[]>([]);
+  const [messagesUnreadCount, setMessagesUnreadCount] = useState<number>(0);
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -115,6 +120,9 @@ export default function AdminDashboard() {
     const pProds = await getPendingProducts();
     setPendingProducts(pProds);
 
+    const pDisc = await getPendingDiscounts();
+    setPendingDiscounts(pDisc);
+
     const orders = await getAllOrdersForAdmin();
     setAllOrders(orders);
 
@@ -127,11 +135,28 @@ export default function AdminDashboard() {
     const creds = await getIntegrationCredentials();
     setCredentials(creds);
 
+    const unreadMsgs = await getUnreadMessageCount("admin-1");
+    setMessagesUnreadCount(unreadMsgs);
+
     setLoading(false);
   };
 
   useEffect(() => {
     loadAdminData();
+  }, []);
+
+  // Poll unread messages count every 3 seconds for dynamic badge updates
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const unreadMsgs = await getUnreadMessageCount("admin-1");
+        setMessagesUnreadCount(unreadMsgs);
+      } catch (e) {
+        console.error("Error polling admin unread count:", e);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -232,6 +257,8 @@ export default function AdminDashboard() {
             <SidebarLink icon={ShieldAlert} label="Seller Verification" value="sellers" />
             <SidebarLink icon={Users} label="User Management" value="users" />
             <SidebarLink icon={PackageCheck} label="Product Approval" value="products" />
+            <SidebarLink icon={Coins} label="Discount Approval" value="discounts" badge={pendingDiscounts.filter((d: any) => d.discount?.status === "PENDING").length} />
+            <SidebarLink icon={Mail} label="Messages" value="messages" badge={messagesUnreadCount} />
             <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
             <SidebarLink icon={Wallet} label="Payments" value="payments" />
             <SidebarLink icon={AlertCircle} label="Disputes" value="disputes" />
@@ -366,6 +393,8 @@ export default function AdminDashboard() {
             {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} />}
             {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} />}
             {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} />}
+            {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} />}
+            {activeTab === "messages" && <AdminMessagesView onViewSellerProfile={(sId) => setSelectedSellerId(sId)} />}
             {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} />}
             {activeTab === "disputes" && <DisputesView disputes={disputes} onResolve={loadAdminData} adminEmail={user?.email} />}
             {activeTab === "analytics" && <AdminAnalyticsCharts data={analyticsData!} />}
@@ -1151,15 +1180,86 @@ function DisputesView({ disputes, onResolve, adminEmail }: { disputes: DisputeCa
 // --------------------------------------------------------------------------
 function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string }) {
   const [subTab, setSubTab] = useState("transactions");
-  const [settleId, setSettleId] = useState<string | null>(null);
-  const [settleNotes, setSettleNotes] = useState("");
+  const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [actionType, setActionType] = useState<"APPROVE" | "REJECT" | "PAY" | null>(null);
+  
+  // Fields for processing dialogs
+  const [transactionId, setTransactionId] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+  const [adminNotes, setAdminNotes] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [amountToSettle, setAmountToSettle] = useState("");
+  const [settlementError, setSettlementError] = useState("");
 
-  const handleSettle = async () => {
-    if (!settleId) return;
-    await settlePayoutRequest(settleId, adminEmail || "admin@earthcentric.com", settleNotes || "Settle payout via supervisor dashboard IMPS");
-    setSettleId(null);
-    setSettleNotes("");
-    onActionComplete();
+  const handleAction = async () => {
+    if (!selectedRequest || !actionType) return;
+    setProcessing(true);
+    
+    let status: any = "PAID";
+    if (actionType === "APPROVE") status = "APPROVED";
+    if (actionType === "REJECT") status = "REJECTED";
+
+    const success = await settlePayoutRequest(
+      selectedRequest.id,
+      adminEmail || "admin@earthcentric.com",
+      adminNotes || (status === "PAID" ? "Settle payout via supervisor dashboard" : `Status updated to ${status}`),
+      transactionId || undefined,
+      status,
+      rejectReason || undefined
+    );
+
+    setProcessing(false);
+    if (success) {
+      toast.success(`Payout request successfully ${status.toLowerCase()}!`);
+      setSelectedRequest(null);
+      setActionType(null);
+      setTransactionId("");
+      setRejectReason("");
+      setAdminNotes("");
+      onActionComplete();
+    } else {
+      toast.error("Failed to update payout request.");
+    }
+  };
+
+  const handleSettle = async (full = false) => {
+    if (!selectedRequest) return;
+    const remaining = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount;
+    const amt = full ? remaining : Number(amountToSettle);
+    
+    if (isNaN(amt) || amt <= 0) {
+      setSettlementError("Amount must be greater than ₹0.");
+      return;
+    }
+    if (amt > remaining) {
+      setSettlementError("Amount cannot exceed the remaining pending amount.");
+      return;
+    }
+
+    setSettlementError("");
+    setProcessing(true);
+
+    const success = await settlePayoutRequest(
+      selectedRequest.id,
+      adminEmail || "admin@earthcentric.com",
+      adminNotes || `Payout settlement of ₹${amt.toLocaleString()}`,
+      transactionId || undefined,
+      "PAID",
+      undefined,
+      amt
+    );
+
+    setProcessing(false);
+    if (success) {
+      toast.success(`Successfully settled ₹${amt.toLocaleString()}!`);
+      setSelectedRequest(null);
+      setAmountToSettle("");
+      setTransactionId("");
+      setAdminNotes("");
+      onActionComplete();
+    } else {
+      toast.error("Failed to process payout settlement.");
+    }
   };
 
   const pendingRequests = payoutRequests.filter(r => r.status === "PENDING");
@@ -1247,62 +1347,76 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
           <Table>
             <TableHeader>
               <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Request ID</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller Company</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Requested Amount</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Type</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Reason / Notes</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Date Requested</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Payout Status</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Action</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Seller Company</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Amount</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Method</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Requested Date</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {payoutRequests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-xs text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
                     No payout requests submitted.
                   </TableCell>
                 </TableRow>
               ) : (
                 payoutRequests.map((r) => (
                   <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                    <TableCell className="py-4 pl-6 font-mono text-xs text-[#1a3321]">
-                      {r.id.substring(10, 15).toUpperCase()}
-                    </TableCell>
-                    <TableCell className="py-4 text-xs font-semibold">
-                      {r.companyName}
+                    <TableCell className="py-4 pl-6">
+                      <p className="text-xs font-bold text-[#1a3321]">{r.companyName}</p>
+                      <p className="text-[10px] text-muted-foreground">ID: {r.id.substring(10, 18).toUpperCase()}</p>
                     </TableCell>
                     <TableCell className="py-4 text-xs font-black text-[#1a3321]">
                       ₹{r.amount.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="py-4 text-xs">
-                      {r.isUrgent ? (
-                        <Badge variant="danger" className="bg-red-50 text-red-700 text-[9px] border-none">Urgent</Badge>
-                      ) : (
-                        <Badge className="bg-slate-50 text-slate-700 text-[9px] border-none">Normal</Badge>
+                      {r.status === "PARTIALLY_PAID" && (
+                        <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                          Rem: ₹{(r.remainingAmount !== undefined && r.remainingAmount !== null ? r.remainingAmount : r.amount).toLocaleString()}
+                        </div>
                       )}
                     </TableCell>
-                    <TableCell className="py-4 text-xs max-w-[150px] truncate text-slate-500 font-medium" title={r.reason}>
-                      {r.isUrgent ? r.reason : "N/A"}
+                    <TableCell className="py-4 text-xs font-bold uppercase text-[#2d4a36]">
+                      {r.paymentMethod}
                     </TableCell>
                     <TableCell className="py-4 text-xs text-muted-foreground">
                       {new Date(r.requestedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="py-4">
-                      <Badge className={r.status === "SETTLED" ? "bg-emerald-50 text-emerald-700 border-none text-[9px]" : r.status === "REJECTED" ? "bg-red-50 text-red-700 border-none text-[9px]" : "bg-amber-50 text-amber-700 border-none text-[9px]"}>
-                        {r.status}
+                      <Badge className={`border-none text-[9px] font-bold uppercase ${
+                        r.status === "PAID" || r.status === "SETTLED" ? "bg-emerald-50 text-emerald-700" : 
+                        r.status === "PARTIALLY_PAID" ? "bg-cyan-50 text-cyan-700" :
+                        r.status === "APPROVED" ? "bg-blue-50 text-blue-700" :
+                        r.status === "REJECTED" ? "bg-red-50 text-red-700" : 
+                        "bg-amber-50 text-amber-700"
+                      }`}>
+                        {r.status.replace("_", " ")}
                       </Badge>
                     </TableCell>
-                    <TableCell className="py-4 text-right pr-6">
-                      {r.status === "PENDING" ? (
-                        <div className="flex items-center justify-end space-x-2">
-                          <Button size="sm" className="bg-[#1a3321] text-white text-[10px] h-7" onClick={() => setSettleId(r.id)}>
-                            Settle
+                    <TableCell className="py-4 text-right pr-6 space-x-1.5">
+                      <Button size="sm" variant="cool" className="text-[10px] h-7 px-2.5" onClick={() => setSelectedRequest(r)}>
+                        View Details
+                      </Button>
+                      {r.status === "PENDING" && (
+                        <>
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("APPROVE"); }}>
+                            Approve
                           </Button>
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground font-semibold">{r.status === "SETTLED" ? "Settled" : "Rejected"}</span>
+                          <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                      {r.status === "APPROVED" && (
+                        <>
+                          <Button size="sm" className="bg-[#1a3321] hover:bg-[#122417] text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("PAY"); }}>
+                            Mark as Paid
+                          </Button>
+                          <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>
+                            Reject
+                          </Button>
+                        </>
                       )}
                     </TableCell>
                   </TableRow>
@@ -1313,22 +1427,228 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
         </Card>
       )}
 
-      {settleId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setSettleId(null)} />
+      {selectedRequest && !actionType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="absolute inset-0" onClick={() => setSelectedRequest(null)} />
+          <Card className="relative w-full max-w-lg p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+            <div className="flex justify-between items-center pb-2 border-b">
+              <h3 className="font-bold text-sm text-[#1a3321]">Payout Request Details</h3>
+              <button onClick={() => setSelectedRequest(null)} className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            
+            <div className="text-xs space-y-2.5 pt-2 max-h-[80vh] overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-4">
+                <p><strong>Seller Name:</strong> {selectedRequest.sellerName || "N/A"}</p>
+                <p><strong>Seller Company:</strong> {selectedRequest.companyName}</p>
+                <p><strong>Requested Amount:</strong> ₹{selectedRequest.amount.toLocaleString()}</p>
+                <p><strong>Payment Method:</strong> <span className="font-bold uppercase">{selectedRequest.paymentMethod}</span></p>
+                <p><strong>Request Date:</strong> {new Date(selectedRequest.requestedAt).toLocaleString()}</p>
+                <p>
+                  <strong>Current Status:</strong>{" "}
+                  <Badge className={`border-none text-[9px] font-bold uppercase ml-1 ${
+                    selectedRequest.status === "PAID" || selectedRequest.status === "SETTLED" ? "bg-emerald-50 text-emerald-700" : 
+                    selectedRequest.status === "PARTIALLY_PAID" ? "bg-cyan-50 text-cyan-700" :
+                    selectedRequest.status === "APPROVED" ? "bg-blue-50 text-blue-700" :
+                    selectedRequest.status === "REJECTED" ? "bg-red-50 text-red-700" : 
+                    "bg-amber-50 text-amber-700"
+                  }`}>
+                    {selectedRequest.status}
+                  </Badge>
+                </p>
+                <p>
+                  <strong>Remaining Pending Amount:</strong>{" "}
+                  <span className="font-black text-[#1a3321]">
+                    ₹{(selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount).toLocaleString()}
+                  </span>
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border mt-2">
+                <p className="font-bold text-[#1a3321] mb-1">Payment Credentials:</p>
+                {selectedRequest.paymentMethod === "BANK" ? (
+                  <div className="space-y-1 text-slate-600">
+                    <p><strong>Holder Name:</strong> {selectedRequest.bankDetails?.accountHolderName || "N/A"}</p>
+                    <p><strong>Bank Name:</strong> {selectedRequest.bankDetails?.bankName || "N/A"}</p>
+                    <p><strong>Account Number:</strong> {selectedRequest.bankDetails?.accountNumber || "N/A"}</p>
+                    <p><strong>IFSC Code:</strong> {selectedRequest.bankDetails?.ifscCode || "N/A"}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-slate-600">
+                    <p><strong>Holder Name:</strong> {selectedRequest.upiDetails?.accountHolderName || "N/A"}</p>
+                    <p><strong>UPI ID (VPA):</strong> {selectedRequest.upiDetails?.upiId || "N/A"}</p>
+                  </div>
+                )}
+              </div>
+
+              {selectedRequest.isUrgent && (
+                <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[11px] text-red-700">
+                  <p className="font-bold">⚠️ Urgent Request Reason:</p>
+                  <p className="mt-0.5">{selectedRequest.reason || "No reason provided."}</p>
+                </div>
+              )}
+
+              {/* Settlement History Section */}
+              <div className="pt-3 border-t">
+                <h4 className="font-bold text-xs text-[#1a3321] mb-2">Settlement History</h4>
+                {selectedRequest.settlementHistory && Array.isArray(selectedRequest.settlementHistory) && selectedRequest.settlementHistory.length > 0 ? (
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {selectedRequest.settlementHistory.map((hist: any, index: number) => (
+                      <div key={index} className="p-2 bg-slate-50/70 border rounded-lg flex flex-col space-y-1">
+                        <div className="flex justify-between items-center text-[10px] text-slate-500">
+                          <span>{new Date(hist.date).toLocaleString()}</span>
+                          <span className="bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.2 rounded">₹{hist.amountSettled.toLocaleString()}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-600">
+                          <p><strong>Tx ID:</strong> <span className="font-mono">{hist.transactionId}</span></p>
+                          <p><strong>Method:</strong> {hist.paymentMethod || selectedRequest.paymentMethod}</p>
+                          <p><strong>Admin:</strong> {hist.adminName}</p>
+                          <p><strong>Notes:</strong> {hist.adminNotes}</p>
+                          <p className="col-span-2"><strong>Remaining Bal:</strong> ₹{hist.remainingBalance.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-slate-400 italic">No settlements recorded yet.</p>
+                )}
+              </div>
+
+              {/* Settle Payout Payout Form */}
+              {selectedRequest.status !== "REJECTED" && (selectedRequest.remainingAmount !== 0) && (
+                <div className="p-4 bg-emerald-50/40 border border-emerald-100 rounded-xl space-y-3 mt-4 text-left">
+                  <h4 className="font-bold text-xs text-[#1a3321]">Process Settlement Transaction</h4>
+                  
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-bold text-slate-400">Amount to Settle (₹) *</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        type="number"
+                        placeholder="e.g. 5000"
+                        value={amountToSettle}
+                        onChange={(e) => setAmountToSettle(e.target.value)}
+                        className="bg-white border-slate-200 text-xs h-9 flex-1"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-9 text-[#1a3321]"
+                        onClick={() => {
+                          const remaining = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount;
+                          setAmountToSettle(remaining.toString());
+                        }}
+                      >
+                        Max
+                      </Button>
+                    </div>
+                    {settlementError && <p className="text-red-600 text-[10px] font-semibold">{settlementError}</p>}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-slate-400">Transaction ID</Label>
+                      <Input
+                        placeholder="TXN..."
+                        value={transactionId}
+                        onChange={(e) => setTransactionId(e.target.value)}
+                        className="bg-white border-slate-200 text-xs h-9"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-slate-400">Admin Notes</Label>
+                      <Input
+                        placeholder="Transfer details..."
+                        value={adminNotes}
+                        onChange={(e) => setAdminNotes(e.target.value)}
+                        className="bg-white border-slate-200 text-xs h-9"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex space-x-2 pt-2">
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white flex-1 border-none text-xs"
+                      onClick={() => handleSettle(false)}
+                      disabled={processing}
+                    >
+                      {processing ? "Processing..." : "Settle Amount"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-[#1a3321] hover:bg-[#122417] text-white flex-1 border-none text-xs"
+                      onClick={() => handleSettle(true)}
+                      disabled={processing}
+                    >
+                      {processing ? "Processing..." : "Settle Full Amount"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+              <Button variant="ghost" onClick={() => setSelectedRequest(null)}>Close</Button>
+              {selectedRequest.status === "PENDING" && (
+                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs border-none" onClick={() => setActionType("APPROVE")}>Approve Request</Button>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {selectedRequest && actionType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="absolute inset-0" onClick={() => setActionType(null)} />
           <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
-            <h3 className="font-bold text-sm">Settle Seller Payout</h3>
+            <h3 className="font-bold text-sm">
+              {actionType === "APPROVE" ? "Approve Payout Request" :
+               actionType === "REJECT" ? "Reject Payout Request" : "Mark Payout as Paid"}
+            </h3>
+
+            {actionType === "REJECT" && (
+              <div className="space-y-1.5">
+                <Label>Rejection Reason *</Label>
+                <Textarea
+                  placeholder="Detail the reason for rejecting this payout..."
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  required
+                  className="text-xs min-h-[60px]"
+                />
+              </div>
+            )}
+
+            {actionType === "PAY" && (
+              <div className="space-y-1.5">
+                <Label>Transaction Reference ID *</Label>
+                <Input
+                  placeholder="e.g. TXN92834823"
+                  value={transactionId}
+                  onChange={(e) => setTransactionId(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
-              <Label>Settlement Notes / Transaction Ref</Label>
+              <Label>Internal Admin Notes (Optional)</Label>
               <Input
-                placeholder="e.g. Paid via IMPS Ref #92834..."
-                value={settleNotes}
-                onChange={(e) => setSettleNotes(e.target.value)}
+                placeholder="e.g. Audited and confirmed..."
+                value={adminNotes}
+                onChange={(e) => setAdminNotes(e.target.value)}
               />
             </div>
+
             <div className="flex justify-end space-x-2">
-              <Button variant="ghost" onClick={() => setSettleId(null)}>Cancel</Button>
-              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleSettle}>Confirm Settlement</Button>
+              <Button variant="ghost" onClick={() => setActionType(null)}>Back</Button>
+              <Button 
+                className={actionType === "REJECT" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"} 
+                disabled={processing || (actionType === "REJECT" && !rejectReason) || (actionType === "PAY" && !transactionId)}
+                onClick={handleAction}
+              >
+                {processing ? "Processing..." : "Confirm"}
+              </Button>
             </div>
           </Card>
         </div>
@@ -1759,6 +2079,136 @@ function CredentialsManagerView({ credentials, reload }: { credentials: Credenti
           </Card>
         )}
       </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// DISCOUNT APPROVAL VIEW
+// --------------------------------------------------------------------------
+function DiscountApprovalView({ pendingDiscounts, reload }: { pendingDiscounts: any[]; reload: () => void }) {
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
+  const handleApprove = async (productId: string) => {
+    setProcessingId(productId);
+    const ok = await approveDiscount(productId);
+    setProcessingId(null);
+    if (ok) toast.success("Discount approved successfully!");
+    else toast.error("Failed to approve discount.");
+    reload();
+  };
+
+  const handleReject = async (productId: string) => {
+    setProcessingId(productId);
+    const ok = await rejectDiscount(productId);
+    setProcessingId(null);
+    if (ok) toast.success("Discount rejected.");
+    else toast.error("Failed to reject discount.");
+    reload();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
+          <Coins className="h-6 w-6 text-primary" />
+          <span>Discount Approval Management</span>
+        </h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          Review and approve individual product discount requests created by sellers before they become active.
+        </p>
+      </div>
+
+      <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Product & Seller</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Original Price</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Discount Offered</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Final Selling Price</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Status</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pendingDiscounts.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-12 text-xs text-muted-foreground">
+                  No discount requests found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              pendingDiscounts.map((item) => {
+                const disc = item.discount;
+                const origPrice = Number(item.originalPrice || item.price);
+                let finalPrice = origPrice;
+                if (disc.discountType === "PERCENTAGE") {
+                  finalPrice = Math.max(0, origPrice - (origPrice * Number(disc.discountValue)) / 100);
+                } else if (disc.discountType === "FIXED") {
+                  finalPrice = Math.max(0, origPrice - Number(disc.discountValue));
+                }
+
+                return (
+                  <TableRow key={item.productId} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
+                    <TableCell className="py-4">
+                      <div>
+                        <p className="text-xs font-bold text-[#1a3321]">{item.productName}</p>
+                        <p className="text-[10px] text-muted-foreground">by {item.sellerName}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-4 text-xs font-semibold text-muted-foreground">
+                      ₹{origPrice}
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge variant="outline" className="text-xs font-bold bg-amber-50 text-amber-700 border-amber-200">
+                        {disc.discountType === "PERCENTAGE" ? `${disc.discountValue}% OFF` : `₹${disc.discountValue} OFF`}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-4 text-xs font-bold text-emerald-700">
+                      ₹{finalPrice}
+                    </TableCell>
+                    <TableCell className="py-4">
+                      {disc.status === "APPROVED" ? (
+                        <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[10px] font-bold">APPROVED</Badge>
+                      ) : disc.status === "REJECTED" ? (
+                        <Badge className="bg-rose-50 text-rose-700 border-none text-[10px] font-bold">REJECTED</Badge>
+                      ) : (
+                        <Badge className="bg-amber-50 text-amber-700 border-none text-[10px] font-bold">PENDING APPROVAL</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4 text-right pr-6 space-x-2">
+                      {disc.status === "PENDING" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 h-8 rounded-lg cursor-pointer"
+                            disabled={processingId === item.productId}
+                            onClick={() => handleApprove(item.productId)}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="text-xs px-3 h-8 rounded-lg cursor-pointer"
+                            disabled={processingId === item.productId}
+                            onClick={() => handleReject(item.productId)}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">Reviewed</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }

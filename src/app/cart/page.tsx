@@ -6,12 +6,23 @@ import { useCart } from "@/context/CartContext";
 import { Button, Card, Badge, LiquidButton } from "@/components/ui/shared";
 import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { Trash2, ShoppingBag, ArrowLeft, ArrowRight, Minus, Plus, Leaf, Shield } from "lucide-react";
+import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 
 export default function CartPage() {
   const { cart, removeFromCart, updateQuantity, cartTotal, cartCount } = useCart();
 
   // Calculate carbon offset estimate (e.g. 1 item saves 2kg CO2 on average)
   const co2Savings = cart.reduce((total, item) => total + item.quantity * 2.4, 0);
+
+  // Total free items & savings calculation
+  const totalFreeItems = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer), 0);
+  const totalFreeSavings = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer) * item.price, 0);
+
+  // Total unit discount savings (Individual Discount & Tier Discount)
+  const totalUnitSavings = cart.reduce((acc, item) => {
+    const effective = getEffectiveUnitPrice(item, item.quantity);
+    return acc + (effective.originalPrice - effective.unitPrice) * item.quantity;
+  }, 0);
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12 space-y-8">
@@ -54,12 +65,29 @@ export default function CartPage() {
                 </Link>
                 
                 <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
-                    <Link href={`/products/${item.id}`} className="hover:text-primary transition-colors truncate">
-                      <h3 className="font-bold text-sm text-foreground truncate cursor-pointer">{item.name}</h3>
-                    </Link>
-                    <span className="text-sm font-bold sm:ml-4 text-foreground shrink-0">₹{item.price * item.quantity}</span>
-                  </div>
+                  {(() => {
+                    const effective = getEffectiveUnitPrice(item, item.quantity);
+                    const itemTotal = effective.unitPrice * item.quantity;
+                    return (
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
+                        <div>
+                          <Link href={`/products/${item.id}`} className="hover:text-primary transition-colors truncate">
+                            <h3 className="font-bold text-sm text-foreground truncate cursor-pointer">{item.name}</h3>
+                          </Link>
+                          <div className="flex items-baseline space-x-2 mt-0.5">
+                            <span className="text-xs font-bold text-foreground">₹{effective.unitPrice.toLocaleString()} / unit</span>
+                            {effective.appliedDiscountType !== "NONE" && (
+                              <span className="text-[11px] text-muted-foreground line-through">₹{effective.originalPrice.toLocaleString()}</span>
+                            )}
+                            {effective.badgeText && (
+                              <Badge className="bg-emerald-100 text-emerald-800 text-[9px] font-bold border-none px-1.5 py-0.5">{effective.badgeText}</Badge>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-sm font-bold sm:ml-4 text-emerald-700 shrink-0">₹{itemTotal.toLocaleString()}</span>
+                      </div>
+                    );
+                  })()}
                   <p className="text-xs text-muted-foreground">by {item.sellerName}</p>
                   
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-1">
@@ -70,6 +98,55 @@ export default function CartPage() {
                       Carbon Neutral
                     </Badge>
                   </div>
+
+                  {/* Buy X Get Y Offer Breakdown */}
+                  {isBuyXGetYActive(item.buyXGetYOffer) && (() => {
+                    const buyQty = item.buyXGetYOffer!.buyQuantity;
+                    const getQty = item.buyXGetYOffer!.getQuantity;
+                    const freeItems = calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer);
+                    const savings = freeItems * item.price;
+                    const neededForNext = buyQty - (item.quantity % buyQty);
+
+                    return (
+                      <div className="mt-3 p-3.5 rounded-2xl bg-[#f0f7f2] border border-[#2d4a36]/30 space-y-1.5 text-xs shadow-xs">
+                        <div className="flex items-center justify-between font-extrabold text-[#1f3a2e]">
+                          <span className="flex items-center gap-1.5 text-sm">
+                            <span>🎁</span>
+                            <span>Buy {buyQty} Get {getQty} FREE</span>
+                          </span>
+                          {freeItems > 0 && (
+                            <span className="bg-[#2d4a36] text-white text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                              +{freeItems} Free Item{freeItems > 1 ? "s" : ""} Earned! 🎉
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[#2d4a36] font-medium text-[11.5px]">
+                          Purchase {buyQty} items and receive {getQty} item free.
+                        </p>
+
+                        {freeItems > 0 ? (
+                          <div className="space-y-1 pt-1 border-t border-[#c8e2d0]">
+                            <p className="text-[#1f3a2e] font-semibold text-xs">
+                              You currently qualify for <strong>{freeItems}</strong> free item{freeItems > 1 ? "s" : ""}.
+                            </p>
+                            <div className="flex items-center justify-between text-xs pt-0.5">
+                              <span className="text-[#2d4a36] font-medium">
+                                Total delivered: <strong>{item.quantity + freeItems}</strong> ({item.quantity} paid + {freeItems} free)
+                              </span>
+                              <span className="text-emerald-700 font-extrabold text-sm">
+                                You save ₹{savings.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/80 font-semibold mt-1">
+                            Add <strong>{neededForNext}</strong> more item{neededForNext > 1 ? "s" : ""} to qualify for <strong>{getQty} free item{getQty > 1 ? "s" : ""}</strong>!
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex items-center space-x-6 shrink-0">
@@ -124,6 +201,27 @@ export default function CartPage() {
                   <span className="text-muted-foreground">Subtotal ({cartCount} items)</span>
                   <span className="font-semibold text-foreground">₹{cartTotal}</span>
                 </div>
+
+                {totalUnitSavings > 0 && (
+                  <div className="flex justify-between text-emerald-700 bg-emerald-50 p-2 rounded-lg font-bold border border-emerald-100">
+                    <span className="flex items-center gap-1">
+                      <span>🏷️</span>
+                      <span>Product Discount Savings</span>
+                    </span>
+                    <span>-₹{totalUnitSavings.toLocaleString()}</span>
+                  </div>
+                )}
+
+                {totalFreeItems > 0 && (
+                  <div className="flex justify-between text-emerald-700 bg-emerald-50 p-2 rounded-lg font-bold border border-emerald-100">
+                    <span className="flex items-center gap-1">
+                      <span>🎁</span>
+                      <span>Buy X Get Y Free Items</span>
+                    </span>
+                    <span>+{totalFreeItems} Items (Save ₹{totalFreeSavings.toLocaleString()})</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Verified Packing (Recyclable Box)</span>
                   <span className="text-emerald-600 font-semibold uppercase tracking-wider">FREE</span>

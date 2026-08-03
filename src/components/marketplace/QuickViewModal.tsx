@@ -6,6 +6,7 @@ import Image from "next/image";
 import { X, ShoppingBag, Heart, ShieldCheck, Leaf } from "lucide-react";
 import { Button, Badge } from "@/components/ui/shared";
 import { ProductItem } from "@/actions/products";
+import { getEffectiveUnitPrice } from "@/lib/offers";
 
 interface QuickViewModalProps {
   product: ProductItem | null;
@@ -39,8 +40,11 @@ export default function QuickViewModal({
   if (!isOpen || !product) return null;
 
   // Compute pricing
-  const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
-  const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
+  const effective = getEffectiveUnitPrice(product, 1);
+  const isDiscountActive = effective.appliedDiscountType !== "NONE" || effective.originalPrice > effective.unitPrice;
+  const discountPercent = isDiscountActive && effective.originalPrice > 0
+    ? Math.round(((effective.originalPrice - effective.unitPrice) / effective.originalPrice) * 100)
+    : undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10">
@@ -78,9 +82,9 @@ export default function QuickViewModal({
             </Badge>
           </div>
 
-          {discountPercent && (
-            <div className="absolute top-4 right-14 bg-red-600 text-white text-[9px] font-black rounded-md py-1 px-2.5 uppercase tracking-wide shadow-md z-10">
-              {discountPercent}% OFF
+          {discountPercent && discountPercent > 0 && (
+            <div className="absolute top-4 right-14 bg-[#FF5225] text-white text-[10px] font-black rounded-full py-1 px-3 uppercase tracking-wide shadow-md z-10">
+              -{discountPercent}% OFF
             </div>
           )}
         </div>
@@ -110,10 +114,10 @@ export default function QuickViewModal({
 
             {/* Pricing Section */}
             <div className="flex items-baseline space-x-3 border-b border-[#d0c6b8]/20 pb-4">
-              <span className="text-2xl font-black text-primary">₹{product.price.toLocaleString()}</span>
-              {originalPrice && (
+              <span className="text-2xl font-black text-primary">₹{effective.unitPrice.toLocaleString()}</span>
+              {isDiscountActive && (
                 <span className="text-sm font-semibold text-muted-foreground line-through">
-                  ₹{originalPrice.toLocaleString()}
+                  ₹{effective.originalPrice.toLocaleString()}
                 </span>
               )}
             </div>

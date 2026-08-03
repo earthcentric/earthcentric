@@ -59,7 +59,8 @@ export default function VerificationPage() {
   const [bankName, setBankName] = useState("");
   const [bankIfsc, setBankIfsc] = useState("");
 
-  // File attachments state (Simulated as filename + mock base64 string)
+  // Logo file and file attachments states
+  const [logoFile, setLogoFile] = useState<{ name: string; base64: string } | null>(null);
   const [gstFile, setGstFile] = useState<{ name: string; base64: string } | null>(null);
   const [panFile, setPanFile] = useState<{ name: string; base64: string } | null>(null);
   const [regFile, setRegFile] = useState<{ name: string; base64: string } | null>(null);
@@ -90,6 +91,7 @@ export default function VerificationPage() {
             setBankAccountNo(p.bankAccountNo || "");
             setBankName(p.bankName || "");
             setBankIfsc(p.bankIfsc || "");
+            if (p.logoUrl) setLogoFile({ name: "Company Logo", base64: "existing" });
             
             // Map existing docs to display names
             const gstDoc = p.documents.find(d => d.type === "GST");
@@ -144,6 +146,7 @@ export default function VerificationPage() {
         website,
         gstNumber,
         panNumber,
+        logoBase64: logoFile?.base64 || undefined,
         declaredRevenue,
         ownerName,
         phone,
@@ -344,6 +347,47 @@ export default function VerificationPage() {
                 <Building className="h-4.5 w-4.5" />
                 <span>Business Details</span>
               </h3>
+
+              {/* Company Logo Upload Box */}
+              <div className="space-y-2 pb-4 border-b border-border/10">
+                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Company Logo</Label>
+                <div className="flex items-center space-x-4">
+                  <div className="h-16 w-16 rounded-xl border border-border/60 overflow-hidden flex items-center justify-center bg-muted/20 relative">
+                    {logoFile ? (
+                      <img src={logoFile.base64 === "existing" ? (profile?.logoUrl || "/leaf.png") : logoFile.base64} alt="Company Logo" className="h-full w-full object-cover" />
+                    ) : (
+                      <Building className="h-6 w-6 text-muted-foreground/40" />
+                    )}
+                  </div>
+                  <div className="flex flex-col space-y-1.5">
+                    <div className="flex space-x-2">
+                      <Button type="button" variant="cool" size="sm" className="text-xs border-none cursor-pointer" onClick={() => {
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.onchange = (e: any) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setLogoFile({ name: file.name, base64: reader.result as string });
+                          };
+                          reader.readAsDataURL(file);
+                        };
+                        input.click();
+                      }}>
+                        {logoFile ? "Change Logo" : "Upload Logo"}
+                      </Button>
+                      {logoFile && (
+                        <Button type="button" variant="destructive" size="sm" className="text-xs cursor-pointer border-none" onClick={() => setLogoFile(null)}>
+                          Remove Logo
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Recommend 200x200px square image. PNG, JPG allowed.</p>
+                  </div>
+                </div>
+              </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">

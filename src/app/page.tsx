@@ -795,7 +795,13 @@ export default function Homepage() {
             {verifiedSellers.map((seller) => (
               <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1">
                 <div className="flex items-start justify-between">
-                  <img src={seller.logoUrl} alt={seller.companyName} className="h-16 w-16 rounded-full object-cover border border-border/40" />
+                  <div className="h-16 w-16 rounded-full border border-border/40 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0">
+                    {seller.logoUrl ? (
+                      <img src={seller.logoUrl} alt={seller.companyName} className="h-full w-full object-cover" />
+                    ) : (
+                      <Leaf className="h-8 w-8 text-[#2d4a36]" />
+                    )}
+                  </div>
                   <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
                     Score: {seller.sustainabilityScore}
                   </Badge>

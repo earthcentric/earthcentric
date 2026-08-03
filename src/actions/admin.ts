@@ -4,7 +4,7 @@ import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { sendSellerVerificationUpdateEmail } from "@/lib/email";
 import { getMockSellersInternal, updateMockSellerStatusInternal, SellerProfile } from "./sellers";
-import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId } from "./products";
+import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId, getProducts, getProductById, updateProduct } from "./products";
 import { createNotification } from "./notifications";
 
 export interface PlatformStats {
@@ -1283,5 +1283,98 @@ export async function updateSellerTrustScore(sellerId: string, trustScore: numbe
 export async function uploadAdBanner(base64Image: string): Promise<string> {
   const resultJson = await uploadImage(base64Image, "ad-banner");
   return resultJson;
+}
+
+export async function getPendingDiscounts(): Promise<any[]> {
+  try {
+    const allProducts = await getProducts({});
+    const productsWithDiscounts = allProducts.filter(p => p.individualDiscount && p.individualDiscount.status);
+    return productsWithDiscounts.map(p => ({
+      productId: p.id,
+      productName: p.name,
+      sellerName: p.seller.companyName,
+      sellerId: p.sellerId,
+      price: p.price,
+      originalPrice: p.originalPrice || p.price,
+      discount: p.individualDiscount,
+    }));
+  } catch (error) {
+    console.error("Failed to fetch pending discounts:", error);
+    return [];
+  }
+}
+
+export async function approveDiscount(productId: string): Promise<boolean> {
+  try {
+    const product = await getProductById(productId);
+    if (!product || !product.individualDiscount) return false;
+
+    const updatedDiscount = {
+      ...product.individualDiscount,
+      status: "APPROVED",
+    };
+
+    await updateProduct(productId, {
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      stock: product.stock,
+      categoryName: product.category,
+      sustainabilityScore: product.sustainabilityScore,
+      sustainabilityDetail: product.sustainabilityDetail,
+      individualDiscount: updatedDiscount as any,
+    });
+
+    if (product.sellerId) {
+      await createNotification(
+        product.sellerId,
+        "Product Discount Approved 🎉",
+        `Your discount for product "${product.name}" has been approved by Super Admin and is now active!`,
+        "/seller/dashboard"
+      ).catch(() => {});
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to approve discount for product ${productId}:`, error);
+    return false;
+  }
+}
+
+export async function rejectDiscount(productId: string): Promise<boolean> {
+  try {
+    const product = await getProductById(productId);
+    if (!product || !product.individualDiscount) return false;
+
+    const updatedDiscount = {
+      ...product.individualDiscount,
+      status: "REJECTED",
+    };
+
+    await updateProduct(productId, {
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      stock: product.stock,
+      categoryName: product.category,
+      sustainabilityScore: product.sustainabilityScore,
+      sustainabilityDetail: product.sustainabilityDetail,
+      individualDiscount: updatedDiscount as any,
+    });
+
+    if (product.sellerId) {
+      await createNotification(
+        product.sellerId,
+        "Product Discount Rejected ⚠️",
+        `Your discount request for product "${product.name}" was reviewed and rejected by Super Admin.`,
+        "/seller/dashboard"
+      ).catch(() => {});
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to reject discount for product ${productId}:`, error);
+    return false;
+  }
 }
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, Role } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 import { UserButton } from "@clerk/nextjs";
 import { Button, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { ScaleHover, AnimatePresence } from "@/components/FramerComponents";
@@ -910,92 +911,146 @@ export default function Navbar() {
                   </div>
                 ) : (
                   cart.map((item) => (
-                    <div key={item.id} className="flex items-center space-x-4 border-b border-border/30 pb-4 last:border-b-0">
-                      <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="shrink-0 hover:opacity-90 transition-opacity">
-                        <img
-                          src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
-                          alt={item.name}
-                          className="h-16 w-16 rounded-md object-cover border border-border/40 cursor-pointer"
-                        />
-                      </Link>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between">
-                          <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="hover:text-[#0F6E56] transition-colors truncate">
-                            <h4 className="text-sm font-semibold text-foreground truncate cursor-pointer">{item.name}</h4>
-                          </Link>
-                          <span className="text-sm font-bold ml-2 shrink-0">₹{item.price * item.quantity}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">by {item.sellerName}</p>
-                        
-                        <div className="flex items-center justify-between mt-2.5">
-                          {/* Quantity selector */}
-                          <div className="flex items-center space-x-1.5 border border-border/60 rounded px-1 py-0.5 bg-muted/20">
-                            <button
-                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                              className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </button>
-                            <span className="text-xs font-semibold px-1 min-w-[16px] text-center">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                              className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </div>
+                    <div key={item.id} className="flex flex-col space-y-2 border-b border-border/30 pb-4 last:border-b-0">
+                      <div className="flex items-center space-x-4">
+                        <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="shrink-0 hover:opacity-90 transition-opacity">
+                          <img
+                            src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
+                            alt={item.name}
+                            className="h-16 w-16 rounded-md object-cover border border-border/40 cursor-pointer"
+                          />
+                        </Link>
+                        <div className="flex-1 min-w-0">
+                          {(() => {
+                            const effective = getEffectiveUnitPrice(item, item.quantity);
+                            const itemTotal = effective.unitPrice * item.quantity;
+                            return (
+                              <div className="flex items-start justify-between">
+                                <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="hover:text-[#0F6E56] transition-colors truncate">
+                                  <h4 className="text-sm font-semibold text-foreground truncate cursor-pointer">{item.name}</h4>
+                                </Link>
+                                <div className="text-right shrink-0 ml-2">
+                                  <span className="text-sm font-bold text-emerald-700 block">₹{itemTotal.toLocaleString()}</span>
+                                  {effective.appliedDiscountType !== "NONE" && (
+                                    <span className="text-[10px] text-muted-foreground line-through block">₹{(effective.originalPrice * item.quantity).toLocaleString()}</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          <p className="text-xs text-muted-foreground truncate">by {item.sellerName}</p>
+                          
+                          <div className="flex items-center justify-between mt-2.5">
+                            {/* Quantity selector */}
+                            <div className="flex items-center space-x-1.5 border border-border/60 rounded px-1 py-0.5 bg-muted/20">
+                              <button
+                                onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
+                              >
+                                <Minus className="h-3 w-3" />
+                              </button>
+                              <span className="text-xs font-semibold px-1 min-w-[16px] text-center">
+                                {item.quantity}
+                              </span>
+                              <button
+                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </div>
 
-                          <div className="flex items-center space-x-3">
-                            <Badge variant="primary" className="text-[10px] px-1.5 py-0">
-                              🌱 Score: {item.sustainabilityScore}
-                            </Badge>
-                            <button
-                              onClick={() => removeFromCart(item.id)}
-                              className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-500/5 cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center space-x-3">
+                              <Badge variant="primary" className="text-[10px] px-1.5 py-0">
+                                🌱 Score: {item.sustainabilityScore}
+                              </Badge>
+                              <button
+                                onClick={() => removeFromCart(item.id)}
+                                className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-500/5 cursor-pointer"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
+
+                      {/* Mini Cart Buy X Get Y Offer Badge & Summary */}
+                      {isBuyXGetYActive(item.buyXGetYOffer) && (() => {
+                        const freeItems = calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer);
+                        const savings = freeItems * item.price;
+                        const buyQty = item.buyXGetYOffer!.buyQuantity;
+                        const getQty = item.buyXGetYOffer!.getQuantity;
+                        return (
+                          <div className="p-2 rounded-xl bg-[#f0f7f2] border border-[#2d4a36]/20 text-[11px] space-y-0.5">
+                            <div className="flex items-center justify-between font-bold text-[#1f3a2e]">
+                              <span>🎁 Buy {buyQty} Get {getQty} FREE</span>
+                              {freeItems > 0 && <span className="text-emerald-700 font-extrabold">Save ₹{savings.toLocaleString()}</span>}
+                            </div>
+                            {freeItems > 0 ? (
+                              <p className="text-[#2d4a36] text-[10.5px] font-semibold">
+                                +{freeItems} Free Item{freeItems > 1 ? "s" : ""} Earned! ({item.quantity + freeItems} total delivered)
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-amber-800 font-medium">
+                                Add {buyQty - (item.quantity % buyQty)} more to qualify for {getQty} free item
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))
                 )}
               </div>
 
               {/* Checkout details footer */}
-              {cart.length > 0 && (
-                <div className="border-t border-border/60 bg-muted/10 px-6 py-6 space-y-4">
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span>₹{cartTotal.toFixed(2)}</span>
+              {cart.length > 0 && (() => {
+                const totalFreeItems = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer), 0);
+                const totalFreeSavings = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer) * item.price, 0);
+
+                return (
+                  <div className="border-t border-border/60 bg-muted/10 px-6 py-6 space-y-4">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Subtotal</span>
+                        <span>₹{cartTotal.toFixed(2)}</span>
+                      </div>
+
+                      {totalFreeItems > 0 && (
+                        <div className="flex justify-between text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg font-bold border border-emerald-100">
+                          <span className="flex items-center gap-1">
+                            <span>🎁</span>
+                            <span>Buy X Get Y Free Items</span>
+                          </span>
+                          <span>+{totalFreeItems} Items (Save ₹{totalFreeSavings.toLocaleString()})</span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Eco-Shipping (Carbon Neutral)</span>
+                        <span className="text-emerald-600 font-medium">FREE</span>
+                      </div>
+                      <div className="flex justify-between font-bold border-t border-border/30 pt-2 text-foreground">
+                        <span>Grand Total</span>
+                        <span>₹{cartTotal.toFixed(2)}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Eco-Shipping (Carbon Neutral)</span>
-                      <span className="text-emerald-600 font-medium">FREE</span>
-                    </div>
-                    <div className="flex justify-between font-bold border-t border-border/30 pt-2 text-foreground">
-                      <span>Grand Total</span>
-                      <span>₹{cartTotal.toFixed(2)}</span>
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <Link href="/cart" className="w-full" onClick={() => setIsCartOpen(false)}>
+                        <Button variant="cool" className="w-full">
+                          View Cart
+                        </Button>
+                      </Link>
+                      <Link href="/checkout" className="w-full" onClick={() => setIsCartOpen(false)}>
+                        <LiquidButton variant="default" size="lg" className="w-full text-center flex justify-center">
+                          Checkout
+                        </LiquidButton>
+                      </Link>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <Link href="/cart" className="w-full" onClick={() => setIsCartOpen(false)}>
-                      <Button variant="cool" className="w-full">
-                        View Cart
-                      </Button>
-                    </Link>
-                    <Link href="/checkout" className="w-full" onClick={() => setIsCartOpen(false)}>
-                      <LiquidButton variant="default" size="lg" className="w-full text-center flex justify-center">
-                        Checkout
-                      </LiquidButton>
-                    </Link>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </motion.div>
           </>
         )}

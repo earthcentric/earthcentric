@@ -174,6 +174,8 @@ model Product {
   moq                  Int      @default(1)
   unit                 String   @default("piece") // e.g. piece, kg, box
   bulkPriceSlabs       Json?    // [{min: 100, price: 150}]
+  tierDiscounts        Json?    // [{minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15}]
+  buyXGetYOffer        Json?    // {enabled: true, buyQuantity: 2, getQuantity: 1, maxFreeQuantity: 5, startDate: "2026-07-01", endDate: "2026-12-31"}
   materialUsed         String?
   deliveryTime         String?
   returnEligibility    String?
@@ -357,25 +359,35 @@ model AuditLog {
 
 enum PayoutStatus {
   PENDING
-  SETTLED
-  REJECTED
+  PARTIALLY_PAID
   APPROVED
+  REJECTED
+  PAID
+  SETTLED
   ON_HOLD
 }
 
 model PayoutRequest {
-  id            String       @id @default(cuid())
-  sellerId      String
-  seller        Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  amount        Float
-  status        PayoutStatus @default(PENDING)
-  requestedAt   DateTime     @default(now())
-  settledAt     DateTime?
-  adminEmail    String?
-  notes         String?
-  isUrgent      Boolean      @default(false)
-  reason        String?
-  transactionId String?
+  id                String       @id @default(cuid())
+  sellerId          String
+  seller            Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  amount            Float
+  remainingAmount   Float?
+  status            PayoutStatus @default(PENDING)
+  requestedAt       DateTime     @default(now())
+  settledAt         DateTime?
+  adminEmail        String?
+  notes             String?
+  isUrgent          Boolean      @default(false)
+  reason            String?
+  transactionId     String?
+  paymentMethod     String       @default("BANK")
+  bankDetails       Json?
+  upiDetails        Json?
+  approvedAt        DateTime?
+  paidAt            DateTime?
+  rejectedReason    String?
+  settlementHistory Json?
 }
 
 model Enquiry {
@@ -416,14 +428,17 @@ model Complaint {
 }
 
 model Message {
-  id         String   @id @default(cuid())
-  senderId   String
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  receiverId String
-  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
-  content    String
-  isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  senderId    String
+  sender      User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  content     String
+  isRead      Boolean  @default(false)
+  isDelivered Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  attachments Json?
+  reference   Json?
 }
 
 model SystemCredential {

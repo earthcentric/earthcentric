@@ -11,6 +11,7 @@ import { getRazorpayKeyId } from "@/actions/credentials";
 import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
 import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star } from "lucide-react";
 import Link from "next/link";
+import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 
 export default function CheckoutPage() {
   const { cart, cartTotal, clearCart } = useCart();
@@ -326,31 +327,115 @@ export default function CheckoutPage() {
           <Card className="border-border/60 bg-card p-6 space-y-6 shadow-sm">
             <h3 className="font-bold text-base text-primary border-b border-border/30 pb-3">Review Items</h3>
             
-            <div className="space-y-3 max-h-56 overflow-y-auto">
-              {cart.map((item) => (
-                <div key={item.id} className="flex justify-between items-center text-xs">
-                  <div className="truncate pr-4 flex-1">
-                    <span className="font-bold text-foreground">{item.quantity}x</span> {item.name}
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {cart.map((item) => {
+                const freeCount = calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer);
+                const itemSavings = freeCount * item.price;
+                const totalDelivered = item.quantity + freeCount;
+                const effective = getEffectiveUnitPrice(item, item.quantity);
+                const itemPayable = effective.unitPrice * item.quantity;
+
+                return (
+                  <div key={item.id} className="space-y-1.5 border-b border-border/20 pb-3">
+                    <div className="flex justify-between items-start text-xs">
+                      <div className="pr-2 flex-1 min-w-0">
+                        <p className="font-bold text-foreground truncate">{item.name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Purchased Qty: <strong className="text-foreground">{item.quantity}</strong>
+                          {freeCount > 0 && <> • Free Qty: <strong className="text-emerald-700">+{freeCount}</strong></>}
+                          {" "}• Delivered: <strong>{totalDelivered}</strong>
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-bold text-foreground text-xs block">₹{itemPayable.toLocaleString()}</span>
+                        {effective.appliedDiscountType !== "NONE" && (
+                          <span className="text-[10px] text-muted-foreground line-through block">₹{(effective.originalPrice * item.quantity).toLocaleString()}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {effective.appliedDiscountType !== "NONE" && (
+                      <div className="flex justify-between items-center text-[11px] text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg font-bold border border-emerald-100">
+                        <span className="flex items-center gap-1">
+                          <span>🏷️</span>
+                          <span>{effective.badgeText || "Product Discount"}</span>
+                        </span>
+                        <span className="text-emerald-700">Save ₹{((effective.originalPrice - effective.unitPrice) * item.quantity).toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {freeCount > 0 && (
+                      <div className="flex justify-between items-center text-[11px] text-emerald-800 bg-[#f0f7f2] px-2.5 py-1 rounded-lg font-bold border border-[#c3decb]">
+                        <span className="flex items-center gap-1">
+                          <span>🎁</span>
+                          <span>Buy {item.buyXGetYOffer?.buyQuantity} Get {item.buyXGetYOffer?.getQuantity} Free</span>
+                        </span>
+                        <span className="text-emerald-700">Save ₹{itemSavings.toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
-                  <span className="font-semibold text-foreground shrink-0">₹{item.price * item.quantity}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            <div className="border-t border-border/30 pt-4 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Order Subtotal</span>
-                <span>₹{cartTotal}</span>
-              </div>
-              <div className="flex justify-between text-emerald-600 font-semibold">
-                <span>Shipping Carbon Offset Fee</span>
-                <span>SPONSORED</span>
-              </div>
-              <div className="flex justify-between border-t border-border/30 pt-3 text-sm font-bold text-foreground">
-                <span>Amount Due</span>
-                <span>₹{cartTotal}</span>
-              </div>
-            </div>
+            {(() => {
+              const totalPurchasedQty = cart.reduce((acc, item) => acc + item.quantity, 0);
+              const totalFreeItems = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer), 0);
+              const totalFreeSavings = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer) * item.price, 0);
+              const totalUnitSavings = cart.reduce((acc, item) => {
+                const effective = getEffectiveUnitPrice(item, item.quantity);
+                return acc + (effective.originalPrice - effective.unitPrice) * item.quantity;
+              }, 0);
+
+              return (
+                <div className="border-t border-border/30 pt-4 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Purchased Quantity</span>
+                    <span className="font-semibold text-foreground">{totalPurchasedQty} Items</span>
+                  </div>
+
+                  {totalUnitSavings > 0 && (
+                    <div className="flex justify-between text-emerald-700 bg-emerald-50 p-2 rounded-lg font-bold border border-emerald-100">
+                      <span className="flex items-center gap-1">
+                        <span>🏷️</span>
+                        <span>Product Discount Savings</span>
+                      </span>
+                      <span>-₹{totalUnitSavings.toLocaleString()}</span>
+                    </div>
+                  )}
+
+                  {totalFreeItems > 0 && (
+                    <>
+                      <div className="flex justify-between text-emerald-700 font-semibold">
+                        <span>Free Items Earned</span>
+                        <span>+{totalFreeItems} Items</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-700 bg-emerald-50 p-2 rounded-lg font-bold border border-emerald-100">
+                        <span className="flex items-center gap-1">
+                          <span>🎁</span>
+                          <span>Free Offer Savings</span>
+                        </span>
+                        <span>-₹{totalFreeSavings.toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Items Delivered</span>
+                    <span className="font-semibold text-foreground">{totalPurchasedQty + totalFreeItems} Items</span>
+                  </div>
+
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Shipping Carbon Offset Fee</span>
+                    <span>SPONSORED</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border/30 pt-3 text-sm font-bold text-foreground">
+                    <span>Final Amount Due</span>
+                    <span>₹{cartTotal.toLocaleString()}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <MetalButton
               type="submit"

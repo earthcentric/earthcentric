@@ -1,18 +1,22 @@
 "use server";
 
 import db from "@/lib/db";
-import { getProductById } from "./products";
+import { getProductById, BuyXGetYOffer, IndividualDiscount, TierDiscount } from "./products";
 
 export interface CartItem {
   id: string;
   name: string;
   price: number;
+  originalPrice?: number;
   image: string;
   quantity: number;
   sustainabilityScore: number;
   sellerName: string;
   sellerId: string;
   moq?: number;
+  buyXGetYOffer?: BuyXGetYOffer | null;
+  individualDiscount?: IndividualDiscount | null;
+  tierDiscounts?: TierDiscount[] | null;
 }
 
 /**
@@ -45,12 +49,16 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
           id: product.id,
           name: product.name,
           price: product.price,
+          originalPrice: product.originalPrice,
           image: product.images[0] || "",
           quantity: item.quantity,
           sustainabilityScore: product.sustainabilityScore,
           sellerName: product.seller.companyName,
           sellerId: product.sellerId,
           moq: product.moq,
+          buyXGetYOffer: product.buyXGetYOffer || null,
+          individualDiscount: product.individualDiscount || null,
+          tierDiscounts: product.tierDiscounts || null,
         });
       }
     }
@@ -59,6 +67,40 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
   } catch (error) {
     console.error("Failed to retrieve cart from DB:", error);
     return [];
+  }
+}
+
+/**
+ * Refreshes and updates product details & promotion offer data for a list of cart items.
+ */
+export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<CartItem[]> {
+  try {
+    const updatedItems: CartItem[] = [];
+    for (const item of cartItems) {
+      const product = await getProductById(item.id);
+      if (product) {
+        updatedItems.push({
+          ...item,
+          name: product.name,
+          price: product.price,
+          originalPrice: product.originalPrice,
+          image: product.images[0] || item.image,
+          sustainabilityScore: product.sustainabilityScore,
+          sellerName: product.seller.companyName,
+          sellerId: product.sellerId,
+          moq: product.moq,
+          buyXGetYOffer: product.buyXGetYOffer || null,
+          individualDiscount: product.individualDiscount || null,
+          tierDiscounts: product.tierDiscounts || null,
+        });
+      } else {
+        updatedItems.push(item);
+      }
+    }
+    return updatedItems;
+  } catch (error) {
+    console.error("Failed to refresh cart item offers:", error);
+    return cartItems;
   }
 }
 

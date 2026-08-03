@@ -7,8 +7,9 @@ import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Star, Leaf } from "lucide-react";
 import { ProductItem } from "@/actions/products";
 import { useAuth } from "@/context/AuthContext";
-import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
+import { toggleWishlist } from "@/actions/wishlist";
 import { toast } from "sonner";
+import { isBuyXGetYActive, getEffectiveUnitPrice } from "@/lib/offers";
 
 interface ProductCardProps {
   product: ProductItem;
@@ -50,8 +51,8 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
   };
 
   // Compute pricing details
-  const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
-  const discountPercent = originalPrice && originalPrice > product.price ? Math.round(((originalPrice - product.price) / originalPrice) * 100) : undefined;
+  const effective = getEffectiveUnitPrice(product, 1);
+  const discountPercent = effective.discountPercentage;
   const hasBulkDeal = product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0;
 
   // Determine status badge class and label
@@ -90,16 +91,16 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
             />
           </div>
 
-          {/* Discount Tag (Top-Left) */}
-          {discountPercent && (
-            <span className="absolute top-3 left-3 bg-[#FF4D4D] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg shadow-sm z-10">
-              -{discountPercent}%
+          {/* Discount Pill Tag (Top-Left) matching orange-red pill design */}
+          {discountPercent && discountPercent > 0 && (
+            <span className="absolute top-3 left-3 bg-[#FF5225] text-white text-[11px] font-black px-3.5 py-1 rounded-full shadow-md z-10 uppercase tracking-wide">
+              -{discountPercent}% OFF
             </span>
           )}
 
           {/* Bulk Deal Tag */}
           {hasBulkDeal && (
-            <span className={`absolute top-3 bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg shadow-sm z-10 flex items-center gap-0.5 ${discountPercent ? "left-14" : "left-3"}`}>
+            <span className={`absolute top-3 bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg shadow-sm z-10 flex items-center gap-0.5 ${discountPercent ? "left-24" : "left-3"}`}>
               🏷️ Bulk Deal
             </span>
           )}
@@ -141,6 +142,19 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
             </h4>
           </Link>
 
+          {/* Buy X Get Y Offer Promo Badge */}
+          {isBuyXGetYActive(product.buyXGetYOffer) && (
+            <div className="bg-[#e8f3ec] text-[#2d4a36] text-[10px] font-black rounded-lg px-2.5 py-1.5 border border-[#c3decb] flex items-center justify-between shadow-xs select-none">
+              <span className="flex items-center gap-1 font-extrabold">
+                <span>🎁</span>
+                <span>Buy {product.buyXGetYOffer?.buyQuantity} Get {product.buyXGetYOffer?.getQuantity} Free</span>
+              </span>
+              <span className="bg-[#2d4a36] text-white text-[8px] px-1.5 py-0.5 rounded font-extrabold tracking-wider uppercase">
+                Free Offer
+              </span>
+            </div>
+          )}
+
           {/* Bundle Deal Promo */}
           {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (() => {
             const slabs = product.bulkPriceSlabs as any[];
@@ -169,7 +183,6 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
             {product.description}
           </p>
 
-
           {/* Stars & Reviews */}
           <div className="flex items-center space-x-1 text-xs font-semibold text-slate-800">
             <Star className="h-3.5 w-3.5 fill-[#EAB308] stroke-none" />
@@ -181,21 +194,27 @@ export default function ProductCard({ product, onAddToCart, onQuickView, initial
 
       {/* Footer / Pricing & Cart */}
       <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-4 text-left">
-        <div className="flex items-baseline space-x-1.5">
-          <span className="text-base font-black text-slate-900">₹{product.price.toLocaleString()}</span>
-          {originalPrice && (
-            <span className="text-xs text-slate-400 font-semibold line-through">
-              ₹{originalPrice.toLocaleString()}
-            </span>
-          )}
-        </div>
+        {(() => {
+          return (
+            <div className="flex items-baseline space-x-1.5 flex-wrap gap-y-1">
+              <span className="text-base font-black text-slate-900">
+                ₹{effective.unitPrice.toLocaleString()}
+              </span>
+              {(effective.appliedDiscountType !== "NONE" || effective.originalPrice > effective.unitPrice) && (
+                <span className="text-xs text-slate-400 font-semibold line-through">
+                  ₹{effective.originalPrice.toLocaleString()}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <button
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             onAddToCart(e, product);
           }}
-          className="h-8 w-8 rounded-full bg-[#0F6E56] hover:bg-[#0c5a46] text-white flex items-center justify-center transition-colors cursor-pointer border-none shadow-sm"
+          className="h-8 w-8 rounded-full bg-[#0F6E56] hover:bg-[#0c5a46] text-white flex items-center justify-center transition-colors cursor-pointer border-none shadow-sm shrink-0"
           title="Add to Cart"
         >
           <ShoppingBag className="h-4 w-4" />

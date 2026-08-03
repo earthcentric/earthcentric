@@ -10,6 +10,7 @@ import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
 import { Input, Textarea, Button } from "@/components/ui/shared";
 import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
 import { createEnquiry } from "@/actions/enquiries";
+import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice, isIndividualDiscountActive } from "@/lib/offers";
 import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
 import {
   Star,
@@ -349,12 +350,16 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 {badgeLabel}
               </span>
 
-              {/* Discount - Top Right */}
-              {discountPercent > 0 && (
-                <span className="absolute top-4 right-4 bg-[#FF6B35] text-white text-[11px] font-extrabold px-3 py-1.5 rounded-lg shadow-md z-10">
-                  -{discountPercent}% OFF
-                </span>
-              )}
+              {/* Discount - Top Right Overlay Pill Badge */}
+              {(() => {
+                const eff = getEffectiveUnitPrice(product, 1);
+                if (!eff.discountPercentage || eff.discountPercentage <= 0) return null;
+                return (
+                  <span className="absolute top-4 right-4 bg-[#FF5225] text-white text-[11px] font-black px-3.5 py-1 rounded-full shadow-md z-10 uppercase tracking-wide">
+                    -{eff.discountPercentage}% OFF
+                  </span>
+                );
+              })()}
             </div>
 
             {/* Thumbnail Gallery */}
@@ -447,18 +452,97 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
             {/* Price */}
             <div className="space-y-4">
-              <div>
-                <div className="flex items-baseline space-x-3">
-                  <span className="text-4xl font-black text-slate-900">₹{product.price}</span>
-                  {originalPrice > product.price && (
-                    <span className="text-lg text-slate-400 line-through font-semibold">₹{originalPrice}</span>
-                  )}
-                  <span className="text-sm text-slate-500 font-semibold">(Retail Price)</span>
+              {(() => {
+                const effective = getEffectiveUnitPrice(product, quantity);
+                const isDiscountActive = effective.appliedDiscountType !== "NONE" || effective.discountPercentage > 0;
+                const amountSaved = (effective.originalPrice - effective.unitPrice) * quantity;
+                const discountPercentage = effective.discountPercentage;
+
+                return (
+                  <div>
+                    <div className="flex items-baseline space-x-3 flex-wrap gap-y-1">
+                      <span className="text-4xl font-black text-slate-900">
+                        ₹{effective.unitPrice.toLocaleString()}
+                      </span>
+                      {isDiscountActive && (
+                        <span className="text-lg text-slate-400 line-through font-semibold">
+                          ₹{effective.originalPrice.toLocaleString()}
+                        </span>
+                      )}
+                      {effective.badgeText && (
+                        <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-1 rounded-full uppercase tracking-wider">
+                          {effective.badgeText}
+                        </span>
+                      )}
+                    </div>
+
+                    {isDiscountActive && (
+                      <div className="mt-2.5 flex items-center gap-3 text-xs font-bold text-emerald-700 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200/60 w-fit">
+                        <span>🎉 You save ₹{amountSaved.toLocaleString()} ({discountPercentage}% OFF)</span>
+                      </div>
+                    )}
+
+                    <p className="text-sm text-slate-500 font-medium mt-1">
+                      Inclusive of all taxes • Free Shipping available
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Active Individual Product Discount Banner */}
+              {isIndividualDiscountActive(product.individualDiscount) && (
+                <div className="bg-[#f0f7f2] border-2 border-[#2d4a36]/30 rounded-2xl p-4 space-y-1.5 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-[#1f3a2e] uppercase tracking-wider flex items-center gap-1.5">
+                      <span>🏷️</span>
+                      <span>Product Discount Offer Active!</span>
+                    </span>
+                    <span className="bg-[#2d4a36] text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                      {product.individualDiscount?.discountType === "PERCENTAGE" ? `${product.individualDiscount?.discountValue}% OFF` : `Save ₹${product.individualDiscount?.discountValue}`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#2d4a36] font-semibold">
+                    Enjoy {product.individualDiscount?.discountType === "PERCENTAGE" ? `${product.individualDiscount?.discountValue}% OFF` : `₹${product.individualDiscount?.discountValue} OFF`} on every unit of this product!
+                  </p>
                 </div>
-                <p className="text-sm text-slate-500 font-medium mt-1">
-                  Inclusive of all taxes • Free Shipping available
-                </p>
-              </div>
+              )}
+
+              {/* Active Buy X Get Y Offer Banner */}
+              {isBuyXGetYActive(product.buyXGetYOffer) && (
+                <div className="bg-[#f0f7f2] border-2 border-[#2d4a36]/30 rounded-2xl p-4 space-y-2.5 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xl">🎁</span>
+                      <div>
+                        <h4 className="text-xs font-black text-[#1f3a2e] uppercase tracking-wider">
+                          Special Buy X Get Y Offer!
+                        </h4>
+                        <p className="text-[10px] text-muted-foreground font-medium">Automatic free items applied at checkout</p>
+                      </div>
+                    </div>
+                    <span className="bg-[#2d4a36] text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                      Buy {product.buyXGetYOffer?.buyQuantity} Get {product.buyXGetYOffer?.getQuantity} Free
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-[#2d4a36] font-semibold leading-relaxed bg-white p-2.5 rounded-xl border border-[#c3decb]">
+                    Purchase <strong>{product.buyXGetYOffer?.buyQuantity}</strong> item(s) of {product.name} and receive <strong>{product.buyXGetYOffer?.getQuantity} bonus item(s)</strong> absolutely free with your order!
+                  </p>
+
+                  {quantity >= (product.buyXGetYOffer?.buyQuantity || 1) && (
+                    <div className="flex justify-between items-center bg-[#2d4a36] text-white p-2.5 rounded-xl text-xs font-bold">
+                      <span>🎉 Your Order Earns: +{calculateBuyXGetYFreeItems(quantity, product.buyXGetYOffer)} Free Item(s)!</span>
+                      <span>Save ₹{calculateBuyXGetYFreeItems(quantity, product.buyXGetYOffer) * product.price}</span>
+                    </div>
+                  )}
+
+                  {product.buyXGetYOffer?.maxFreeQuantity ? (
+                    <p className="text-[10px] text-muted-foreground font-medium">
+                      * Maximum limit of {product.buyXGetYOffer.maxFreeQuantity} free item(s) per order.
+                    </p>
+                  ) : null}
+                </div>
+              )}
 
               {/* Volume Discount Deals Slabs */}
               {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (

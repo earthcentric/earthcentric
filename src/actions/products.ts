@@ -15,6 +15,10 @@ export interface ProductFilter {
   sellerId?: string;
   dealsOnly?: boolean;
   newArrivalsOnly?: boolean;
+  filterType?: "overall" | "daily" | "monthly" | "yearly";
+  selectedDate?: string;
+  selectedMonth?: string;
+  selectedYear?: string;
 }
 
 export interface SellerInfo {
@@ -25,6 +29,31 @@ export interface SellerInfo {
   trustScore?: number;
 }
 
+export interface TierDiscount {
+  minQuantity: number;
+  discountType: "PERCENTAGE" | "FIXED";
+  discountValue: number;
+}
+
+export interface IndividualDiscount {
+  id?: string;
+  discountType: "PERCENTAGE" | "FIXED";
+  discountValue: number;
+  startDate?: string | null;
+  endDate?: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  createdAt?: string | Date;
+}
+
+export interface BuyXGetYOffer {
+  enabled: boolean;
+  buyQuantity: number;
+  getQuantity: number;
+  maxFreeQuantity?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
 export interface ProductItem {
   id: string;
   name: string;
@@ -32,7 +61,6 @@ export interface ProductItem {
   description: string;
   price: number;
   stock: number;
-  productDate?: Date | string;
   sustainabilityScore: number;
   sustainabilityDetail: string;
   images: string[];
@@ -49,6 +77,10 @@ export interface ProductItem {
   wholesalePrice?: number;
   originalPrice?: number;
   bulkPriceSlabs?: any;
+  tierDiscounts?: TierDiscount[] | null;
+  individualDiscount?: IndividualDiscount | null;
+  buyXGetYOffer?: BuyXGetYOffer | null;
+  productDate?: Date | string;
   createdAt?: Date;
 }
 
@@ -681,6 +713,44 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       };
     }
 
+    if (filters.filterType && filters.filterType !== "overall") {
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+      if (filters.filterType === "daily" && filters.selectedDate) {
+        startDate = new Date(filters.selectedDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(filters.selectedDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filters.filterType === "monthly" && filters.selectedMonth) {
+        const [y, m] = filters.selectedMonth.split("-").map(Number);
+        startDate = new Date(y, m - 1, 1, 0, 0, 0, 0);
+        endDate = new Date(y, m, 0, 23, 59, 59, 999);
+      } else if (filters.filterType === "yearly" && filters.selectedYear) {
+        const y = Number(filters.selectedYear);
+        startDate = new Date(y, 0, 1, 0, 0, 0, 0);
+        endDate = new Date(y, 11, 31, 23, 59, 59, 999);
+      }
+
+      if (startDate || endDate) {
+        andConditions.push({
+          OR: [
+            {
+              productDate: {
+                ...(startDate ? { gte: startDate } : {}),
+                ...(endDate ? { lte: endDate } : {}),
+              },
+            },
+            {
+              createdAt: {
+                ...(startDate ? { gte: startDate } : {}),
+                ...(endDate ? { lte: endDate } : {}),
+              },
+            },
+          ],
+        });
+      }
+    }
+
     if (andConditions.length > 0) {
       whereClause.AND = andConditions;
     }
@@ -733,6 +803,9 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         reviewsCount: p.reviews.length,
         originalPrice: p.originalPrice || undefined,
         bulkPriceSlabs: p.bulkPriceSlabs,
+        tierDiscounts: (p as any).tierDiscounts || null,
+        individualDiscount: (p as any).individualDiscount || null,
+        buyXGetYOffer: (p as any).buyXGetYOffer || null,
         productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
         createdAt: p.createdAt,
       };
@@ -746,7 +819,11 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
 export async function getProductById(id: string): Promise<ProductItem | null> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return [...MOCK_PRODUCTS, ...dynamicProducts].find((p) => p.id === id) || null;
+      const dyn = dynamicProducts.find((p) => p.id === id);
+      if (dyn) return dyn;
+      const mock = MOCK_PRODUCTS.find((p) => p.id === id);
+      if (mock) return mock;
+      return null;
     }
 
     const p = await db.product.findUnique({
@@ -797,6 +874,9 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       wholesalePrice: p.wholesalePrice || undefined,
       originalPrice: p.originalPrice || undefined,
       bulkPriceSlabs: p.bulkPriceSlabs,
+      tierDiscounts: (p as any).tierDiscounts || null,
+      individualDiscount: (p as any).individualDiscount || null,
+      buyXGetYOffer: (p as any).buyXGetYOffer || null,
       productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
       createdAt: p.createdAt,
     };
@@ -822,6 +902,9 @@ export async function createProduct(data: {
   wholesalePrice?: number;
   originalPrice?: number;
   bulkPriceSlabs?: any;
+  tierDiscounts?: TierDiscount[] | null;
+  individualDiscount?: IndividualDiscount | null;
+  buyXGetYOffer?: BuyXGetYOffer | null;
 }): Promise<ProductItem> {
   try {
     // Process/upload all product images to Cloudinary (will return JSON strings)
@@ -864,6 +947,9 @@ export async function createProduct(data: {
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : undefined,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
         bulkPriceSlabs: data.bulkPriceSlabs || null,
+        tierDiscounts: data.tierDiscounts || null,
+        individualDiscount: data.individualDiscount || null,
+        buyXGetYOffer: data.buyXGetYOffer || null,
         createdAt: new Date(),
       };
       
@@ -906,6 +992,9 @@ export async function createProduct(data: {
         categoryId: category.id,
         sellerId: resolvedSellerId,
         isApproved: autoApprove,
+        tierDiscounts: data.tierDiscounts ? (data.tierDiscounts as any) : undefined,
+        individualDiscount: data.individualDiscount ? (data.individualDiscount as any) : undefined,
+        buyXGetYOffer: data.buyXGetYOffer ? (data.buyXGetYOffer as any) : undefined,
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
@@ -913,7 +1002,7 @@ export async function createProduct(data: {
         images: {
           create: uploadedImages,
         },
-      },
+      } as any,
       include: {
         category: true,
         images: true,
@@ -956,6 +1045,9 @@ export async function createProduct(data: {
       wholesalePrice: p.wholesalePrice || undefined,
       originalPrice: p.originalPrice || undefined,
       bulkPriceSlabs: p.bulkPriceSlabs,
+      tierDiscounts: (p as any).tierDiscounts || null,
+      individualDiscount: (p as any).individualDiscount || null,
+      buyXGetYOffer: (p as any).buyXGetYOffer || null,
       productDate: p.productDate ? new Date(p.productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
     };
   } catch (error) {
@@ -979,6 +1071,9 @@ export async function updateProduct(
     wholesalePrice?: number;
     originalPrice?: number;
     bulkPriceSlabs?: any;
+    tierDiscounts?: TierDiscount[] | null;
+    individualDiscount?: IndividualDiscount | null;
+    buyXGetYOffer?: BuyXGetYOffer | null;
   }
 ): Promise<boolean> {
   try {
@@ -998,6 +1093,9 @@ export async function updateProduct(
             sustainabilityDetail: data.sustainabilityDetail,
             originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
             bulkPriceSlabs: data.bulkPriceSlabs || null,
+            tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
+            individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
+            buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
           };
         }
         return p;
@@ -1016,6 +1114,9 @@ export async function updateProduct(
           sustainabilityDetail: data.sustainabilityDetail,
           originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
           bulkPriceSlabs: data.bulkPriceSlabs || null,
+          tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
+          individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
+          buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
         };
       }
       return true;
@@ -1049,7 +1150,10 @@ export async function updateProduct(
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
         bulkPriceSlabs: data.bulkPriceSlabs || null,
-      },
+        tierDiscounts: data.tierDiscounts !== undefined ? (data.tierDiscounts as any) : null,
+        individualDiscount: data.individualDiscount !== undefined ? (data.individualDiscount as any) : null,
+        buyXGetYOffer: data.buyXGetYOffer !== undefined ? (data.buyXGetYOffer as any) : null,
+      } as any,
     });
 
     return true;
@@ -1070,6 +1174,9 @@ export async function updateProduct(
           sustainabilityDetail: data.sustainabilityDetail,
           originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
           bulkPriceSlabs: data.bulkPriceSlabs || null,
+          tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
+          individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
+          buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
         };
       }
       return p;
@@ -1088,6 +1195,9 @@ export async function updateProduct(
         sustainabilityDetail: data.sustainabilityDetail,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
         bulkPriceSlabs: data.bulkPriceSlabs || null,
+        tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
+        individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
+        buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
       };
     }
     return true;
@@ -1165,7 +1275,10 @@ export async function updateProductStock(id: string, newStock: number): Promise<
 }
 
 function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
-  let list = [...MOCK_PRODUCTS, ...dynamicProducts];
+  const map = new Map<string, ProductItem>();
+  MOCK_PRODUCTS.forEach((p) => map.set(p.id, p));
+  dynamicProducts.forEach((p) => map.set(p.id, p));
+  let list = Array.from(map.values());
 
   if (filters.sellerId) {
     list = list.filter((p) => p.sellerId === filters.sellerId || p.seller.id === filters.sellerId);
