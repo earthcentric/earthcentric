@@ -1332,7 +1332,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
   const [localSearch, setLocalSearch] = useState("");
   const displayTransactions = (globalSearch || localSearch)
     ? transactions.filter((t: any) => {
-        const term = localSearch || globalSearch;
+        const term = localSearch || globalSearch || "";
         const words = term.toLowerCase().split(/\s+/).filter(Boolean);
         if (words.length === 0) return true;
         
@@ -1355,7 +1355,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
   const [localPayoutSearch, setLocalPayoutSearch] = useState("");
   const displayPayoutRequests = (globalSearch || localPayoutSearch)
     ? payoutRequests.filter((r: any) => {
-        const term = localPayoutSearch || globalSearch;
+        const term = localPayoutSearch || globalSearch || "";
         const words = term.toLowerCase().split(/\s+/).filter(Boolean);
         if (words.length === 0) return true;
         
@@ -1907,7 +1907,7 @@ function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders:
   
   const displayOrders = (globalSearch || trackInput)
     ? orders.filter((o: any) => {
-        const term = trackInput || globalSearch;
+        const term = trackInput || globalSearch || "";
         const words = term.toLowerCase().split(/\s+/).filter(Boolean);
         if (words.length === 0) return true;
         
