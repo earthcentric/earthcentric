@@ -15,6 +15,7 @@ import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { AdminAnalyticsCharts, AdminAnalyticsData } from "@/components/ui/admin-analytics-charts";
 import { AdminSellerDetailModal } from "@/components/ui/admin-seller-detail-modal";
 import { AdminBuyerDetailModal } from "@/components/ui/admin-buyer-detail-modal";
+import { AdminProductDetailModal } from "@/components/ui/admin-product-detail-modal";
 import { AdminMessagesView } from "@/components/admin/AdminMessagesView";
 import { getUnreadMessageCount } from "@/actions/messages";
 import { Logo } from "@/components/Logo";
@@ -48,6 +49,8 @@ import {
   DollarSign,
   Menu,
   Mail,
+  Calendar,
+  Phone,
 } from "lucide-react";
 
 // Mock User Data for User Management View
@@ -85,6 +88,12 @@ export default function AdminDashboard() {
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [globalSearch, setGlobalSearch] = useState("");
+  // Date filter state
+  const [filterType, setFilterType] = useState<"overall" | "daily" | "monthly" | "yearly">("overall");
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedMonth, setSelectedMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [selectedBuyerId, setSelectedBuyerId] = useState<string | null>(null);
@@ -96,7 +105,7 @@ export default function AdminDashboard() {
 
   const loadAdminData = async () => {
     setLoading(true);
-    const s = await getPlatformStats();
+    const s = await getPlatformStats(filterType, selectedDate, selectedMonth, selectedYear);
     setStats(s);
 
     const aData = await getAdminAnalyticsTimeSeries();
@@ -127,6 +136,7 @@ export default function AdminDashboard() {
     setAllOrders(orders);
 
     const txns = await getAdminTransactions();
+    console.log("AdminDashboard got txns:", txns);
     setTransactions(txns);
 
     const notifs = await getAdminNotifications();
@@ -143,7 +153,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadAdminData();
-  }, []);
+  }, [filterType, selectedDate, selectedMonth, selectedYear]);
 
   // Poll unread messages count every 3 seconds for dynamic badge updates
   useEffect(() => {
@@ -300,6 +310,8 @@ export default function AdminDashboard() {
               <input 
                 type="text" 
                 placeholder="Search anything..." 
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
                 className="w-full bg-[#f4f5f3] hover:bg-[#e9ece6] focus:bg-[#e9ece6] border-none rounded-full pl-10 pr-4 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 focus:outline-none transition-all"
               />
             </div>
@@ -389,17 +401,29 @@ export default function AdminDashboard() {
         {/* Scrollable Workspace */}
         <main className="flex-1 overflow-y-auto p-8 relative">
           <FadeIn key={activeTab}>
-            {activeTab === "dashboard" && <DashboardView stats={stats} analyticsData={analyticsData} pendingSellers={pendingSellers} />}
-            {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} />}
-            {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} />}
-            {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} />}
-            {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} />}
+            {activeTab === "dashboard" && <DashboardView 
+                stats={stats} 
+                analyticsData={analyticsData} 
+                pendingSellers={pendingSellers}
+                filterType={filterType}
+                setFilterType={setFilterType}
+                selectedDate={selectedDate}
+                setSelectedDate={setSelectedDate}
+                selectedMonth={selectedMonth}
+                setSelectedMonth={setSelectedMonth}
+                selectedYear={selectedYear}
+                setSelectedYear={setSelectedYear}
+              />}
+            {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} globalSearch={globalSearch} />}
+            {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} globalSearch={globalSearch} />}
+            {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
+            {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} globalSearch={globalSearch} />}
             {activeTab === "messages" && <AdminMessagesView onViewSellerProfile={(sId) => setSelectedSellerId(sId)} />}
-            {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} />}
+            {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "disputes" && <DisputesView disputes={disputes} onResolve={loadAdminData} adminEmail={user?.email} />}
             {activeTab === "analytics" && <AdminAnalyticsCharts data={analyticsData!} />}
-            {activeTab === "orders" && <OrderManagementView orders={allOrders} onUpdateStatus={loadAdminData} />}
-            {activeTab === "credentials" && <CredentialsManagerView credentials={credentials} reload={loadAdminData} />}
+            {activeTab === "orders" && <OrderManagementView orders={allOrders} onUpdateStatus={loadAdminData} globalSearch={globalSearch} />}
+            {activeTab === "credentials" && <CredentialsManagerView credentials={credentials} reload={loadAdminData} globalSearch={globalSearch} />}
           </FadeIn>
         </main>
       </div>
@@ -426,7 +450,15 @@ export default function AdminDashboard() {
 // --------------------------------------------------------------------------
 // DASHBOARD VIEW
 // --------------------------------------------------------------------------
-function DashboardView({ stats, analyticsData, pendingSellers }: any) {
+function DashboardView({ 
+  stats, 
+  analyticsData, 
+  pendingSellers,
+  filterType, setFilterType,
+  selectedDate, setSelectedDate,
+  selectedMonth, setSelectedMonth,
+  selectedYear, setSelectedYear
+}: any) {
   const [revenuePeriod, setRevenuePeriod] = useState<"daily" | "monthly" | "yearly">("monthly");
   const [showRevenueDropdown, setShowRevenueDropdown] = useState(false);
 
@@ -441,19 +473,75 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
   
   return (
     <div className="space-y-6">
-      {/* Title & Breadcrumbs */}
-      <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
-          <span>Admin Dashboard</span>
-          <span className="text-xl">📊</span>
-        </h1>
-        <p className="text-[10px] text-muted-foreground font-semibold mt-1 flex items-center space-x-1 uppercase tracking-wider">
-          <span>EarthCentric</span> <span className="mx-1">{">"}</span> <span>Super Admin</span> <span className="mx-1">{">"}</span> <span className="text-[#1a3321]">Dashboard</span>
-        </p>
+      {/* Title & Global Date Filter */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
+            <span>Admin Dashboard</span>
+            <span className="text-xl">📊</span>
+          </h1>
+          <p className="text-[10px] text-muted-foreground font-semibold mt-1 flex items-center space-x-1 uppercase tracking-wider">
+            <span>EarthCentric</span> <span className="mx-1">{">"}</span> <span>Super Admin</span> <span className="mx-1">{">"}</span> <span className="text-[#1a3321]">Dashboard</span>
+          </p>
+        </div>
+
+        {/* Global Date Analytics & Inventory Filter Control */}
+        <div className="bg-white p-2.5 sm:p-3 rounded-2xl shadow-sm border border-[#e9ece6] flex items-center justify-between gap-3 shrink-0">
+          <div className="hidden sm:flex items-center space-x-2 mr-2">
+            <div className="h-7 w-7 bg-[#e8f3ec] text-[#2d4a36] rounded-lg flex items-center justify-center shrink-0">
+              <Calendar className="h-4 w-4" />
+            </div>
+            <div>
+              <h4 className="text-[11px] font-bold text-[#1a3321] leading-tight">Analytics & Inventory Date Filter</h4>
+              <p className="text-[9px] text-muted-foreground leading-tight">Filter statistics, revenue, and product inventory by date range</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="bg-[#f4f5f3] text-[11px] font-bold text-[#1a3321] px-2.5 py-1.5 rounded-xl border border-[#d8dcd3] outline-none cursor-pointer focus:ring-2 focus:ring-emerald-700"
+            >
+              <option value="overall">Overall (Lifetime)</option>
+              <option value="daily">Daily View</option>
+              <option value="monthly">Monthly View</option>
+              <option value="yearly">Yearly View</option>
+            </select>
+
+            {filterType === "daily" && (
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-white text-[11px] font-semibold text-[#1a3321] px-2 py-1.5 rounded-lg border border-[#d8dcd3] outline-none focus:ring-2 focus:ring-emerald-700 cursor-pointer"
+              />
+            )}
+            {filterType === "monthly" && (
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-white text-[11px] font-semibold text-[#1a3321] px-2 py-1.5 rounded-lg border border-[#d8dcd3] outline-none focus:ring-2 focus:ring-emerald-700 cursor-pointer"
+              />
+            )}
+            {filterType === "yearly" && (
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="bg-white text-[11px] font-semibold text-[#1a3321] px-2 py-1.5 rounded-lg border border-[#d8dcd3] outline-none focus:ring-2 focus:ring-emerald-700 cursor-pointer"
+              >
+                {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Top KPIs Row */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         
         <Card className="p-4 bg-white border-none shadow-sm rounded-2xl relative overflow-hidden flex flex-col justify-between">
           <div className="flex items-center space-x-2 text-muted-foreground mb-3">
@@ -501,11 +589,21 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
 
         <Card className="p-4 bg-white border-none shadow-sm rounded-2xl relative overflow-hidden flex flex-col justify-between">
           <div className="flex items-center space-x-2 text-muted-foreground mb-3">
-            <div className="h-6 w-6 bg-rose-50 text-rose-600 rounded-md flex items-center justify-center"><AlertCircle className="h-3 w-3" /></div>
-            <span className="text-[11px] font-semibold whitespace-nowrap">Pending Sellers</span>
+            <div className="h-6 w-6 bg-blue-50 text-blue-600 rounded-md flex items-center justify-center"><Users className="h-3 w-3" /></div>
+            <span className="text-[11px] font-semibold">Total Buyers</span>
           </div>
           <div>
-            <h3 className="text-xl font-black text-rose-600">{pendingSellers.length}</h3>
+            <h3 className="text-xl font-black text-[#1a3321]">{stats?.totalBuyers ?? 0}</h3>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-white border-none shadow-sm rounded-2xl relative overflow-hidden flex flex-col justify-between">
+          <div className="flex items-center space-x-2 text-muted-foreground mb-3">
+            <div className="h-6 w-6 bg-rose-50 text-rose-600 rounded-md flex items-center justify-center"><AlertCircle className="h-3 w-3" /></div>
+            <span className="text-[11px] font-semibold whitespace-nowrap">Pending Approvals</span>
+          </div>
+          <div>
+            <h3 className="text-xl font-black text-rose-600">{stats?.pendingApprovals ?? pendingSellers.length}</h3>
             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-none text-[9px] px-1.5 py-0 mt-1">NEEDS REVIEW</Badge>
           </div>
         </Card>
@@ -662,8 +760,14 @@ function DashboardView({ stats, analyticsData, pendingSellers }: any) {
 // --------------------------------------------------------------------------
 // SELLER APPROVALS VIEW
 // --------------------------------------------------------------------------
-function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
-  const displaySellers = pendingSellers;
+function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSearch }: any) {
+  const displaySellers = globalSearch 
+    ? pendingSellers.filter((s: any) => 
+        s.companyName?.toLowerCase().includes(globalSearch.toLowerCase()) || 
+        s.user?.email?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+        s.id?.toLowerCase().includes(globalSearch.toLowerCase())
+      ) 
+    : pendingSellers;
 
   return (
     <div className="space-y-6">
@@ -705,16 +809,34 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
                     </div>
                   </TableCell>
                   <TableCell className="py-4">
-                    <p className="text-xs text-muted-foreground flex items-center">
-                      <AlertCircle className="h-3 w-3 mr-1.5 opacity-50" />
-                      {seller.contact || seller.email || "email@example.com"}
-                    </p>
+                    <div className="space-y-1 text-xs">
+                      <p className="text-muted-foreground flex items-center">
+                        <Mail className="h-3 w-3 mr-1.5 text-[#8ca193]" />
+                        {seller.user?.email || seller.email || "N/A"}
+                      </p>
+                      <p className="text-muted-foreground flex items-center">
+                        <Phone className="h-3 w-3 mr-1.5 text-[#8ca193]" />
+                        {seller.phone || seller.user?.phone || seller.contact || "N/A"}
+                      </p>
+                    </div>
                   </TableCell>
                   <TableCell className="py-4">
-                    <p className="text-xs text-muted-foreground flex items-center">
-                      <LayoutDashboard className="h-3 w-3 mr-1.5 opacity-50" />
-                      {seller.appliedOn || (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString() : new Date().toLocaleDateString())}
-                    </p>
+                    <div className="space-y-1 text-xs">
+                      <p className="text-muted-foreground flex items-center" title="Request Submitted Date">
+                        <Calendar className="h-3 w-3 mr-1.5 text-[#8ca193]" />
+                        <span className="font-semibold text-[#1a3321]">Applied:</span>&nbsp;
+                        {seller.appliedOn || (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString("en-US") : new Date().toLocaleDateString("en-US"))}
+                      </p>
+                      <p className="text-muted-foreground flex items-center" title="Approved Date">
+                        <CheckCircle2 className="h-3 w-3 mr-1.5 text-emerald-600" />
+                        <span className="font-semibold text-[#1a3321]">Approved:</span>&nbsp;
+                        {seller.verifiedAt
+                          ? new Date(seller.verifiedAt).toLocaleDateString("en-US")
+                          : seller.verificationStatus === "APPROVED" || seller.status === "VERIFIED"
+                          ? (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString("en-US") : new Date().toLocaleDateString("en-US"))
+                          : "Pending"}
+                      </p>
+                    </div>
                   </TableCell>
                   <TableCell className="py-4">
                     {seller.verificationStatus === "APPROVED" || seller.status === "VERIFIED" ? (
@@ -745,13 +867,24 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller }: any) {
 // --------------------------------------------------------------------------
 // USER MANAGEMENT VIEW
 // --------------------------------------------------------------------------
-function UserManagementView({ usersData, onInspectSeller, onInspectBuyer }: any) {
-  const displayData = usersData || {
+function UserManagementView({ usersData, onInspectSeller, onInspectBuyer, globalSearch }: any) {
+  let displayData = usersData || {
     totalUsers: 4,
     totalOrdersBooked: 3,
     totalRevenue: 6097,
     users: MOCK_USERS
   };
+
+  if (globalSearch && displayData.users) {
+    displayData = {
+      ...displayData,
+      users: displayData.users.filter((u: any) => 
+        u.name?.toLowerCase().includes(globalSearch.toLowerCase()) || 
+        u.email?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+        u.role?.toLowerCase().includes(globalSearch.toLowerCase())
+      )
+    };
+  }
 
   return (
     <div className="space-y-6">
@@ -837,12 +970,21 @@ function UserManagementView({ usersData, onInspectSeller, onInspectBuyer }: any)
 // --------------------------------------------------------------------------
 // PRODUCT APPROVALS VIEW
 // --------------------------------------------------------------------------
-function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday = 0, reload, adminEmail }: { pendingProducts: any[], approvedToday?: number, rejectedToday?: number, reload: () => void, adminEmail?: string }) {
+function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday = 0, reload, adminEmail, globalSearch }: { pendingProducts: any[], approvedToday?: number, rejectedToday?: number, reload: () => void, adminEmail?: string, globalSearch?: string }) {
+  const displayProducts = globalSearch
+    ? pendingProducts.filter((p: any) => 
+        p.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+        p.seller?.companyName?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+        p.category?.name?.toLowerCase().includes(globalSearch.toLowerCase())
+      )
+    : pendingProducts;
+
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [approveId, setApproveId] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [allCategories, setAllCategories] = useState<{id: string; name: string; slug: string}[]>([]);
+  const [inspectProductId, setInspectProductId] = useState<string | null>(null);
 
   // Fetch categories when component mounts
   React.useEffect(() => {
@@ -885,7 +1027,7 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
         <Card className="p-4 bg-white border border-amber-100 shadow-sm rounded-2xl flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Pending Review</p>
-            <h3 className="text-xl font-bold text-amber-600">{pendingProducts.length} items</h3>
+            <h3 className="text-xl font-bold text-amber-600">{displayProducts.length} items</h3>
           </div>
           <div className="h-10 w-10 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center"><AlertCircle className="h-5 w-5" /></div>
         </Card>
@@ -921,14 +1063,14 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pendingProducts.length === 0 ? (
+            {displayProducts.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">
                   No products pending sustainable verification review.
                 </TableCell>
               </TableRow>
             ) : (
-              pendingProducts.map((p) => (
+              displayProducts.map((p: any) => (
                 <TableRow key={p.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
                   <TableCell className="py-4">
                     <div className="flex items-center space-x-3">
@@ -955,13 +1097,13 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
                     <p className="text-xs font-semibold text-muted-foreground">{p.moq ? `${p.moq} units` : "1 unit"}</p>
                   </TableCell>
                   <TableCell className="py-4">
-                    <p className="text-[9px] text-[#4a5d4e] bg-[#e8f3ec] p-1.5 rounded">{p.sustainabilityDetail || p.description}</p>
                   </TableCell>
                   <TableCell className="py-4">
                     <Badge className="bg-amber-100 text-amber-800 border-none text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-1" /> Pending review</Badge>
                   </TableCell>
                   <TableCell className="py-4 text-right pr-6">
                     <div className="flex items-center justify-end space-x-2">
+                      <Button size="sm" variant="outline" className="text-[10px] h-7 px-3 rounded-full border-[#e9ece6] hover:bg-[#f4f5f3]" onClick={() => setInspectProductId(p.id)}>View</Button>
                       <Button size="sm" className="bg-[#1a3321] hover:bg-[#25422d] text-white text-[10px] h-7 px-3 rounded-full" onClick={() => handleApproveClick(p)}>Approve</Button>
                       <Button size="sm" variant="ghost" className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-[10px] h-7 px-3 rounded-full" onClick={() => setRejectId(p.id)}>Reject</Button>
                     </div>
@@ -1021,6 +1163,14 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
             </div>
           </Card>
         </div>
+      )}
+
+      {/* ── Product Detail Inspection Modal ── */}
+      {inspectProductId && (
+        <AdminProductDetailModal 
+          productId={inspectProductId} 
+          onClose={() => setInspectProductId(null)} 
+        />
       )}
     </div>
   );
@@ -1178,7 +1328,50 @@ function DisputesView({ disputes, onResolve, adminEmail }: { disputes: DisputeCa
 // --------------------------------------------------------------------------
 // PAYMENTS VIEW
 // --------------------------------------------------------------------------
-function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string }) {
+function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail, globalSearch }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string, globalSearch?: string }) {
+  const [localSearch, setLocalSearch] = useState("");
+  const displayTransactions = (globalSearch || localSearch)
+    ? transactions.filter((t: any) => {
+        const term = localSearch || globalSearch;
+        const words = term.toLowerCase().split(/\s+/).filter(Boolean);
+        if (words.length === 0) return true;
+        
+        const targetStr = `
+          ${t.id || ""}
+          ${t.orderId || ""}
+          ${t.razorpayPaymentId || ""}
+          ${t.buyerName || ""}
+          ${t.buyerEmail || ""}
+          ${t.buyerPhone || ""}
+          ${t.sellerCompany || ""}
+          ${t.sellerName || ""}
+          ${(t.products || []).map((p: any) => `${p.name} ${p.sellerCompany}`).join(" ")}
+        `.toLowerCase();
+        
+        return words.every(word => targetStr.includes(word));
+      })
+    : transactions;
+  
+  const [localPayoutSearch, setLocalPayoutSearch] = useState("");
+  const displayPayoutRequests = (globalSearch || localPayoutSearch)
+    ? payoutRequests.filter((r: any) => {
+        const term = localPayoutSearch || globalSearch;
+        const words = term.toLowerCase().split(/\s+/).filter(Boolean);
+        if (words.length === 0) return true;
+        
+        const targetStr = `
+          ${r.id || ""}
+          ${r.transactionId || ""}
+          ${r.companyName || ""}
+          ${r.sellerName || ""}
+          ${r.sellerEmail || ""}
+          ${r.paymentMethod || ""}
+        `.toLowerCase();
+        
+        return words.every(word => targetStr.includes(word));
+      })
+    : payoutRequests;
+
   const [subTab, setSubTab] = useState("transactions");
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
   const [actionType, setActionType] = useState<"APPROVE" | "REJECT" | "PAY" | null>(null);
@@ -1293,48 +1486,82 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
 
       {subTab === "transactions" ? (
         <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden mt-6">
+          <div className="px-6 pt-6 pb-2">
+            <Input 
+              type="text" 
+              placeholder="Search by Transaction ID, Order ID, Buyer, Seller, Product..." 
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              className="max-w-md h-9 text-xs border-slate-200"
+            />
+          </div>
           <Table>
             <TableHeader>
               <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Transaction ID</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Order ID</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Amount</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Method</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Commission (10%)</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Date</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6 w-[20%]">Transaction / Order ID</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[15%]">Buyer Info</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[15%]">Seller Info</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[20%]">Products (Qty x Price)</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[10%]">Total Amount</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[10%]">Status</TableHead>
+                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6 w-[10%]">Date</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.length === 0 ? (
+              {displayTransactions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
                     No transactions found.
                   </TableCell>
                 </TableRow>
               ) : (
-                transactions.map((t) => (
+                displayTransactions.map((t: any) => (
                   <TableRow key={t.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                    <TableCell className="py-4 pl-6">
-                      <p className="text-xs font-bold text-[#1a3321]">{t.id}</p>
+                    <TableCell className="py-4 pl-6 align-top">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-mono font-bold text-[#1a3321]" title="Transaction ID">Txn: {t.id}</p>
+                        <p className="text-[10px] font-mono text-muted-foreground" title="Order ID">Ord: {t.orderId}</p>
+                        {t.razorpayPaymentId && <p className="text-[10px] font-mono text-blue-600/80" title="Razorpay ID">RZP: {t.razorpayPaymentId}</p>}
+                      </div>
                     </TableCell>
-                    <TableCell className="py-4">
-                      <p className="text-xs text-muted-foreground">{t.orderId}</p>
+                    <TableCell className="py-4 align-top">
+                      <p className="text-xs font-bold text-[#1a3321]">{t.buyerName}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{t.buyerEmail}</p>
+                      {t.buyerPhone && <p className="text-[10px] text-muted-foreground mt-0.5">{t.buyerPhone}</p>}
                     </TableCell>
-                    <TableCell className="py-4">
-                      <p className="text-xs font-black text-[#1a3321]">₹{t.amount}</p>
+                    <TableCell className="py-4 align-top">
+                      <p className="text-xs font-bold text-[#1a3321]">{t.sellerCompany}</p>
+                      {t.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{t.sellerName}</p>}
                     </TableCell>
-                    <TableCell className="py-4">
-                      <p className="text-xs text-muted-foreground">{t.method}</p>
+                    <TableCell className="py-4 align-top">
+                      {t.products && t.products.length > 0 ? (
+                        <div className="space-y-1">
+                          {t.products.map((p: any, idx: number) => (
+                            <div key={idx} className="flex flex-col text-[10px] border-b border-[#e9ece6]/50 last:border-0 pb-2 last:pb-0">
+                              <span className="font-medium text-slate-700">{p.name}</span>
+                              <div className="flex justify-between mt-1">
+                                <span className="text-slate-500">{p.quantity} × ₹{p.price}</span>
+                                {p.sellerCompany !== t.sellerCompany && (
+                                  <span className="text-[9px] text-emerald-600 truncate ml-2">({p.sellerCompany})</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 italic">No products recorded.</p>
+                      )}
                     </TableCell>
-                    <TableCell className="py-4">
-                      <p className="text-xs font-bold text-emerald-600">₹{t.commission}</p>
+                    <TableCell className="py-4 align-top">
+                      <p className="text-sm font-black text-[#1a3321]">₹{t.amount}</p>
+                      <p className="text-[9px] text-emerald-600 font-bold mt-1">Platform Fee: ₹{(t.amount * 0.1).toFixed(0)}</p>
                     </TableCell>
-                    <TableCell className="py-4">
+                    <TableCell className="py-4 align-top">
                       <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-2.5 w-2.5 mr-1" /> {t.status}</Badge>
                     </TableCell>
-                    <TableCell className="py-4 text-right pr-6">
-                      <p className="text-xs text-muted-foreground">{t.date}</p>
+                    <TableCell className="py-4 text-right pr-6 align-top">
+                      <p className="text-[10px] font-medium text-muted-foreground">{new Date(t.date).toLocaleDateString()}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5">{new Date(t.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                     </TableCell>
                   </TableRow>
                 ))
@@ -1344,6 +1571,15 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
         </Card>
       ) : (
         <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden mt-6">
+          <div className="px-6 pt-6 pb-2">
+            <Input 
+              type="text" 
+              placeholder="Search by ID, Transaction ID, Seller Name, Company, Email, Method..." 
+              value={localPayoutSearch}
+              onChange={(e) => setLocalPayoutSearch(e.target.value)}
+              className="max-w-md h-9 text-xs border-slate-200"
+            />
+          </div>
           <Table>
             <TableHeader>
               <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
@@ -1356,18 +1592,23 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payoutRequests.length === 0 ? (
+              {displayPayoutRequests.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
                     No payout requests submitted.
                   </TableCell>
                 </TableRow>
               ) : (
-                payoutRequests.map((r) => (
+                displayPayoutRequests.map((r: any) => (
                   <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                    <TableCell className="py-4 pl-6">
+                    <TableCell className="py-4 pl-6 align-top">
                       <p className="text-xs font-bold text-[#1a3321]">{r.companyName}</p>
-                      <p className="text-[10px] text-muted-foreground">ID: {r.id.substring(10, 18).toUpperCase()}</p>
+                      {r.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerName}</p>}
+                      {r.sellerEmail && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerEmail}</p>}
+                      <div className="mt-2 space-y-1">
+                        <p className="text-[10px] text-muted-foreground font-mono" title="Request ID">ID: {r.id}</p>
+                        {r.transactionId && <p className="text-[10px] text-blue-600/80 font-mono" title="Transaction ID">Txn: {r.transactionId}</p>}
+                      </div>
                     </TableCell>
                     <TableCell className="py-4 text-xs font-black text-[#1a3321]">
                       ₹{r.amount.toLocaleString()}
@@ -1660,11 +1901,31 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
 // --------------------------------------------------------------------------
 // ORDER MANAGEMENT VIEW
 // --------------------------------------------------------------------------
-function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpdateStatus: () => void }) {
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+
+function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders: any[], onUpdateStatus: () => void, globalSearch?: string }) {
   const [trackInput, setTrackInput] = useState("");
+  
+  const displayOrders = (globalSearch || trackInput)
+    ? orders.filter((o: any) => {
+        const term = trackInput || globalSearch;
+        const words = term.toLowerCase().split(/\s+/).filter(Boolean);
+        if (words.length === 0) return true;
+        
+        const targetStr = `
+          ${o.id || ""}
+          ec-ord-${(o.id || "").substring(4, 10).toLowerCase()}
+          ${o.user?.name || ""}
+          ${o.user?.email || ""}
+        `.toLowerCase();
+        
+        return words.every(word => targetStr.includes(word));
+      })
+    : orders;
+
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [isSearchingTrack, setIsSearchingTrack] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [inspectProductId, setInspectProductId] = useState<string | null>(null);
 
   const handleTrackSearch = async () => {
     if (!trackInput.trim()) return;
@@ -1696,7 +1957,7 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Enter Order Track ID (e.g. ord-4r6wfg4-0 or EC-ORD-4729)..."
+              placeholder="Search by Order ID (e.g. EC-ORD-4729), Buyer Name, or Email..."
               value={trackInput}
               onChange={(e) => setTrackInput(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
@@ -1736,14 +1997,14 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
             </TableRow>
           </TableHeader>
           <TableBody>
-            {orders.length === 0 ? (
+            {displayOrders.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8 text-xs text-muted-foreground">
                   No orders recorded on the platform yet.
                 </TableCell>
               </TableRow>
             ) : (
-              orders.map((o) => (
+              displayOrders.map((o: any) => (
                 <TableRow key={o.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
                   <TableCell className="py-4 pl-6 font-mono text-xs font-bold text-[#1a3321]">
                     EC-ORD-{o.id.substring(4, 10).toUpperCase()}
@@ -1808,6 +2069,7 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
                           {it.seller && (
                             <p className="text-[9px] text-emerald-700 font-semibold mt-0.5">Seller: {it.seller.companyName} ({it.seller.email})</p>
                           )}
+                          <Button variant="ghost" className="h-5 px-2 mt-1 text-[9px] bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 rounded-sm p-0" onClick={() => setInspectProductId(it.productId || it.product?.id || it.id)}>Inspect Full Product</Button>
                         </div>
                         <p className="font-bold text-[#1a3321] shrink-0">₹{it.quantity * it.price}</p>
                       </div>
@@ -1901,6 +2163,13 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
           </Card>
         </div>
       )}
+
+      {inspectProductId && (
+        <AdminProductDetailModal 
+          productId={inspectProductId} 
+          onClose={() => setInspectProductId(null)} 
+        />
+      )}
     </div>
   );
 }
@@ -1908,7 +2177,7 @@ function OrderManagementView({ orders, onUpdateStatus }: { orders: any[], onUpda
 // --------------------------------------------------------------------------
 // CREDENTIALS MANAGER VIEW
 // --------------------------------------------------------------------------
-function CredentialsManagerView({ credentials, reload }: { credentials: CredentialItem[], reload: () => void }) {
+function CredentialsManagerView({ credentials, reload, globalSearch }: { credentials: CredentialItem[], reload: () => void, globalSearch?: string }) {
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
   const [savingKeys, setSavingKeys] = useState<Record<string, boolean>>({});
@@ -2086,7 +2355,14 @@ function CredentialsManagerView({ credentials, reload }: { credentials: Credenti
 // --------------------------------------------------------------------------
 // DISCOUNT APPROVAL VIEW
 // --------------------------------------------------------------------------
-function DiscountApprovalView({ pendingDiscounts, reload }: { pendingDiscounts: any[]; reload: () => void }) {
+function DiscountApprovalView({ pendingDiscounts, reload, globalSearch }: { pendingDiscounts: any[]; reload: () => void; globalSearch?: string }) {
+  const displayDiscounts = globalSearch
+    ? pendingDiscounts.filter((d: any) => 
+        d.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+        d.seller?.companyName?.toLowerCase().includes(globalSearch.toLowerCase())
+      )
+    : pendingDiscounts;
+
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   const handleApprove = async (productId: string) => {
@@ -2132,14 +2408,14 @@ function DiscountApprovalView({ pendingDiscounts, reload }: { pendingDiscounts: 
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pendingDiscounts.length === 0 ? (
+            {displayDiscounts.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-12 text-xs text-muted-foreground">
                   No discount requests found.
                 </TableCell>
               </TableRow>
             ) : (
-              pendingDiscounts.map((item) => {
+              displayDiscounts.map((item: any) => {
                 const disc = item.discount;
                 const origPrice = Number(item.originalPrice || item.price);
                 let finalPrice = origPrice;

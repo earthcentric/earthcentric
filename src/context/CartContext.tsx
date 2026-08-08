@@ -13,7 +13,6 @@ export interface CartItem {
   originalPrice?: number;
   image: string;
   quantity: number;
-  sustainabilityScore: number;
   sellerName: string;
   sellerId: string;
   moq?: number;

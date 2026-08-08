@@ -346,10 +346,10 @@ export async function getSellerPayoutRequests(sellerId: string): Promise<PayoutR
       transactionId: r.transactionId,
       notes: r.notes,
       paymentMethod: r.paymentMethod,
-      bankDetails: r.bankDetails ?? undefined,
-      upiDetails: r.upiDetails ?? undefined,
-      rejectedReason: r.rejectedReason,
-      settlementHistory: r.settlementHistory ?? undefined,
+      ...(r.bankDetails ? { bankDetails: r.bankDetails } : {}),
+      ...(r.upiDetails ? { upiDetails: r.upiDetails } : {}),
+      ...(r.rejectedReason ? { rejectedReason: r.rejectedReason } : {}),
+      ...(r.settlementHistory ? { settlementHistory: r.settlementHistory } : {}),
     }));
   } catch (error) {
     console.error("Failed to get seller payout requests:", error);
@@ -369,7 +369,12 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
     const requests = await db.payoutRequest.findMany({
       include: {
         seller: {
-          select: { companyName: true, ownerName: true, founderName: true },
+          select: { 
+            companyName: true, 
+            ownerName: true, 
+            founderName: true,
+            user: { select: { email: true } }
+          },
         },
       },
       orderBy: {
@@ -382,6 +387,7 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
       sellerId: r.sellerId,
       sellerName: r.seller.ownerName || r.seller.founderName || "Seller Partner",
       companyName: r.seller.companyName || r.seller.ownerName || r.seller.founderName || "Eco Store",
+      sellerEmail: r.seller.user?.email || "N/A",
       amount: r.amount,
       remainingAmount: r.remainingAmount !== undefined && r.remainingAmount !== null ? r.remainingAmount : r.amount,
       status: r.status as PayoutStatus,
@@ -395,10 +401,10 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
       transactionId: r.transactionId,
       notes: r.notes,
       paymentMethod: r.paymentMethod,
-      bankDetails: r.bankDetails ?? undefined,
-      upiDetails: r.upiDetails ?? undefined,
-      rejectedReason: r.rejectedReason,
-      settlementHistory: r.settlementHistory ?? undefined,
+      ...(r.bankDetails ? { bankDetails: r.bankDetails } : {}),
+      ...(r.upiDetails ? { upiDetails: r.upiDetails } : {}),
+      ...(r.rejectedReason ? { rejectedReason: r.rejectedReason } : {}),
+      ...(r.settlementHistory ? { settlementHistory: r.settlementHistory } : {}),
     }));
   } catch (error) {
     console.error("Failed to get admin payout requests:", error);

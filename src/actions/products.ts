@@ -62,8 +62,8 @@ export interface ProductItem {
   description: string;
   price: number;
   stock: number;
-  sustainabilityScore: number;
-  sustainabilityDetail: string;
+  sustainabilityScore?: number;
+  sustainabilityDetail?: string;
   images: string[];
   category: string;
   categoryId: string;
@@ -604,11 +604,11 @@ export async function getSellerInitialProduct(sellerId: string): Promise<Product
       slug: dbProd.slug,
       description: dbProd.description,
       price: dbProd.price,
-      wholesalePrice: dbProd.wholesalePrice || undefined,
-      originalPrice: dbProd.originalPrice || undefined,
+      ...(dbProd.wholesalePrice ? { wholesalePrice: dbProd.wholesalePrice } : {}),
+      ...(dbProd.originalPrice ? { originalPrice: dbProd.originalPrice } : {}),
       stock: dbProd.stock,
-      sustainabilityScore: dbProd.sustainabilityScore,
-      sustainabilityDetail: dbProd.sustainabilityDetail || "",
+      sustainabilityScore: 85,
+      sustainabilityDetail: "",
       images: dbProd.images.map(img => getUrlFromDb(img.url)),
       category: dbProd.category?.name || "General",
       categoryId: dbProd.categoryId,
@@ -618,8 +618,8 @@ export async function getSellerInitialProduct(sellerId: string): Promise<Product
         id: dbProd.seller.id,
         companyName: dbProd.seller.companyName,
         badges: dbProd.seller.badges,
-        logoUrl: getUrlFromDb(dbProd.seller.logoUrl) || undefined,
-        companyLogo: getUrlFromDb(dbProd.seller.logoUrl) || undefined,
+        ...(getUrlFromDb(dbProd.seller.logoUrl) ? { logoUrl: getUrlFromDb(dbProd.seller.logoUrl) } : {}),
+        ...(getUrlFromDb(dbProd.seller.logoUrl) ? { companyLogo: getUrlFromDb(dbProd.seller.logoUrl) } : {}),
       },
       certifications: [],
       rating: 5.0,
@@ -788,8 +788,8 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         description: p.description,
         price: p.price,
         stock: p.stock,
-        sustainabilityScore: p.sustainabilityScore,
-        sustainabilityDetail: p.sustainabilityDetail || "",
+        sustainabilityScore: 85,
+        sustainabilityDetail: "",
         images: p.images.map((img) => getUrlFromDb(img.url)),
         category: p.category.name,
         categoryId: p.categoryId,
@@ -799,13 +799,13 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
           id: p.seller.id,
           companyName: p.seller.companyName,
           badges: p.seller.badges,
-          logoUrl: getUrlFromDb(p.seller.logoUrl) || undefined,
-          companyLogo: getUrlFromDb(p.seller.logoUrl) || undefined,
+          ...(getUrlFromDb(p.seller.logoUrl) ? { logoUrl: getUrlFromDb(p.seller.logoUrl) } : {}),
+          ...(getUrlFromDb(p.seller.logoUrl) ? { companyLogo: getUrlFromDb(p.seller.logoUrl) } : {}),
         },
         certifications: [], // dynamically loaded
         rating,
         reviewsCount: p.reviews.length,
-        originalPrice: p.originalPrice || undefined,
+        ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
         bulkPriceSlabs: p.bulkPriceSlabs,
         tierDiscounts: (p as any).tierDiscounts || null,
         individualDiscount: (p as any).individualDiscount || null,
@@ -858,8 +858,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       description: p.description,
       price: p.price,
       stock: p.stock,
-      sustainabilityScore: p.sustainabilityScore,
-      sustainabilityDetail: p.sustainabilityDetail || "",
+      sustainabilityScore: 85,
+      sustainabilityDetail: "",
       images: p.images.map((img) => getUrlFromDb(img.url)),
       category: p.category.name,
       categoryId: p.categoryId,
@@ -869,15 +869,15 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
         id: p.seller.id,
         companyName: p.seller.companyName,
         badges: p.seller.badges,
-        logoUrl: getUrlFromDb(p.seller.logoUrl) || undefined,
-        companyLogo: getUrlFromDb(p.seller.logoUrl) || undefined,
+        ...(getUrlFromDb(p.seller.logoUrl) ? { logoUrl: getUrlFromDb(p.seller.logoUrl) } : {}),
+        ...(getUrlFromDb(p.seller.logoUrl) ? { companyLogo: getUrlFromDb(p.seller.logoUrl) } : {}),
       },
       certifications: [],
       rating,
       reviewsCount: p.reviews.length,
-      moq: p.moq || undefined,
-      wholesalePrice: p.wholesalePrice || undefined,
-      originalPrice: p.originalPrice || undefined,
+      ...(p.moq ? { moq: p.moq } : {}),
+      ...(p.wholesalePrice ? { wholesalePrice: p.wholesalePrice } : {}),
+      ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
       bulkPriceSlabs: p.bulkPriceSlabs,
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
@@ -898,8 +898,8 @@ export async function createProduct(data: {
   stock: number;
   productDate?: string | Date;
   categoryName: string;
-  sustainabilityScore: number;
-  sustainabilityDetail: string;
+  sustainabilityScore?: number;
+  sustainabilityDetail?: string;
   imageUrls: string[];
   sellerId: string;
   sellerName: string;
@@ -949,8 +949,8 @@ export async function createProduct(data: {
         rating: 5.0,
         reviewsCount: 0,
         moq: data.moq ? Number(data.moq) : 1,
-        wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : undefined,
-        originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+        ...(data.wholesalePrice ? { wholesalePrice: Number(data.wholesalePrice) } : {}),
+        ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
         bulkPriceSlabs: data.bulkPriceSlabs || null,
         tierDiscounts: data.tierDiscounts || null,
         individualDiscount: data.individualDiscount || null,
@@ -997,9 +997,9 @@ export async function createProduct(data: {
         categoryId: category.id,
         sellerId: resolvedSellerId,
         isApproved: autoApprove,
-        tierDiscounts: data.tierDiscounts ? (data.tierDiscounts as any) : undefined,
-        individualDiscount: data.individualDiscount ? (data.individualDiscount as any) : undefined,
-        buyXGetYOffer: data.buyXGetYOffer ? (data.buyXGetYOffer as any) : undefined,
+        ...(data.tierDiscounts ? { tierDiscounts: (data.tierDiscounts as any) } : {}),
+        ...(data.individualDiscount ? { individualDiscount: (data.individualDiscount as any) } : {}),
+        ...(data.buyXGetYOffer ? { buyXGetYOffer: (data.buyXGetYOffer as any) } : {}),
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
@@ -1030,8 +1030,8 @@ export async function createProduct(data: {
       description: p.description,
       price: p.price,
       stock: p.stock,
-      sustainabilityScore: p.sustainabilityScore,
-      sustainabilityDetail: p.sustainabilityDetail || "",
+      sustainabilityScore: 85,
+      sustainabilityDetail: "",
       images: p.images.map((img: any) => getUrlFromDb(img.url)),
       category: p.category.name,
       categoryId: p.categoryId,
@@ -1041,15 +1041,15 @@ export async function createProduct(data: {
         id: p.seller.id,
         companyName: p.seller.companyName,
         badges: p.seller.badges,
-        logoUrl: getUrlFromDb(p.seller.logoUrl) || undefined,
-        companyLogo: getUrlFromDb(p.seller.logoUrl) || undefined,
+        ...(getUrlFromDb(p.seller.logoUrl) ? { logoUrl: getUrlFromDb(p.seller.logoUrl) } : {}),
+        ...(getUrlFromDb(p.seller.logoUrl) ? { companyLogo: getUrlFromDb(p.seller.logoUrl) } : {}),
       },
       certifications: ["EarthCentric Verified"],
       rating: 5.0,
       reviewsCount: 0,
-      moq: p.moq || undefined,
-      wholesalePrice: p.wholesalePrice || undefined,
-      originalPrice: p.originalPrice || undefined,
+      ...(p.moq ? { moq: p.moq } : {}),
+      ...(p.wholesalePrice ? { wholesalePrice: p.wholesalePrice } : {}),
+      ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
       bulkPriceSlabs: p.bulkPriceSlabs,
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
@@ -1071,8 +1071,8 @@ export async function updateProduct(
     stock: number;
     productDate?: string | Date;
     categoryName: string;
-    sustainabilityScore: number;
-    sustainabilityDetail: string;
+    sustainabilityScore?: number;
+    sustainabilityDetail?: string;
     moq?: number;
     wholesalePrice?: number;
     originalPrice?: number;
@@ -1097,7 +1097,7 @@ export async function updateProduct(
             category: data.categoryName,
             sustainabilityScore: Number(data.sustainabilityScore),
             sustainabilityDetail: data.sustainabilityDetail,
-            originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+            ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
             bulkPriceSlabs: data.bulkPriceSlabs || null,
             tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
             individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
@@ -1118,7 +1118,7 @@ export async function updateProduct(
           category: data.categoryName,
           sustainabilityScore: Number(data.sustainabilityScore),
           sustainabilityDetail: data.sustainabilityDetail,
-          originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+          ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
           bulkPriceSlabs: data.bulkPriceSlabs || null,
           tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
           individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
@@ -1178,7 +1178,7 @@ export async function updateProduct(
           category: data.categoryName,
           sustainabilityScore: Number(data.sustainabilityScore),
           sustainabilityDetail: data.sustainabilityDetail,
-          originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+          ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
           bulkPriceSlabs: data.bulkPriceSlabs || null,
           tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
           individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
@@ -1199,7 +1199,7 @@ export async function updateProduct(
         category: data.categoryName,
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
-        originalPrice: data.originalPrice ? Number(data.originalPrice) : undefined,
+        ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
         bulkPriceSlabs: data.bulkPriceSlabs || null,
         tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
         individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
@@ -1301,7 +1301,7 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
   }
 
   if (filters.minSustainabilityScore) {
-    list = list.filter((p) => p.sustainabilityScore >= (filters.minSustainabilityScore || 0));
+    list = list.filter((p) => (p.sustainabilityScore || 0) >= (filters.minSustainabilityScore || 0));
   }
 
   if (filters.verifiedOnly) {
@@ -1342,7 +1342,7 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
     ...p,
     seller: {
       ...p.seller,
-      companyLogo: p.seller.logoUrl || undefined,
+      ...(p.seller.logoUrl ? { companyLogo: p.seller.logoUrl } : {}),
     }
   }));
 }

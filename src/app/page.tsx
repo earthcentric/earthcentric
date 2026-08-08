@@ -120,7 +120,6 @@ const FEATURED_PRODUCTS = [
     category: "Zero-Waste Living",
     price: 149,
     image: "https://images.unsplash.com/photo-1607613009820-a29f7bb81c04?w=400",
-    sustainabilityScore: 98,
     sellerName: "EcoStore India",
     sellerId: "seller-1",
   },
@@ -130,7 +129,6 @@ const FEATURED_PRODUCTS = [
     category: "Organic Apparel",
     price: 1299,
     image: "https://images.unsplash.com/photo-1598033129183-c4f50c736f10?w=400",
-    sustainabilityScore: 92,
     sellerName: "Organic Apparel Co.",
     sellerId: "seller-2",
   },
@@ -140,7 +138,6 @@ const FEATURED_PRODUCTS = [
     category: "Renewable Energy",
     price: 849,
     image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=800",
-    sustainabilityScore: 95,
     sellerName: "SunTech Solar",
     sellerId: "seller-3",
   },
@@ -150,7 +147,6 @@ const FEATURED_PRODUCTS = [
     category: "Eco Home Goods",
     price: 249,
     image: "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=400",
-    sustainabilityScore: 88,
     sellerName: "KraftPaper Ltd.",
     sellerId: "seller-4",
   },
@@ -160,7 +156,6 @@ const FEATURED_PRODUCTS = [
     category: "Zero-Waste Living",
     price: 299,
     image: "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?w=400",
-    sustainabilityScore: 96,
     sellerName: "GreenCare Essentials",
     sellerId: "seller-5",
   },
@@ -170,7 +165,6 @@ const FEATURED_PRODUCTS = [
     category: "Organic Apparel",
     price: 949,
     image: "https://images.unsplash.com/photo-1544816155-12df9643f363?w=400",
-    sustainabilityScore: 91,
     sellerName: "BioWeave Textiles",
     sellerId: "seller-6",
   },
@@ -180,7 +174,6 @@ const FEATURED_PRODUCTS = [
     category: "Eco Home Goods",
     price: 399,
     image: "https://images.unsplash.com/photo-1533038590840-1cde6b66b706?w=400",
-    sustainabilityScore: 94,
     sellerName: "EarthHome Crafts",
     sellerId: "seller-7",
   },
@@ -190,7 +183,6 @@ const FEATURED_PRODUCTS = [
     category: "Renewable Energy",
     price: 4499,
     image: "https://images.unsplash.com/photo-1613665813446-82a78c468a1d?w=400",
-    sustainabilityScore: 97,
     sellerName: "EcoSolar Labs",
     sellerId: "seller-8",
   },
@@ -200,7 +192,6 @@ const FEATURED_PRODUCTS = [
     category: "Zero-Waste Living",
     price: 1899,
     image: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=400",
-    sustainabilityScore: 78,
     sellerName: "OceanGuard Eyewear",
     sellerId: "seller-9",
   },
@@ -210,7 +201,6 @@ const FEATURED_PRODUCTS = [
     category: "Eco Home Goods",
     price: 499,
     image: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=400",
-    sustainabilityScore: 85,
     sellerName: "BambooPure Products",
     sellerId: "seller-10",
   },
@@ -220,7 +210,6 @@ const FEATURED_PRODUCTS = [
     category: "Organic Apparel",
     price: 299,
     image: "https://images.unsplash.com/photo-1544816155-12df9643f363?w=400",
-    sustainabilityScore: 68,
     sellerName: "LoomCraft Textiles",
     sellerId: "seller-11",
   },
@@ -230,7 +219,6 @@ const FEATURED_PRODUCTS = [
     category: "Renewable Energy",
     price: 1499,
     image: "https://images.unsplash.com/photo-1624996379697-f01d168b1a52?w=400",
-    sustainabilityScore: 74,
     sellerName: "SolTech Outdoors",
     sellerId: "seller-12",
   }
@@ -350,8 +338,6 @@ export default function Homepage() {
     description: "",
     price: p.price,
     stock: 10,
-    sustainabilityScore: p.sustainabilityScore,
-    sustainabilityDetail: "",
     images: [p.image],
     category: p.category,
     categoryId: "",
@@ -398,8 +384,8 @@ export default function Homepage() {
       wasteRate = 0.38;
       certs = ["FSC Recycled", "Chlorine-Free Process"];
     } else {
+      const score = 90;
       // Proportional fallback based on sustainability score
-      const score = prod.sustainabilityScore || 75;
       carbonRate = Number((score * 0.2).toFixed(2));
       waterRate = Math.round(score * 3.5);
       wasteRate = Number((score * 0.005).toFixed(3));
@@ -423,9 +409,8 @@ export default function Homepage() {
       carbonRate,
       waterRate,
       wasteRate,
-      score: `${prod.sustainabilityScore}/100`,
       certs,
-      desc: prod.description || `Eco-friendly option sourced directly from audited partners. Featuring a high sustainability rating of ${prod.sustainabilityScore}/100.`,
+      desc: "",
       color: "text-emerald-600"
     };
   });
@@ -437,7 +422,6 @@ export default function Homepage() {
     const name = s.companyName || s.name || "Eco Brand";
     const logo = s.logoUrl || s.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400";
     const description = s.description || "Verified Sustainable Supplier committed to environmental excellence and auditing.";
-    const score = s.sustainabilityScore || s.score || 90;
     
     // Fallbacks for fields that might not be in DB profile mapping:
     const location = s.location || "India";
@@ -448,7 +432,6 @@ export default function Homepage() {
       name,
       location,
       category: category.toUpperCase(),
-      score,
       productCount,
       image: logo,
       description,
@@ -578,7 +561,6 @@ export default function Homepage() {
                             name: item.name,
                             price: item.price,
                             image: itemImage,
-                            sustainabilityScore: item.sustainabilityScore,
                             sellerName: sellerName,
                             sellerId: item.sellerId,
                           }, 1);
@@ -616,7 +598,7 @@ export default function Homepage() {
                     const isSelected = activeWowItem?.id === prod.id;
                     const badgeText = prod.certs[0] || "Eco-Friendly";
                     return (
-                      <button
+                      <button suppressHydrationWarning
                         key={prod.id}
                         onClick={() => setSelectedWowItemId(prod.id)}
                         className={`w-full text-left p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex items-center justify-between ${
@@ -638,7 +620,7 @@ export default function Homepage() {
                 <div className="glass-panel rounded-2xl p-5 border border-[#d0c6b8]/40 text-left space-y-2">
                   <h5 className="text-[10px] font-bold uppercase tracking-wider text-[#6a7b6e]">Eco Certification Auditing</h5>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Every item passes direct third-party lab documentation verification before achieving its Eco Score. Look for verified badges on the marketplace.
+                    Every item passes direct third-party lab documentation verification. Look for verified badges on the marketplace.
                   </p>
                 </div>
               </div>
@@ -652,9 +634,6 @@ export default function Homepage() {
                         <span className="text-[9px] font-extrabold uppercase tracking-widest text-[#6a7b6e]">Verified Product Telemetry</span>
                         <h3 className="text-xl sm:text-2xl font-black text-primary mt-1">{activeWowItem.name}</h3>
                       </div>
-                      <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white border-none py-1 px-3 text-xs font-bold rounded-full">
-                        Eco Score: {activeWowItem.score}
-                      </Badge>
                     </div>
 
                     <p className="text-sm leading-relaxed text-muted-foreground">{activeWowItem.desc}</p>
@@ -803,7 +782,6 @@ export default function Homepage() {
                     )}
                   </div>
                   <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
-                    Score: {seller.sustainabilityScore}
                   </Badge>
                 </div>
                 <div>
@@ -990,9 +968,6 @@ export default function Homepage() {
                       <span className="text-sm block">🏢</span>
                       <h3 className="font-extrabold text-base text-primary tracking-tight truncate max-w-[180px]" title={s.name}>{s.name}</h3>
                     </div>
-                    <Badge variant="premium" className="bg-emerald-600 text-white border-none py-0.5 px-2 text-[9px] font-bold">
-                      Score: {s.score}
-                    </Badge>
                   </div>
                   
                   <div className="flex flex-wrap items-center gap-2 text-xs">

@@ -185,7 +185,6 @@ async function main() {
         description: s.prodDesc,
         price: 999,
         stock: 50,
-        sustainabilityScore: s.score,
         categoryId: s.catId,
         sellerId: sellerProfile.id,
         isApproved: true,

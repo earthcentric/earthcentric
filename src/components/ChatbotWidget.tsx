@@ -213,7 +213,7 @@ export default function ChatbotWidget() {
                   </div>
                 </div>
               </div>
-              <button
+              <button suppressHydrationWarning
                 onClick={() => setIsOpen(false)}
                 className="text-white/70 hover:text-white p-1 hover:bg-white/10 rounded-full transition-colors cursor-pointer border-none bg-transparent"
                 aria-label="Close Chat"
@@ -246,7 +246,7 @@ export default function ChatbotWidget() {
             {/* Quick Suggestions Shelf */}
             <div className="px-4 py-2 border-t border-slate-100 dark:border-emerald-950/40 bg-white dark:bg-[#121c15] overflow-x-auto whitespace-nowrap scrollbar-none flex gap-2">
               {sampleQuestions.map((q, idx) => (
-                <button
+                <button suppressHydrationWarning
                   key={idx}
                   onClick={() => handleSendMessage(q)}
                   className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 text-[10px] font-bold text-slate-600 dark:text-emerald-300 rounded-full border border-slate-200 dark:border-emerald-900/30 transition-all cursor-pointer inline-block shrink-0 animate-fade-in"
@@ -264,19 +264,19 @@ export default function ChatbotWidget() {
               }}
               className="p-3 border-t border-slate-200 dark:border-emerald-950/60 bg-white dark:bg-[#121c15] flex items-center space-x-2"
             >
-              <input
+              <input suppressHydrationWarning
                 type="text"
                 placeholder="Ask Eco-Bot anything..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 className="flex-1 bg-slate-50 dark:bg-black/25 border border-slate-250 dark:border-emerald-900/30 rounded-full px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F6E56] dark:focus:ring-emerald-500 text-slate-850 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-emerald-700/60"
               />
-              <button
+              <button suppressHydrationWarning
                 type="submit"
                 className="h-9 w-9 bg-[#0F6E56] hover:bg-[#0c5a46] text-white rounded-full flex items-center justify-center transition-colors cursor-pointer border-none shrink-0"
                 aria-label="Send message"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4" suppressHydrationWarning />
               </button>
             </form>
           </motion.div>
@@ -284,7 +284,7 @@ export default function ChatbotWidget() {
       </AnimatePresence>
 
       {/* Floating Launcher Button */}
-      <button
+      <button suppressHydrationWarning
         onClick={() => setIsOpen(!isOpen)}
         className="h-14 w-14 rounded-full bg-[#0F6E56] hover:bg-[#0c5a46] text-white flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer border-none relative group"
         aria-label="Open virtual guide"

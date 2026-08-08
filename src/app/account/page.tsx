@@ -750,6 +750,14 @@ function BecomeSellerTab({ userId }: { userId: string }) {
   const [aadharFile, setAadharFile] = useState<{ name: string; base64: string } | null>(null);
   const [certFiles, setCertFiles] = useState<{ name: string; base64: string }[]>([]);
 
+  // Address & Bank Details
+  const [companyAddress, setCompanyAddress] = useState("");
+  const [factoryAddress, setFactoryAddress] = useState("");
+  const [pickupAddress, setPickupAddress] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNo, setBankAccountNo] = useState("");
+  const [bankIfsc, setBankIfsc] = useState("");
+
   // Step 3: Product Launch
   const [prodName, setProdName] = useState("");
   const [prodCategory, setProdCategory] = useState("Eco Packaging");
@@ -858,6 +866,12 @@ function BecomeSellerTab({ userId }: { userId: string }) {
         panNumber,
         aadharNumber,
         logoUrl,
+        companyAddress,
+        factoryAddress,
+        pickupAddress,
+        bankName,
+        bankAccountNo,
+        bankIfsc,
         documents: docs,
         product: {
           name: prodName,
@@ -868,10 +882,10 @@ function BecomeSellerTab({ userId }: { userId: string }) {
           originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
           stock: Number(prodStock),
           unit: prodUnit,
-          sustainabilityScore: Number(prodScore),
-          sustainabilityDetail: prodDetail,
           materialUsed: prodMaterial,
           imageUrls: prodImages,
+          sustainabilityScore: 85,
+          sustainabilityDetail: "",
         }
       });
 
@@ -1058,6 +1072,26 @@ function BecomeSellerTab({ userId }: { userId: string }) {
               <textarea className={cn(inputClass, "h-24 resize-none")} placeholder="Describe your eco-friendly products and sustainability practices..." value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
           </div>
+
+          {/* Addresses Section */}
+          <div className="mt-4 pt-4 border-t border-[#E8F0E8]">
+            <h4 className="text-sm font-bold text-[#1F3A2E] mb-1">Business Addresses</h4>
+            <p className="text-[11px] text-[#7A9A7A] mb-3">Provide your business locations so our team can verify and contact you.</p>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#2D5A40] mb-1.5">Company / Registered Office Address</label>
+                <textarea className={cn(inputClass, "h-16 resize-none")} placeholder="e.g. 42, MG Road, Koramangala, Bangalore 560034" value={companyAddress} onChange={(e) => setCompanyAddress(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#2D5A40] mb-1.5">Factory / Manufacturing Address (if different)</label>
+                <textarea className={cn(inputClass, "h-16 resize-none")} placeholder="e.g. Plot 12, Industrial Area Phase 2, Hosur 635109" value={factoryAddress} onChange={(e) => setFactoryAddress(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#2D5A40] mb-1.5">Pickup / Dispatch Address</label>
+                <textarea className={cn(inputClass, "h-16 resize-none")} placeholder="e.g. Warehouse 5, Sector 18, Noida 201301" value={pickupAddress} onChange={(e) => setPickupAddress(e.target.value)} />
+              </div>
+            </div>
+          </div>
           <div className="pt-2 flex justify-end">
             <button
               type="button"
@@ -1151,6 +1185,26 @@ function BecomeSellerTab({ userId }: { userId: string }) {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Bank Details Section */}
+          <div className="p-4 rounded-2xl bg-[#F8FAF8] border border-[#E8F0E8] space-y-3">
+            <label className="block text-xs font-bold text-[#1F3A2E]">5. Bank Account Details (for payouts)</label>
+            <p className="text-[11px] text-[#7A9A7A]">Required for receiving payments. Your details are encrypted and visible only to the Super Admin.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-[#2D5A40] mb-1">Bank Name</label>
+                <input className={inputClass} placeholder="e.g. State Bank of India" value={bankName} onChange={(e) => setBankName(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-[#2D5A40] mb-1">Account Number</label>
+                <input className={inputClass} placeholder="e.g. 1234567890" value={bankAccountNo} onChange={(e) => setBankAccountNo(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-[#2D5A40] mb-1">IFSC Code</label>
+                <input className={inputClass} placeholder="e.g. SBIN0001234" value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value)} />
+              </div>
             </div>
           </div>
           <div className="pt-2 flex justify-between">

@@ -10,7 +10,6 @@ export interface CartItem {
   originalPrice?: number;
   image: string;
   quantity: number;
-  sustainabilityScore: number;
   sellerName: string;
   sellerId: string;
   moq?: number;
@@ -52,7 +51,6 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
           originalPrice: product.originalPrice,
           image: product.images[0] || "",
           quantity: item.quantity,
-          sustainabilityScore: product.sustainabilityScore,
           sellerName: product.seller.companyName,
           sellerId: product.sellerId,
           moq: product.moq,
@@ -85,7 +83,6 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
           price: product.price,
           originalPrice: product.originalPrice,
           image: product.images[0] || item.image,
-          sustainabilityScore: product.sustainabilityScore,
           sellerName: product.seller.companyName,
           sellerId: product.sellerId,
           moq: product.moq,

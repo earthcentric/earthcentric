@@ -450,7 +450,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      razorpayOrderId: order.payment?.razorpayOrderId || undefined,
+      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -509,7 +509,7 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      razorpayOrderId: order.payment?.razorpayOrderId || undefined,
+      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -744,7 +744,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
             image: it.product.images[0]?.url || "",
           })),
           paymentStatus: (order.payment?.status as any) || "PENDING",
-          razorpayOrderId: order.payment?.razorpayOrderId || undefined,
+          ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
           timeline: order.timeline.map((t) => ({
             status: t.status,
             description: t.description,
@@ -778,7 +778,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      razorpayOrderId: order.payment?.razorpayOrderId || undefined,
+      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -853,7 +853,7 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         }
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      razorpayOrderId: order.payment?.razorpayOrderId || undefined,
+      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -1026,7 +1026,7 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
       },
       items,
       paymentStatus: (dbOrder.payment?.status as any) || "PENDING",
-      razorpayOrderId: dbOrder.payment?.razorpayOrderId || undefined,
+      ...(dbOrder.payment?.razorpayOrderId ? { razorpayOrderId: dbOrder.payment.razorpayOrderId } : {}),
       timeline: dbOrder.timeline.map((t) => ({
         status: t.status,
         description: t.description,

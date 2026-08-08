@@ -69,7 +69,7 @@ function NavbarSearch({ onSearchComplete }: NavbarSearchProps) {
   return (
     <form onSubmit={handleSearchSubmit} className="w-full relative">
       <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
-      <input
+      <input suppressHydrationWarning
         type="text"
         placeholder="Search products..."
         value={navSearch}
@@ -154,7 +154,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
 
   return (
     <div className="relative">
-      <button
+      <button suppressHydrationWarning
         onClick={() => {
           setIsOpen(!isOpen);
           if (!isOpen) loadNotifs();
@@ -184,7 +184,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
               )}
             </div>
             {unreadCount > 0 && (
-              <button
+              <button suppressHydrationWarning
                 onClick={handleMarkAllRead}
                 className="text-[11px] text-[#0F6E56] hover:underline font-semibold flex items-center space-x-1 border-none bg-transparent cursor-pointer"
               >
@@ -197,7 +197,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
           {/* Filter Tabs */}
           <div className="flex space-x-1 border-b border-slate-100 pb-2 mb-2">
             {(["ALL", "ORDERS", "OFFERS"] as const).map((tab) => (
-              <button
+              <button suppressHydrationWarning
                 key={tab}
                 onClick={() => setFilter(tab)}
                 className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border-none cursor-pointer ${
@@ -324,7 +324,7 @@ export default function Navbar() {
     <>
 
       <header className="sticky top-0 z-40 w-full border-b border-slate-100 bg-white transition-colors duration-300">
-        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
+        <div className="w-full flex h-20 items-center justify-between px-4 sm:px-6 lg:px-12 gap-4">
           
           {/* Logo & Location Container */}
           <div className="flex items-center space-x-6 shrink-0">
@@ -346,15 +346,15 @@ export default function Navbar() {
               <span>All</span>
               <ChevronDown className="ml-1 h-3.5 w-3.5" />
             </div>
-            <input
+            <input suppressHydrationWarning
               type="text"
               placeholder="Search eco-friendly products, brands, categories..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="flex-1 bg-transparent px-4 py-2 text-xs text-slate-800 placeholder:text-slate-450 focus:outline-none h-full"
             />
-            <button type="submit" className="bg-[#0F6E56] hover:bg-[#0c5a46] text-white px-5 flex items-center justify-center transition-colors cursor-pointer border-none h-full">
-              <Search className="h-4 w-4" />
+            <button suppressHydrationWarning type="submit" className="bg-[#0F6E56] hover:bg-[#0c5a46] text-white px-5 flex items-center justify-center transition-colors cursor-pointer border-none h-full">
+              <Search className="h-4 w-4" suppressHydrationWarning />
             </button>
           </form>
 
@@ -363,7 +363,7 @@ export default function Navbar() {
             
             {/* Start Selling / Seller Dashboard / Admin Portal Button */}
             {user?.role === "ADMIN" ? (
-              <button 
+              <button suppressHydrationWarning 
                 onClick={async () => {
                   await setAdminSessionCookie(user.id);
                   router.push("/admin/dashboard");
@@ -374,7 +374,7 @@ export default function Navbar() {
                 <span>Admin Portal</span>
               </button>
             ) : (user?.role === "SELLER" || user?.sellerStatus === "APPROVED") ? (
-              <button 
+              <button suppressHydrationWarning 
                 onClick={async () => {
                   if (user) {
                     await setSellerSessionCookie(user.id, user.role === "ADMIN" ? "ADMIN" : "SELLER", "APPROVED");
@@ -413,7 +413,7 @@ export default function Navbar() {
                 <UserButton />
                 
                 <div className="relative">
-                  <button
+                  <button suppressHydrationWarning
                     onClick={() => setIsProfileOpen(!isProfileOpen)}
                     className="flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none border-none bg-transparent"
                   >
@@ -452,7 +452,7 @@ export default function Navbar() {
 
 
                     {(user.role === "SELLER" || user.sellerStatus === "APPROVED") && (
-                      <button
+                      <button suppressHydrationWarning
                         onClick={async () => {
                           setIsProfileOpen(false);
                           await setSellerSessionCookie(user.id, user.role === "ADMIN" ? "ADMIN" : "SELLER", "APPROVED");
@@ -476,7 +476,7 @@ export default function Navbar() {
                       </Link>
                     )}
 
-                    <button
+                    <button suppressHydrationWarning
                       onClick={() => {
                         logout();
                         setIsProfileOpen(false);
@@ -502,7 +502,7 @@ export default function Navbar() {
             )}
 
             {/* Shopping Cart Trigger */}
-            <button
+            <button suppressHydrationWarning
               onClick={() => setIsCartOpen(true)}
               className="relative flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none border-none bg-transparent"
             >
@@ -516,7 +516,7 @@ export default function Navbar() {
             </button>
 
             {/* Mobile Menu Button */}
-            <button
+            <button suppressHydrationWarning
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="p-2 text-slate-500 hover:text-slate-800 md:hidden cursor-pointer border-none bg-transparent"
             >
@@ -530,7 +530,7 @@ export default function Navbar() {
           <div className="flex items-center space-x-6">
             {/* All Categories Dropdown */}
             <div className="relative">
-              <button
+              <button suppressHydrationWarning
                 onClick={() => setIsCategoriesOpen(!isCategoriesOpen)}
                 className="flex items-center space-x-2 text-white font-bold px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-all text-xs cursor-pointer border-none"
               >
@@ -607,7 +607,7 @@ export default function Navbar() {
             {/* Mobile Search Input */}
             <form onSubmit={handleSearchSubmit} className="relative pb-2">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-              <input
+              <input suppressHydrationWarning
                 type="text"
                 placeholder="Search products..."
                 value={searchTerm}
@@ -663,7 +663,7 @@ export default function Navbar() {
               <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">My Account ({user.name.split(" ")[0]})</p>
                 {user.role === "SELLER" || user.sellerStatus === "APPROVED" ? (
-                  <button
+                  <button suppressHydrationWarning
                     onClick={async () => {
                       setIsMobileMenuOpen(false);
                       await setSellerSessionCookie(user.id, user.role === "ADMIN" ? "ADMIN" : "SELLER", "APPROVED");
@@ -684,7 +684,7 @@ export default function Navbar() {
                   </Link>
                 )}
                 {user.role === "ADMIN" && (
-                  <button
+                  <button suppressHydrationWarning
                     onClick={async () => {
                       setIsMobileMenuOpen(false);
                       await setAdminSessionCookie(user.id);
@@ -717,7 +717,7 @@ export default function Navbar() {
                 >
                   My Wishlist
                 </Link>
-                <button
+                <button suppressHydrationWarning
                   onClick={() => {
                     logout();
                     setIsMobileMenuOpen(false);
@@ -768,7 +768,7 @@ export default function Navbar() {
             {/* Input field */}
             <form onSubmit={handleSearchSubmit} className="flex items-center border-b border-[#d0c6b8]/20 dark:border-[#243b2e]/20 px-4 py-4">
               <Search className="h-5 w-5 text-primary mr-3" />
-              <input
+              <input suppressHydrationWarning
                 autoFocus
                 type="text"
                 placeholder="Search sustainable products..."
@@ -776,7 +776,7 @@ export default function Navbar() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="flex-1 bg-transparent text-sm text-foreground focus:outline-none placeholder:text-muted-foreground/50 font-medium"
               />
-              <button 
+              <button suppressHydrationWarning 
                 type="button" 
                 onClick={() => setIsSpotlightOpen(false)}
                 className="text-[9px] bg-muted/40 hover:bg-muted text-muted-foreground font-bold px-2 py-1 rounded border border-border/30 cursor-pointer"
@@ -792,7 +792,7 @@ export default function Navbar() {
                 <h4 className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Recent Searches</h4>
                 <div className="flex flex-wrap gap-2">
                   {["Bamboo Toothbrush", "Organic Cotton Shirt", "Solar Power Bank", "Recycled Paper Notebook"].map((item) => (
-                    <button
+                    <button suppressHydrationWarning
                       key={item}
                       onClick={() => handleSuggestionClick(item)}
                       className="px-3 py-1.5 bg-muted/30 hover:bg-muted/70 text-foreground rounded-full border border-border/30 transition-all text-[11px] font-medium cursor-pointer"
@@ -813,7 +813,7 @@ export default function Navbar() {
                     { name: "Eco Home Goods", slug: "eco-home-goods" },
                     { name: "Renewable Energy", slug: "renewable-energy" }
                   ].map((cat) => (
-                    <button
+                    <button suppressHydrationWarning
                       key={cat.slug}
                       onClick={() => {
                         router.push(`/marketplace?category=${cat.slug}`);
@@ -838,7 +838,7 @@ export default function Navbar() {
                     "Upcycled reclaimed wood dining tables",
                     "Plastic-free ocean compostable replacements"
                   ].map((sug) => (
-                    <button
+                    <button suppressHydrationWarning
                       key={sug}
                       onClick={() => handleSuggestionClick(sug)}
                       className="w-full flex items-center justify-between p-2 hover:bg-muted/30 rounded-xl transition-all text-[11px] text-muted-foreground hover:text-foreground text-left font-medium cursor-pointer"
@@ -884,7 +884,7 @@ export default function Navbar() {
                   <span>Shopping Cart</span>
                   {cartCount > 0 && <span className="text-xs font-medium text-muted-foreground">({cartCount} items)</span>}
                 </h2>
-                <button
+                <button suppressHydrationWarning
                   onClick={() => setIsCartOpen(false)}
                   className="rounded-full p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
                 >
@@ -943,7 +943,7 @@ export default function Navbar() {
                           <div className="flex items-center justify-between mt-2.5">
                             {/* Quantity selector */}
                             <div className="flex items-center space-x-1.5 border border-border/60 rounded px-1 py-0.5 bg-muted/20">
-                              <button
+                              <button suppressHydrationWarning
                                 onClick={() => updateQuantity(item.id, item.quantity - 1)}
                                 className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
                               >
@@ -952,7 +952,7 @@ export default function Navbar() {
                               <span className="text-xs font-semibold px-1 min-w-[16px] text-center">
                                 {item.quantity}
                               </span>
-                              <button
+                              <button suppressHydrationWarning
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                 className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
                               >
@@ -962,9 +962,8 @@ export default function Navbar() {
 
                             <div className="flex items-center space-x-3">
                               <Badge variant="primary" className="text-[10px] px-1.5 py-0">
-                                🌱 Score: {item.sustainabilityScore}
                               </Badge>
-                              <button
+                              <button suppressHydrationWarning
                                 onClick={() => removeFromCart(item.id)}
                                 className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-500/5 cursor-pointer"
                               >

@@ -3,12 +3,14 @@
 import React, { useEffect, useState } from "react";
 import { getSellerProfileById, getSellerDashboardStats, getSellerAnalyticsTimeSeries, SellerProfile } from "@/actions/sellers";
 import { approveSeller, updateSellerVerificationStatus, updateSellerTrustScore, getSellerInitialProductForAdmin } from "@/actions/admin";
+import { getSellerPayoutStats } from "@/actions/payouts";
 import { getProducts, ProductItem } from "@/actions/products";
 import { AnalyticsData, SellerAnalyticsCharts } from "@/components/ui/seller-analytics-charts";
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shared";
 import { Activity, Building, CheckCircle2, ExternalLink, MapPin, Package, Star, X } from "lucide-react";
 import { FadeIn } from "@/components/FramerComponents";
 import { AdminSellerMessenger } from "./admin-seller-messenger";
+import { AdminProductDetailModal } from "./admin-product-detail-modal";
 
 export interface AdminSellerDetailModalProps {
   sellerId: string;
@@ -21,6 +23,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [stats, setStats] = useState({ revenue: 0, ordersCount: 0, productsCount: 0, rating: 4.8, mostSoldProduct: "" });
+  const [payoutStats, setPayoutStats] = useState({ pendingAmount: 0, availableBalance: 0, settledAmount: 0, totalSalesRevenue: 0 });
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [initialProduct, setInitialProduct] = useState<any | null>(null);
@@ -28,6 +31,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
   const [rejectReason, setRejectReason] = useState("");
   const [trustScore, setTrustScore] = useState<number>(0);
   const [updatingTrust, setUpdatingTrust] = useState(false);
+  const [inspectProductId, setInspectProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile) {
@@ -95,12 +99,13 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
     const fetchSellerDetails = async () => {
       setLoading(true);
       try {
-        const [profData, statData, aData, prodData, initProd] = await Promise.all([
+        const [profData, statData, aData, prodData, initProd, payoutData] = await Promise.all([
           getSellerProfileById(sellerId),
           getSellerDashboardStats(sellerId),
           getSellerAnalyticsTimeSeries(sellerId),
           getProducts({ sellerId }),
-          getSellerInitialProductForAdmin(sellerId)
+          getSellerInitialProductForAdmin(sellerId),
+          getSellerPayoutStats(sellerId)
         ]);
 
         let initProdResult = initProd;
@@ -128,6 +133,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
           setAnalyticsData(aData as AnalyticsData);
           setProducts(allProds);
           setInitialProduct(initProdResult);
+          setPayoutStats(payoutData);
         }
       } catch (err) {
         console.error("Failed to load seller detailed view:", err);
@@ -228,7 +234,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                         <p className="text-xs leading-relaxed text-muted-foreground line-clamp-3">{profile.description}</p>
                       </div>
                     )}
-                    {(profile.website || profile.gstNumber || profile.panNumber || profile.declaredRevenue || profile.userName || profile.user?.name || profile.founderName || profile.ownerName || profile.aadharNumber) && (
+                    {(profile.website || profile.gstNumber || profile.panNumber || profile.declaredRevenue || profile.userName || profile.user?.name || profile.founderName || profile.ownerName || profile.aadharNumber || profile.phone || profile.user?.email || profile.companyAddress || profile.factoryAddress || profile.pickupAddress || profile.bankName) && (
                       <div className="pt-2 mt-2 border-t border-border/30 grid grid-cols-2 gap-3">
                         {(profile.userName || profile.user?.name || profile.founderName || profile.ownerName) && (
                           <div className="col-span-2">
@@ -268,6 +274,58 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                             </a>
                           </div>
                         )}
+                        {profile.user?.email && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Email</span>
+                            <p className="text-xs font-semibold">{profile.user.email}</p>
+                          </div>
+                        )}
+                        {profile.phone && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Contact Number</span>
+                            <p className="text-xs font-semibold">{profile.phone}</p>
+                          </div>
+                        )}
+                        {profile.companyAddress && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Company Address</span>
+                            <p className="text-xs text-muted-foreground leading-snug">{profile.companyAddress}</p>
+                          </div>
+                        )}
+                        {profile.factoryAddress && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Factory Address</span>
+                            <p className="text-xs text-muted-foreground leading-snug">{profile.factoryAddress}</p>
+                          </div>
+                        )}
+                        {profile.pickupAddress && (
+                          <div className="col-span-2">
+                            <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Pickup Address</span>
+                            <p className="text-xs text-muted-foreground leading-snug">{profile.pickupAddress}</p>
+                          </div>
+                        )}
+                        {(profile.bankName || profile.bankAccountNo) && (
+                          <div className="col-span-2 grid grid-cols-2 gap-2 p-3 mt-1 bg-background rounded-xl border border-border/60 shadow-sm">
+                            {profile.bankName && (
+                              <div>
+                                <span className="text-[9px] text-muted-foreground uppercase block mb-0.5">Bank Name</span>
+                                <p className="text-xs font-medium">{profile.bankName}</p>
+                              </div>
+                            )}
+                            {profile.bankAccountNo && (
+                              <div>
+                                <span className="text-[9px] text-muted-foreground uppercase block mb-0.5">Account No.</span>
+                                <p className="text-xs font-mono font-medium">{profile.bankAccountNo}</p>
+                              </div>
+                            )}
+                            {profile.bankIfsc && (
+                              <div className="col-span-2 pt-1 border-t border-border/30">
+                                <span className="text-[9px] text-muted-foreground uppercase block mb-0.5">IFSC Code</span>
+                                <p className="text-xs font-mono font-medium">{profile.bankIfsc}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -287,11 +345,18 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                 </Card>
 
                 {/* Core KPIs */}
-                <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-5 gap-4">
                   <Card className="p-4 border-border/40 bg-card flex flex-col justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 block">Total Revenue</span>
                     <h3 className="text-xl sm:text-2xl font-black text-emerald-600">
                       ₹{stats.revenue.toLocaleString()}
+                    </h3>
+                  </Card>
+                  
+                  <Card className="p-4 border-border/40 bg-card flex flex-col justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600/80 mb-2 block">Pending Withdrawal</span>
+                    <h3 className="text-xl sm:text-2xl font-black text-amber-500">
+                      ₹{payoutStats.pendingAmount.toLocaleString()}
                     </h3>
                   </Card>
                   
@@ -422,7 +487,6 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                             <div>
                               <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Eco Score</span>
                               <Badge variant="primary" className="text-[10px] bg-primary/10 text-primary border-none">
-                                🌱 {displayInitProd.sustainabilityScore}/100
                               </Badge>
                             </div>
                           </div>
@@ -440,32 +504,41 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                             <TableHead className="text-xs">Category</TableHead>
                             <TableHead className="text-xs">Price</TableHead>
                             <TableHead className="text-xs">Stock</TableHead>
-                            <TableHead className="text-xs">Eco Score</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                            <TableHead className="w-8 text-xs"></TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {products.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={6} className="text-center py-10 text-xs text-muted-foreground">
+                              <TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">
                                 This seller has not listed any products yet.
                               </TableCell>
                             </TableRow>
                           ) : (
                             products.map((p) => (
-                              <TableRow key={p.id}>
+                              <TableRow
+                                key={p.id}
+                                className="cursor-pointer hover:bg-primary/5 transition-colors group"
+                                onClick={() => setInspectProductId(p.id)}
+                                title={`View full details of "${p.name}"`}
+                              >
                                 <TableCell>
                                   <img src={p.images[0]} alt={p.name} className="h-8 w-8 object-cover rounded shadow-sm border border-border/50" />
                                 </TableCell>
-                                <TableCell className="font-semibold text-xs text-foreground max-w-[200px] truncate" title={p.name}>
+                                <TableCell className="font-semibold text-xs text-foreground max-w-[200px] truncate group-hover:text-primary transition-colors" title={p.name}>
                                   {p.name}
                                 </TableCell>
                                 <TableCell className="text-xs text-muted-foreground">{p.category}</TableCell>
                                 <TableCell className="font-mono text-xs font-semibold">₹{p.price}</TableCell>
                                 <TableCell className="text-xs">{p.stock} units</TableCell>
                                 <TableCell>
-                                  <Badge variant="primary" className="text-[9px] bg-primary/10 text-primary border-none">
-                                    🌱 {p.sustainabilityScore}/100
+                                  <Badge variant={p.isApproved ? "success" : "outline"} className="text-[9px]">
+                                    {p.isApproved ? "Live" : "Pending"}
                                   </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors" />
                                 </TableCell>
                               </TableRow>
                             ))
@@ -614,6 +687,13 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
           </div>
         )}
       </FadeIn>
+
+      {inspectProductId && (
+        <AdminProductDetailModal
+          productId={inspectProductId}
+          onClose={() => setInspectProductId(null)}
+        />
+      )}
     </div>
   );
 }

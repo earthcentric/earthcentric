@@ -238,7 +238,6 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
         name: product.name,
         price: activePrice,
         image: product.images[0] || "",
-        sustainabilityScore: product.sustainabilityScore,
         sellerName: product.seller?.companyName || "EarthCentric",
         sellerId: product.sellerId,
         moq: product.moq,
@@ -367,7 +366,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
             {product.images.length > 0 && (
               <div className="flex items-center justify-center space-x-3">
                 {product.images.map((img, idx) => (
-                  <button
+                  <button suppressHydrationWarning
                     key={idx}
                     onClick={() => setActiveImage(img)}
                     className={`h-16 w-16 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer transition-all ${
@@ -398,7 +397,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <span className="text-sm font-bold">Earth Centric Verified</span>
               </div>
               <div className="flex items-center space-x-3">
-                <button
+                <button suppressHydrationWarning
                   onClick={handleToggleWishlist}
                   className="h-10 w-10 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
                   aria-label="Add to wishlist"
@@ -409,7 +408,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     }`}
                   />
                 </button>
-                <button
+                <button suppressHydrationWarning
                   className="h-10 w-10 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
                   aria-label="Share product"
                 >
@@ -641,7 +640,6 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <span className="font-bold text-slate-800 text-base">Sustainability Profile</span>
               </div>
               <p className="text-sm text-slate-600 leading-relaxed">
-                {product.sustainabilityDetail || "Made from 100% renewable resources. Fully biodegradable in 90 days."}
               </p>
             </div>
 
@@ -685,7 +683,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <div className="flex items-center space-x-4">
                   {/* Quantity */}
                   <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden">
-                    <button
+                    <button suppressHydrationWarning
                       onClick={() => setQuantity(Math.max(product.moq || 1, quantity - 1))}
                       className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-r border-slate-200"
                     >
@@ -694,7 +692,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     <span className="h-12 w-12 flex items-center justify-center text-base font-bold text-slate-900 bg-slate-50">
                       {quantity}
                     </span>
-                    <button
+                    <button suppressHydrationWarning
                       onClick={() => setQuantity(quantity + 1)}
                       className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-l border-slate-200"
                     >
@@ -703,7 +701,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   </div>
 
                   {/* Add to Cart */}
-                  <button
+                  <button suppressHydrationWarning
                     onClick={handleAddToCart}
                     className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
                   >
@@ -713,7 +711,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 </div>
 
                 {/* Bulk Quote Request Button */}
-                <button
+                <button suppressHydrationWarning
                   type="button"
                   onClick={() => setShowEnquiryModal(true)}
                   className="w-full h-12 bg-white hover:bg-slate-50 text-[#0c3c26] font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-all cursor-pointer border-2 border-[#0c3c26] shadow-sm"
@@ -831,7 +829,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Rating</span>
                     <div className="flex space-x-1">
                       {[1, 2, 3, 4, 5].map((val) => (
-                        <button
+                        <button suppressHydrationWarning
                           key={val}
                           type="button"
                           onClick={() => setNewReviewRating(val)}
@@ -858,7 +856,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       className="text-xs bg-white border-slate-200 min-h-[80px]"
                     />
                   </div>
-                  <button
+                  <button suppressHydrationWarning
                     type="submit"
                     className="w-full h-10 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl transition-colors cursor-pointer border-none"
                   >
@@ -934,7 +932,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           {/* Quantity + Cart */}
           <div className="flex items-center space-x-3 shrink-0">
             <div className="hidden sm:flex items-center border border-slate-200 rounded-lg overflow-hidden">
-              <button
+              <button suppressHydrationWarning
                 onClick={() => setQuantity(Math.max(product.moq || 1, quantity - 1))}
                 className="h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-50 cursor-pointer border-r border-slate-200"
               >
@@ -943,14 +941,14 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               <span className="h-9 w-9 flex items-center justify-center text-sm font-bold text-slate-900 bg-slate-50">
                 {quantity}
               </span>
-              <button
+              <button suppressHydrationWarning
                 onClick={() => setQuantity(quantity + 1)}
                 className="h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-50 cursor-pointer border-l border-slate-200"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
-            <button
+            <button suppressHydrationWarning
               onClick={handleAddToCart}
               className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
             >
@@ -965,7 +963,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 relative space-y-4 border border-slate-100">
             {/* Close Button */}
-            <button
+            <button suppressHydrationWarning
               onClick={() => {
                 setShowEnquiryModal(false);
                 setEnquirySubmitted(false);
@@ -1010,7 +1008,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 </div>
 
                 <div className="pt-2">
-                  <button
+                  <button suppressHydrationWarning
                     onClick={() => {
                       setShowEnquiryModal(false);
                       setEnquirySubmitted(false);
@@ -1099,7 +1097,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Delivery Location / Address *</span>
                   {user?.id && (
-                    <button
+                    <button suppressHydrationWarning
                       type="button"
                       onClick={() => setShowAddNewAddressForm(!showAddNewAddressForm)}
                       className="text-[10px] font-bold text-[#0F6E56] hover:underline border-none bg-transparent cursor-pointer"
@@ -1281,7 +1279,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 />
               </div>
 
-              <button
+              <button suppressHydrationWarning
                 type="submit"
                 disabled={enquiryPending}
                 className="w-full h-11 bg-[#0F6E56] hover:bg-[#0c5a46] disabled:bg-slate-300 text-white font-bold text-xs rounded-xl transition-all cursor-pointer border-none flex items-center justify-center space-x-2 shadow-md"

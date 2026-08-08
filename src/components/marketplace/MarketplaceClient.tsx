@@ -352,7 +352,6 @@ export default function MarketplaceClient() {
       name: p.name,
       price: p.price,
       image: p.images[0] || "",
-      sustainabilityScore: p.sustainabilityScore,
       sellerName: p.seller.companyName,
       sellerId: p.sellerId,
     }, 1);

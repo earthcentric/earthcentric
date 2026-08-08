@@ -12,6 +12,8 @@ export interface PlatformStats {
   totalOrders: number;
   totalSellers: number;
   totalProducts: number;
+  totalBuyers: number;
+  pendingApprovals: number;
   revenueByMonth: { month: string; amount: number }[];
   orderSuccessRate: number;
   sellerApprovalRate: number;
@@ -44,19 +46,22 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
     return sellers.map((s) => ({
       id: s.id,
       userId: s.userId,
-      userName: s.user?.name || undefined,
-      user: s.user ? { name: s.user.name, email: s.user.email } : undefined,
+      ...(s.user?.name ? { userName: s.user.name } : {}),
+      ...(s.user ? { user: { name: s.user.name, email: s.user.email } } : {}),
       companyName: s.companyName,
       businessType: s.businessType,
-      description: s.description || undefined,
-      logoUrl: getUrlFromDb(s.logoUrl) || undefined,
-      website: s.website || undefined,
-      gstNumber: s.gstNumber || undefined,
-      panNumber: s.panNumber || undefined,
+      ...(s.description ? { description: s.description } : {}),
+      ...(getUrlFromDb(s.logoUrl) ? { logoUrl: getUrlFromDb(s.logoUrl) } : {}),
+      ...(s.website ? { website: s.website } : {}),
+      ...(s.gstNumber ? { gstNumber: s.gstNumber } : {}),
+      ...(s.panNumber ? { panNumber: s.panNumber } : {}),
       verificationStatus: s.verificationStatus as any,
       badges: s.badges,
-      ownerName: s.user?.name || s.ownerName || undefined,
-      founderName: s.user?.name || s.founderName || undefined,
+      ...(s.phone ? { phone: s.phone } : {}),
+      ...((s.user?.name || s.ownerName) ? { ownerName: (s.user?.name || s.ownerName)! } : {}),
+      ...((s.user?.name || s.founderName) ? { founderName: (s.user?.name || s.founderName)! } : {}),
+      ...(s.createdAt ? { createdAt: s.createdAt } : {}),
+      ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}),
       documents: s.documents.map((d) => ({
         id: d.id,
         type: d.type,
@@ -208,7 +213,12 @@ export async function rejectSeller(
   }
 }
 
-export async function getPlatformStats(): Promise<PlatformStats> {
+export async function getPlatformStats(
+  filterType?: "overall" | "daily" | "monthly" | "yearly",
+  selectedDate?: string,
+  selectedMonth?: string,
+  selectedYear?: string
+): Promise<PlatformStats> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return {
@@ -216,6 +226,8 @@ export async function getPlatformStats(): Promise<PlatformStats> {
         totalOrders: 64,
         totalSellers: 8,
         totalProducts: 42,
+        totalBuyers: 154,
+        pendingApprovals: 9,
         revenueByMonth: [
           { month: "Jan", amount: 35000 },
           { month: "Feb", amount: 48000 },
@@ -232,12 +244,43 @@ export async function getPlatformStats(): Promise<PlatformStats> {
       };
     }
 
-    const totalOrders = await db.order.count();
-    const totalSellers = await db.seller.count();
-    const totalProducts = await db.product.count({ where: { isArchived: false } });
+    let dateFilter: any = undefined;
+    let paymentDateFilter: any = undefined;
+
+    if (filterType === "daily" && selectedDate) {
+      const start = new Date(selectedDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(selectedDate);
+      end.setHours(23, 59, 59, 999);
+      dateFilter = { gte: start, lte: end };
+      paymentDateFilter = { gte: start, lte: end };
+    } else if (filterType === "monthly" && selectedMonth) {
+      const [year, month] = selectedMonth.split("-").map(Number);
+      const start = new Date(year, month - 1, 1);
+      const end = new Date(year, month, 0, 23, 59, 59, 999);
+      dateFilter = { gte: start, lte: end };
+      paymentDateFilter = { gte: start, lte: end };
+    } else if (filterType === "yearly" && selectedYear) {
+      const year = Number(selectedYear);
+      const start = new Date(year, 0, 1);
+      const end = new Date(year, 11, 31, 23, 59, 59, 999);
+      dateFilter = { gte: start, lte: end };
+      paymentDateFilter = { gte: start, lte: end };
+    }
+
+    const whereDate = dateFilter ? { createdAt: dateFilter } : {};
+
+    const totalOrders = await db.order.count({ where: whereDate });
+    const totalSellers = await db.seller.count({ where: whereDate });
+    const totalProducts = await db.product.count({ where: { isArchived: false, ...whereDate } });
+    const totalBuyers = await db.user.count({ where: { role: "BUYER", ...whereDate } });
+    const pendingApprovals = await db.seller.count({ where: { verificationStatus: "PENDING", ...whereDate } });
 
     const payments = await db.payment.findMany({
-      where: { status: "COMPLETED" },
+      where: { 
+        status: "COMPLETED",
+        ...(paymentDateFilter ? { createdAt: paymentDateFilter } : {})
+      },
       include: {
         order: {
           select: {
@@ -272,6 +315,8 @@ export async function getPlatformStats(): Promise<PlatformStats> {
       totalOrders,
       totalSellers,
       totalProducts,
+      totalBuyers,
+      pendingApprovals,
       revenueByMonth,
       orderSuccessRate: 98.5,
       sellerApprovalRate: 92.4,
@@ -287,6 +332,8 @@ export async function getPlatformStats(): Promise<PlatformStats> {
       totalOrders: 64,
       totalSellers: 8,
       totalProducts: 42,
+      totalBuyers: 154,
+      pendingApprovals: 9,
       revenueByMonth: [
         { month: "Jan", amount: 35000 },
         { month: "Feb", amount: 48000 },
@@ -709,20 +756,6 @@ export interface UserManagementData {
 
 export async function getPlatformUsers(): Promise<UserManagementData> {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return {
-        totalUsers: 4,
-        totalOrdersBooked: 3,
-        totalRevenue: 6097,
-        users: [
-          { id: "seller-1", name: "Shiva Teja", email: "bluegamer355@gmail.com", phone: "8121143399", role: "SELLER", joinedDate: "11 Jun 2026", orders: "No orders placed yet" },
-          { id: "seller-2", name: "Shiva Teja Yadav", email: "imshivateja082@gmail.com", phone: "8639096121", role: "SELLER", joinedDate: "10 Jun 2026", orders: "No orders placed yet" },
-          { id: "buyer-1", name: "Rohan Roy", email: "rohan@gmail.com", phone: "9876543210", role: "BUYER", joinedDate: "12 Jun 2026", orders: "1 order(s) placed" },
-          { id: "buyer-2", name: "Aditi Sharma", email: "aditi@gmail.com", phone: "9123456789", role: "BUYER", joinedDate: "09 Jun 2026", orders: "2 order(s) placed" },
-        ]
-      };
-    }
-
     const allUsers = await db.user.findMany({
       include: {
         orders: {
@@ -790,8 +823,6 @@ let mockPendingProducts = [
     description: "100% organic bamboo, zero-plastic packaging, chemical-free processing. Perfect for parties, restaurants, and home use.",
     price: 199,
     stock: 500,
-    sustainabilityScore: 95,
-    sustainabilityDetail: "Organic bamboo sourced sustainably",
     images: ["https://images.unsplash.com/photo-1544982503-9f984c14501a?w=400"],
     category: "Disposables",
     categoryId: "c2",
@@ -810,8 +841,6 @@ let mockPendingProducts = [
     description: "Made from 100% post-consumer waste paper, organic soy-based inks. Features durable covers and lined pages.",
     price: 249,
     stock: 120,
-    sustainabilityScore: 88,
-    sustainabilityDetail: "Post-consumer waste recycled paper",
     images: ["https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=400"],
     category: "Stationery",
     categoryId: "c1",
@@ -846,8 +875,6 @@ export async function getPendingProducts(): Promise<any[]> {
         description: p.description,
         price: p.price,
         stock: p.stock,
-        sustainabilityScore: p.sustainabilityScore,
-        sustainabilityDetail: p.sustainabilityDetail || "",
         images: p.images.map(img => getUrlFromDb(img.url)),
         category: p.category.name,
         categoryId: p.categoryId,
@@ -962,7 +989,64 @@ export async function uploadCategoryImage(base64Image: string): Promise<string> 
 }
 
 export async function getAdminTransactions() {
-  return [];
+  try {
+    const payments = await db.payment.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        order: {
+          include: {
+            user: { select: { name: true, email: true, phone: true } },
+            items: {
+              include: {
+                product: { 
+                  include: {
+                    seller: { select: { companyName: true, ownerName: true } }
+                  }
+                },
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return payments.map(p => {
+      // Find the first seller company to associate with the transaction if multiple products
+      let sellerCompany = "Unknown Seller";
+      let sellerName = "";
+      if (p.order?.items && p.order.items.length > 0) {
+        const firstSeller = p.order.items.find(it => it.product?.seller)?.product?.seller;
+        if (firstSeller) {
+          sellerCompany = firstSeller.companyName || "Unknown Seller";
+          sellerName = firstSeller.ownerName || "";
+        }
+      }
+      
+      return {
+        id: p.id,
+        razorpayPaymentId: p.razorpayPaymentId || null,
+        orderId: p.orderId,
+        amount: p.amount,
+        currency: p.currency,
+        status: p.status,
+        date: p.createdAt.toISOString(),
+        buyerName: p.order?.user?.name || "Anonymous",
+        buyerEmail: p.order?.user?.email || "Unknown",
+        buyerPhone: p.order?.user?.phone || "",
+        sellerCompany,
+        sellerName,
+        products: p.order?.items.map(it => ({
+          name: it.product?.name || "Unknown Product",
+          quantity: it.quantity,
+          price: it.price,
+          sellerCompany: it.product?.seller?.companyName || ""
+        })) || []
+      };
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin transactions:", error);
+    return [];
+  }
 }
 
 export async function getBuyerProfileById(buyerId: string) {
@@ -1235,11 +1319,9 @@ export async function getSellerInitialProductForAdmin(sellerId: string): Promise
           slug: dbProd.slug,
           description: dbProd.description,
           price: dbProd.price,
-          wholesalePrice: dbProd.wholesalePrice || undefined,
-          originalPrice: dbProd.originalPrice || undefined,
+          ...(dbProd.wholesalePrice ? { wholesalePrice: dbProd.wholesalePrice } : {}),
+          ...(dbProd.originalPrice ? { originalPrice: dbProd.originalPrice } : {}),
           stock: dbProd.stock,
-          sustainabilityScore: dbProd.sustainabilityScore,
-          sustainabilityDetail: dbProd.sustainabilityDetail || "",
           images: dbProd.images.map(img => getUrlFromDb(img.url)),
           category: dbProd.category.name,
           categoryId: dbProd.categoryId,
@@ -1320,8 +1402,6 @@ export async function approveDiscount(productId: string): Promise<boolean> {
       price: product.price,
       stock: product.stock,
       categoryName: product.category,
-      sustainabilityScore: product.sustainabilityScore,
-      sustainabilityDetail: product.sustainabilityDetail,
       individualDiscount: updatedDiscount as any,
     });
 
@@ -1357,8 +1437,6 @@ export async function rejectDiscount(productId: string): Promise<boolean> {
       price: product.price,
       stock: product.stock,
       categoryName: product.category,
-      sustainabilityScore: product.sustainabilityScore,
-      sustainabilityDetail: product.sustainabilityDetail,
       individualDiscount: updatedDiscount as any,
     });
 

@@ -477,7 +477,7 @@ export default function SellerDashboard() {
           )}
 
           <FadeIn>
-            {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} />}
+            {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} payoutStats={payoutStats} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
             {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} sellerId={profile?.id || user?.id} />}
             {activeTab === "customers" && <CustomersView sellerId={profile?.id || user?.id || ""} />}
@@ -506,7 +506,7 @@ export default function SellerDashboard() {
 // --------------------------------------------------------------------------
 // DASHBOARD TAB VIEW
 // --------------------------------------------------------------------------
-function DashboardView({ stats, products, setTab, profile }: any) {
+function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -520,7 +520,7 @@ function DashboardView({ stats, products, setTab, profile }: any) {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
           <div className="flex justify-between items-start mb-4">
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center">
@@ -532,6 +532,19 @@ function DashboardView({ stats, products, setTab, profile }: any) {
             <h3 className="text-2xl font-bold text-foreground">₹{stats?.revenue?.toLocaleString() || 0}</h3>
             <p className="text-[10px] text-muted-foreground mt-1">Total Revenue</p>
             <p className="text-[9px] text-[#2d4a36] mt-0.5">+18% this month</p>
+          </div>
+        </Card>
+
+        <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
+          <div className="flex justify-between items-start mb-4">
+            <div className="h-8 w-8 bg-amber-50 text-amber-500 rounded-md flex items-center justify-center">
+              <Wallet className="h-4 w-4" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-2xl font-bold text-amber-500">₹{payoutStats?.pendingAmount?.toLocaleString() || 0}</h3>
+            <p className="text-[10px] text-muted-foreground mt-1">Pending Withdrawal</p>
+            <p className="text-[9px] text-amber-600 mt-0.5">In Progress</p>
           </div>
         </Card>
 
@@ -697,8 +710,6 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     const initialDate = p.productDate ? (typeof p.productDate === 'string' ? p.productDate.split("T")[0] : new Date(p.productDate).toISOString().split("T")[0]) : (p.createdAt ? (typeof p.createdAt === 'string' ? p.createdAt.split("T")[0] : new Date(p.createdAt).toISOString().split("T")[0]) : new Date().toISOString().split("T")[0]);
     setEditDate(initialDate);
     setEditCat(p.category);
-    setEditScore(p.sustainabilityScore.toString());
-    setEditDetails(p.sustainabilityDetail || "");
     setEditMoq(p.moq?.toString() || "");
     setEditWholesalePrice(p.wholesalePrice?.toString() || "");
     setEditOriginalPrice(p.originalPrice?.toString() || "");
@@ -768,8 +779,6 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       stock: Number(editStock),
       productDate: editDate,
       categoryName: editCat,
-      sustainabilityScore: Number(editScore),
-      sustainabilityDetail: editDetails,
       moq: editMoq ? Number(editMoq) : undefined,
       wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
       originalPrice: editOriginalPrice ? Number(editOriginalPrice) : undefined,
@@ -1456,8 +1465,6 @@ function AddProductForm({ onBack, profile, reload }: any) {
       stock: Number(prodStock),
       productDate: prodDate,
       categoryName: prodCat,
-      sustainabilityScore: Number(prodScore),
-      sustainabilityDetail: prodDetails,
       imageUrls,
       sellerId: user.id,
       sellerName: profile?.companyName || "Seller",
