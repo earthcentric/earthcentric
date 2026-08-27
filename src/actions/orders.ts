@@ -1,7 +1,7 @@
 "use server";
 
 import db from "@/lib/db";
-import { createRazorpayOrder, verifyPaymentSignature } from "@/lib/razorpay";
+import { createCashfreeOrder, verifyPaymentSignature } from "@/lib/cashfree";
 import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "@/lib/email";
 import { createNotification, createAdminNotification } from "./notifications";
 import { getProductById } from "./products";
@@ -45,7 +45,8 @@ export interface OrderDetail {
     };
   }[];
   paymentStatus: "PENDING" | "COMPLETED" | "FAILED";
-  razorpayOrderId?: string;
+  cashfreeOrderId?: string;
+  cashfreePaymentSessionId?: string;
   timeline: {
     status: string;
     description: string;
@@ -95,10 +96,11 @@ export async function createOrder(data: {
   const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : data.totalAmount;
   const amountInPaise = Math.round(finalTotalAmount * 100);
 
-  // Generate Razorpay Order strictly with server-calculated payable amount
-  const paymentOrder = await createRazorpayOrder({
-    amount: amountInPaise,
-    receipt: orderId,
+  // Generate Cashfree Order strictly with server-calculated payable amount
+  const paymentOrder = await createCashfreeOrder({
+    amount: finalTotalAmount,
+    orderId: orderId,
+    customer: { id: data.userId, name: data.userEmail.split("@")[0], email: data.userEmail, phone: "" }
   });
 
   try {
@@ -133,7 +135,8 @@ export async function createOrder(data: {
             image: item.image,
           })),
           paymentStatus: "PENDING",
-          razorpayOrderId: paymentOrder.id,
+          cashfreeOrderId: (paymentOrder.order_id as string),
+          cashfreePaymentSessionId: (paymentOrder.payment_session_id as string),
           timeline: [
             {
               status: "PLACED",
@@ -145,7 +148,7 @@ export async function createOrder(data: {
         mockOrders.push(newOrder);
         newOrders.push(newOrder);
       });
-      return { success: true, order: newOrders[0], razorpayOrderId: paymentOrder.id };
+      return { success: true, order: newOrders[0], cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
     }
 
     // Write to Prisma Database
@@ -175,7 +178,7 @@ export async function createOrder(data: {
           totalAmount: orderAmount,
           status: "PLACED",
           sellerId: sId,
-          paymentGroupId: paymentOrder.id, // Grouping multiple orders under one payment
+          paymentGroupId: (paymentOrder.order_id as string), // Grouping multiple orders under one payment
           items: {
             create: items.map((item) => ({
               productId: item.productId,
@@ -185,7 +188,7 @@ export async function createOrder(data: {
           },
           payment: {
             create: {
-              razorpayOrderId: paymentOrder.id,
+              cashfreeOrderId: (paymentOrder.order_id as string),
               amount: orderAmount,
               status: "PENDING",
             },
@@ -228,7 +231,8 @@ export async function createOrder(data: {
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: "PENDING",
-      razorpayOrderId: paymentOrder.id,
+      cashfreeOrderId: (paymentOrder.order_id as string),
+      cashfreePaymentSessionId: (paymentOrder.payment_session_id as string),
       timeline: firstOrder.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -236,7 +240,7 @@ export async function createOrder(data: {
       })),
     };
 
-    return { success: true, order: formattedOrder, razorpayOrderId: paymentOrder.id };
+    return { success: true, order: formattedOrder, cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
   } catch (error) {
     console.error("Database order creation failed, resolving via mock sandbox:", error);
     const newOrder: OrderDetail = {
@@ -254,7 +258,8 @@ export async function createOrder(data: {
         image: item.image,
       })),
       paymentStatus: "PENDING",
-      razorpayOrderId: paymentOrder.id,
+      cashfreeOrderId: (paymentOrder.order_id as string),
+      cashfreePaymentSessionId: (paymentOrder.payment_session_id as string),
       timeline: [
         {
           status: "PLACED",
@@ -264,39 +269,39 @@ export async function createOrder(data: {
       ],
     };
     mockOrders.push(newOrder);
-    return { success: true, order: newOrder, razorpayOrderId: paymentOrder.id };
+    return { success: true, order: newOrder, cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
   }
 }
 
 export async function confirmOrderPayment(
   orderId: string,
-  razorpayPaymentId: string,
+  cashfreePaymentId: string,
   signature: string,
   userEmail: string
 ): Promise<boolean> {
   // 1. Verify Signature
-  let razorpayOrderId = "";
+  let cashfreeOrderId = "";
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
     const order = mockOrders.find((o) => o.id === orderId);
-    razorpayOrderId = order ? order.razorpayOrderId || "" : "";
+    cashfreeOrderId = order ? order.cashfreeOrderId || "" : "";
   } else {
     try {
       const dbPayment = await db.payment.findFirst({
         where: { orderId: orderId },
-        select: { razorpayOrderId: true },
+        select: { cashfreeOrderId: true },
       });
-      razorpayOrderId = dbPayment?.razorpayOrderId || "";
+      cashfreeOrderId = dbPayment?.cashfreeOrderId || "";
     } catch (e) {
       console.warn("Failed to retrieve payment from database, checking mock:", e);
       const order = mockOrders.find((o) => o.id === orderId);
-      razorpayOrderId = order ? order.razorpayOrderId || "" : "";
+      cashfreeOrderId = order ? order.cashfreeOrderId || "" : "";
     }
   }
 
-  const isValid = await verifyPaymentSignature(razorpayOrderId, razorpayPaymentId, signature);
+  const isValid = await verifyPaymentSignature(cashfreeOrderId);
 
   if (!isValid) {
-    console.error("Signature verification failed for order", orderId, "with razorpayOrderId", razorpayOrderId);
+    console.error("Signature verification failed for order", orderId, "with cashfreeOrderId", cashfreeOrderId);
     return false;
   }
 
@@ -328,19 +333,19 @@ export async function confirmOrderPayment(
       return true;
     }
 
-    // Update in DB (update all payments associated with this Razorpay Order ID)
+    // Update in DB (update all payments associated with this Cashfree Order ID)
     await db.payment.updateMany({
-      where: { razorpayOrderId: razorpayOrderId },
+      where: { cashfreeOrderId: cashfreeOrderId },
       data: {
-        razorpayPaymentId,
-        razorpaySignature: signature,
+        cashfreePaymentId,
+        cashfreeSignature: signature,
         status: "COMPLETED",
       },
     });
 
     // Find all orders in this payment group
     const dbOrders = await db.order.findMany({
-      where: { paymentGroupId: razorpayOrderId },
+      where: { paymentGroupId: cashfreeOrderId },
       select: { id: true, totalAmount: true },
     });
     
@@ -450,7 +455,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
+      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -509,7 +514,7 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
+      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -744,7 +749,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
             image: it.product.images[0]?.url || "",
           })),
           paymentStatus: (order.payment?.status as any) || "PENDING",
-          ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
+          ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
           timeline: order.timeline.map((t) => ({
             status: t.status,
             description: t.description,
@@ -778,7 +783,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
+      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -853,7 +858,7 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         }
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
-      ...(order.payment?.razorpayOrderId ? { razorpayOrderId: order.payment.razorpayOrderId } : {}),
+      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -1026,7 +1031,7 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
       },
       items,
       paymentStatus: (dbOrder.payment?.status as any) || "PENDING",
-      ...(dbOrder.payment?.razorpayOrderId ? { razorpayOrderId: dbOrder.payment.razorpayOrderId } : {}),
+      ...(dbOrder.payment?.cashfreeOrderId ? { cashfreeOrderId: dbOrder.payment.cashfreeOrderId } : {}),
       timeline: dbOrder.timeline.map((t) => ({
         status: t.status,
         description: t.description,

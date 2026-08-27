@@ -1024,7 +1024,7 @@ export async function getAdminTransactions() {
       
       return {
         id: p.id,
-        razorpayPaymentId: p.razorpayPaymentId || null,
+        cashfreePaymentId: p.cashfreePaymentId || null,
         orderId: p.orderId,
         amount: p.amount,
         currency: p.currency,

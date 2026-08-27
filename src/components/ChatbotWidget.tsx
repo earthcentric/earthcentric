@@ -58,9 +58,9 @@ const QA_DATABASE: QA[] = [
     answer: "Yes! EarthCentric automatically saves and persists your cart and wishlist to the database. If you log in from a different browser or switch accounts, your active cart and wishlist will sync automatically, merging any guest items seamlessly."
   },
   {
-    keywords: ["payment", "razorpay", "upi", "card", "netbanking", "buy"],
+    keywords: ["payment", "cashfree", "upi", "card", "netbanking", "buy"],
     question: "What payment methods are accepted?",
-    answer: "We support secure payments integrated with Razorpay, allowing you to pay using UPI (GPay, PhonePe, Paytm), major Credit/Debit Cards, NetBanking, and mobile wallets."
+    answer: "We support secure payments integrated with Cashfree, allowing you to pay using UPI (GPay, PhonePe, Paytm), major Credit/Debit Cards, NetBanking, and mobile wallets."
   },
   {
     keywords: ["approval", "admin", "product", "listing", "pending"],
@@ -177,7 +177,7 @@ export default function ChatbotWidget() {
     }
 
     // Fallback response with topic guidance
-    return "I couldn't find a direct match for that query. I can answer questions about:\n\n• **Seller Account**: Registration, Auditing & Approvals\n• **Eco-Ratings**: How the Eco Score is evaluated\n• **Offsets**: Carbon-neutral shipping\n• **Transactions**: Payments via Razorpay, Wishlists & Payouts\n\nTry rephrasing your question or click one of the quick suggestions below!";
+    return "I couldn't find a direct match for that query. I can answer questions about:\n\n• **Seller Account**: Registration, Auditing & Approvals\n• **Eco-Ratings**: How the Eco Score is evaluated\n• **Offsets**: Carbon-neutral shipping\n• **Transactions**: Payments via Cashfree, Wishlists & Payouts\n\nTry rephrasing your question or click one of the quick suggestions below!";
   };
 
   const sampleQuestions = [

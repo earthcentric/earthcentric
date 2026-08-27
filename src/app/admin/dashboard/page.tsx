@@ -69,7 +69,7 @@ const MOCK_PRODUCTS = [
 
 // Mock Order Transactions
 const MOCK_TRANSACTIONS = [
-  { id: "TXN-93284", orderId: "EC-ORD-4729", amount: 598, method: "UPI / Razorpay", commission: 59.8, status: "Success", date: "12/06/2026" },
+  { id: "TXN-93284", orderId: "EC-ORD-4729", amount: 598, method: "UPI / Cashfree", commission: 59.8, status: "Success", date: "12/06/2026" },
   { id: "TXN-93212", orderId: "EC-ORD-4610", amount: 599, method: "NetBanking", commission: 59.9, status: "Success", date: "11/06/2026" },
   { id: "TXN-93041", orderId: "EC-ORD-4521", amount: 1347, method: "Credit Card", commission: 134.7, status: "Success", date: "10/06/2026" },
 ];
@@ -1339,7 +1339,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
         const targetStr = `
           ${t.id || ""}
           ${t.orderId || ""}
-          ${t.razorpayPaymentId || ""}
+          ${t.cashfreePaymentId || ""}
           ${t.buyerName || ""}
           ${t.buyerEmail || ""}
           ${t.buyerPhone || ""}
@@ -1521,7 +1521,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                       <div className="space-y-1">
                         <p className="text-[10px] font-mono font-bold text-[#1a3321]" title="Transaction ID">Txn: {t.id}</p>
                         <p className="text-[10px] font-mono text-muted-foreground" title="Order ID">Ord: {t.orderId}</p>
-                        {t.razorpayPaymentId && <p className="text-[10px] font-mono text-blue-600/80" title="Razorpay ID">RZP: {t.razorpayPaymentId}</p>}
+                        {t.cashfreePaymentId && <p className="text-[10px] font-mono text-blue-600/80" title="Cashfree ID">CF: {t.cashfreePaymentId}</p>}
                       </div>
                     </TableCell>
                     <TableCell className="py-4 align-top">
@@ -2220,9 +2220,9 @@ function CredentialsManagerView({ credentials, reload, globalSearch }: { credent
 
   const emailCreds = credentials.filter((c) => c.key.startsWith("SMTP_"));
   const cloudinaryCreds = credentials.filter((c) => c.key.startsWith("CLOUDINARY_"));
-  const razorpayCreds = credentials.filter((c) => c.key.startsWith("RAZORPAY_"));
+  const cashfreeCreds = credentials.filter((c) => c.key.startsWith("CASHFREE_"));
   const otherCreds = credentials.filter(
-    (c) => !c.key.startsWith("SMTP_") && !c.key.startsWith("CLOUDINARY_") && !c.key.startsWith("RAZORPAY_")
+    (c) => !c.key.startsWith("SMTP_") && !c.key.startsWith("CLOUDINARY_") && !c.key.startsWith("CASHFREE_")
   );
 
   const renderCredentialRow = (c: CredentialItem) => {
@@ -2290,7 +2290,7 @@ function CredentialsManagerView({ credentials, reload, globalSearch }: { credent
         <div className="space-y-1">
           <h4 className="text-xs font-bold text-amber-800">Security Warning</h4>
           <p className="text-[10px] text-amber-700/90 leading-relaxed">
-            These configurations govern SMTP mail delivery, Cloudinary media hosting, and Razorpay payment operations. Modifications to these keys will immediately update live portal connections and operations. Please verify credentials before updating.
+            These configurations govern SMTP mail delivery, Cloudinary media hosting, and Cashfree payment operations. Modifications to these keys will immediately update live portal connections and operations. Please verify credentials before updating.
           </p>
         </div>
       </Card>
@@ -2322,16 +2322,16 @@ function CredentialsManagerView({ credentials, reload, globalSearch }: { credent
           </Card>
         )}
 
-        {razorpayCreds.length > 0 && (
+        {cashfreeCreds.length > 0 && (
           <Card className="p-6 bg-white border-none shadow-sm rounded-2xl">
             <div className="flex items-center space-x-2 pb-4 border-b border-slate-100 mb-2">
               <span className="text-lg">💳</span>
               <div>
-                <h3 className="text-xs font-bold text-[#1a3321]">Razorpay Gateway</h3>
+                <h3 className="text-xs font-bold text-[#1a3321]">Cashfree Gateway</h3>
                 <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Merchant account API keys & secrets</p>
               </div>
             </div>
-            <div>{razorpayCreds.map(renderCredentialRow)}</div>
+            <div>{cashfreeCreds.map(renderCredentialRow)}</div>
           </Card>
         )}
 

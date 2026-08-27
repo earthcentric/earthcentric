@@ -12,8 +12,8 @@ const CREDENTIAL_KEYS = [
   "CLOUDINARY_CLOUD_NAME",
   "CLOUDINARY_API_KEY",
   "CLOUDINARY_API_SECRET",
-  "RAZORPAY_KEY_ID",
-  "RAZORPAY_KEY_SECRET",
+  "CASHFREE_APP_ID",
+  "CASHFREE_SECRET_KEY",
 ];
 
 const CREDENTIAL_DESCRIPTIONS: Record<string, string> = {
@@ -25,8 +25,8 @@ const CREDENTIAL_DESCRIPTIONS: Record<string, string> = {
   CLOUDINARY_CLOUD_NAME: "Cloudinary cloud name",
   CLOUDINARY_API_KEY: "Cloudinary API key ID",
   CLOUDINARY_API_SECRET: "Cloudinary API secret key",
-  RAZORPAY_KEY_ID: "Razorpay integration Key ID",
-  RAZORPAY_KEY_SECRET: "Razorpay integration Key Secret",
+  CASHFREE_APP_ID: "Cashfree integration App ID",
+  CASHFREE_SECRET_KEY: "Cashfree integration Secret Key",
 };
 
 export interface CredentialItem {
@@ -121,12 +121,12 @@ export async function updateIntegrationCredential(key: string, value: string): P
 }
 
 /**
- * Returns the Razorpay key ID for client side initialization.
+ * Returns the Cashfree App ID for client side initialization.
  */
-export async function getRazorpayKeyId(): Promise<string> {
+export async function getCashfreeAppId(): Promise<string> {
   try {
-    return await getCredential("RAZORPAY_KEY_ID", "rzp_test_mock");
+    return await getCredential("CASHFREE_APP_ID", "cf_test_mock");
   } catch (e) {
-    return process.env.RAZORPAY_KEY_ID || "rzp_test_mock";
+    return process.env.CASHFREE_APP_ID || "cf_test_mock";
   }
 }

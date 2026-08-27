@@ -40,7 +40,7 @@ export default function PrivacyPage() {
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-[#173528]">3. Data Security & Encryption</h2>
             <p>
-              Your passwords are encrypted securely, and banking details are processed using compliance-grade payment gateways (Razorpay). We enforce strict database access locks to protect the integrity of seller records.
+              Your passwords are encrypted securely, and banking details are processed using compliance-grade payment gateways (Cashfree). We enforce strict database access locks to protect the integrity of seller records.
             </p>
           </section>
 

@@ -326,9 +326,9 @@ model Payment {
   id                String        @id @default(cuid())
   orderId           String        @unique
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  razorpayOrderId   String
-  razorpayPaymentId String?
-  razorpaySignature String?
+  cashfreeOrderId   String
+  cashfreePaymentId String?
+  cashfreeSignature String?
   status            PaymentStatus @default(PENDING)
   amount            Float
   currency          String        @default("INR")

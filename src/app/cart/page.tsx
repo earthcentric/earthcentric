@@ -247,7 +247,7 @@ export default function CartPage() {
 
               <div className="flex items-center justify-center space-x-2 text-[10px] text-muted-foreground pt-1 bg-muted/20 p-2.5 rounded">
                 <Shield className="h-4 w-4 text-emerald-600 shrink-0" />
-                <span>Protected by Razorpay secure checkout. Verified brand catalog.</span>
+                <span>Protected by Cashfree secure checkout. Verified brand catalog.</span>
               </div>
             </Card>
           </div>

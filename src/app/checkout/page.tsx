@@ -7,7 +7,8 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
-import { getRazorpayKeyId } from "@/actions/credentials";
+import { getCashfreeAppId } from "@/actions/credentials";
+import { load } from '@cashfreepayments/cashfree-js';
 import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
 import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star } from "lucide-react";
 import Link from "next/link";
@@ -36,7 +37,7 @@ export default function CheckoutPage() {
   // Payment Status Simulator State
   const [showMockGateway, setShowMockGateway] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
-  const [activeRazorpayOrderId, setActiveRazorpayOrderId] = useState<string | null>(null);
+  const [activeCashfreeOrderId, setActiveCashfreeOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -120,31 +121,37 @@ export default function CheckoutPage() {
       }
 
       setActiveOrderId(res.order.id);
-      setActiveRazorpayOrderId(res.razorpayOrderId);
+      setActiveCashfreeOrderId(res.cashfreeOrderId);
 
-      // If Razorpay ID is mock-generated, open our custom overlay simulator. Otherwise trigger real Razorpay checkout
-      if (res.razorpayOrderId.startsWith("order_mock_")) {
+      if (res.cashfreeOrderId.startsWith("order_mock_")) {
         setShowMockGateway(true);
       } else {
-        await openRealRazorpaySDK(res.order.id, res.razorpayOrderId);
+        await openRealCashfreeSDK(res.order.id, res.paymentSessionId);
       }
     });
   };
 
-  const openRealRazorpaySDK = async (orderId: string, razorpayOrderId: string) => {
-    const razorpayKeyId = await getRazorpayKeyId();
-    const options = {
-      key: razorpayKeyId,
-      amount: cartTotal * 100,
-      currency: "INR",
-      name: "EarthCentric",
-      description: "Sustainable Catalog Checkout",
-      order_id: razorpayOrderId,
-      handler: async function (response: any) {
+  const openRealCashfreeSDK = async (orderId: string, paymentSessionId: string) => {
+    const cashfree = await load({
+      mode: "production"
+    });
+
+    let checkoutOptions = {
+      paymentSessionId: paymentSessionId,
+      redirectTarget: "_modal",
+    };
+
+    cashfree.checkout(checkoutOptions).then(async (result: any) => {
+      if (result.error) {
+        console.error("Payment error:", result.error);
+        alert("Payment was cancelled or failed.");
+      }
+      if (result.paymentDetails) {
+        // Call backend to verify payment status
         const success = await confirmOrderPayment(
           orderId,
-          response.razorpay_payment_id,
-          response.razorpay_signature,
+          "cashfree",
+          "handled-by-backend",
           user?.email || "buyer@earthcentric.com"
         );
 
@@ -154,23 +161,13 @@ export default function CheckoutPage() {
         } else {
           alert("Payment signature verification failed.");
         }
-      },
-      prefill: {
-        name: user?.name,
-        email: user?.email,
-      },
-      theme: {
-        color: "#1F3A2E",
-      },
-    };
-
-    const rzp = new (window as any).Razorpay(options);
-    rzp.open();
+      }
+    });
   };
 
   // Mock Gateway Sandbox Handlers
   const handleSimulatePaymentSuccess = async () => {
-    if (!activeOrderId || !activeRazorpayOrderId) return;
+    if (!activeOrderId || !activeCashfreeOrderId) return;
     
     setShowMockGateway(false);
     startTransition(async () => {
@@ -211,8 +208,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12 space-y-8">
-      {/* Razorpay Script Injection */}
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+      {/* Cashfree handles script injection via the npm package internally */}
 
       <div className="flex items-center space-x-2">
         <button onClick={() => router.back()} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center space-x-1">
@@ -465,7 +461,7 @@ export default function CheckoutPage() {
           <Card className="max-w-md w-full border-border/60 shadow-2xl bg-card rounded-2xl overflow-hidden p-6 space-y-6">
             <div className="text-center space-y-2">
               <Badge variant="premium" className="bg-primary/10 text-primary border-none">
-                Razorpay Sandbox Emulator
+                Cashfree Sandbox Emulator
               </Badge>
               <h3 className="font-extrabold text-xl text-primary">Simulate Payment Auth</h3>
               <p className="text-xs text-muted-foreground">
@@ -479,8 +475,8 @@ export default function CheckoutPage() {
                 <span className="font-mono font-semibold">{activeOrderId}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Razorpay Order ID:</span>
-                <span className="font-mono font-semibold">{activeRazorpayOrderId}</span>
+                <span className="text-muted-foreground">Cashfree Order ID:</span>
+                <span className="font-mono font-semibold">{activeCashfreeOrderId}</span>
               </div>
               <div className="flex justify-between border-t border-border/30 pt-2 font-bold">
                 <span>Amount Charged:</span>
