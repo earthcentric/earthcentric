@@ -133,7 +133,7 @@ export default function CheckoutPage() {
 
   const openRealCashfreeSDK = async (orderId: string, paymentSessionId: string) => {
     const cashfree = await load({
-      mode: "production"
+      mode: process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT === "PRODUCTION" ? "production" : "sandbox"
     });
 
     let checkoutOptions = {
