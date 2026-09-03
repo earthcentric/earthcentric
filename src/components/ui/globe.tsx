@@ -116,7 +116,7 @@ export default function Globe({ scrollProgress = 0, sellerCount = 1 }: { scrollP
     );
     // Cloud layer map
     const cloudsTexture = textureLoader.load(
-      "https://cdn.jsdelivr.net/npm/globe.gl/example/img/earth-clouds.png",
+      "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-clouds.png",
       () => renderer.render(scene, camera)
     );
 

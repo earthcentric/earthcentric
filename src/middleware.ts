@@ -2,67 +2,91 @@ import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from 'next/server';
 
 export default clerkMiddleware(async (auth, request) => {
+  const { pathname } = request.nextUrl;
+
+  // Public paths that never require authentication
+  const isPublicPath =
+    pathname === '/' ||
+    pathname === '/marketplace' ||
+    pathname === '/about' ||
+    pathname === '/contact' ||
+    pathname === '/privacy' ||
+    pathname === '/terms' ||
+    pathname === '/blog' ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/sign-in') ||
+    pathname.startsWith('/sign-up') ||
+    pathname.startsWith('/products/') ||
+    pathname.startsWith('/api/categories');
+
+  // Protected route categories
+  const isAdminRoute = pathname.startsWith('/admin');
+  const isSellerRoute = pathname.startsWith('/seller');
+  const isBuyerRoute =
+    pathname.startsWith('/checkout') ||
+    pathname.startsWith('/orders') ||
+    pathname.startsWith('/account') ||
+    pathname.startsWith('/wishlist');
+
+  // If it's a public path, allow through
+  if (isPublicPath) {
+    return NextResponse.next();
+  }
+
+  // Check custom session cookie for role-based access
   const sessionCookie = request.cookies.get('earthcentric_session')?.value;
-  
-  // Public paths that do not require authentication
-  const publicPaths = ['/', '/auth/login', '/auth/signup', '/marketplace', '/products', '/about', '/contact', '/sign-in', '/sign-up'];
-  const isPublicPath = publicPaths.some(path => request.nextUrl.pathname === path || request.nextUrl.pathname.startsWith('/products/'));
+  let session: { id?: string; role?: string; sellerStatus?: string } | null = null;
 
-  // Admin routes
-  const isAdminRoute = request.nextUrl.pathname.startsWith('/admin');
-  // Seller routes
-  const isSellerRoute = request.nextUrl.pathname.startsWith('/seller');
-  // Buyer/User authenticated routes
-  const isBuyerRoute = request.nextUrl.pathname.startsWith('/buyer') || request.nextUrl.pathname.startsWith('/checkout') || request.nextUrl.pathname.startsWith('/orders') || request.nextUrl.pathname.startsWith('/cart');
-
-  let session = null;
   if (sessionCookie) {
     try {
       session = JSON.parse(sessionCookie);
     } catch (e) {
-      console.error('Invalid session cookie');
+      console.error('Invalid session cookie format');
     }
   }
 
-  // If trying to access protected route without being logged in
-  if (!session && (isAdminRoute || isSellerRoute || isBuyerRoute)) {
-    return NextResponse.redirect(new URL('/auth/login', request.url));
+  // Also check Clerk auth status
+  const clerkAuth = await auth();
+  const isClerkAuthenticated = !!clerkAuth?.userId;
+
+  // For protected routes: require either Clerk auth OR a valid session cookie
+  const isAuthenticated = isClerkAuthenticated || !!session?.id;
+
+  if (!isAuthenticated && (isAdminRoute || isSellerRoute || isBuyerRoute)) {
+    // Redirect to login
+    const loginUrl = new URL('/auth/login', request.url);
+    loginUrl.searchParams.set('redirect_url', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  // If logged in, enforce RBAC
-  if (session) {
+  // Role-based access control (only if session exists)
+  if (session?.role) {
     const { role, sellerStatus } = session;
 
-    // Prevent buyers/sellers from accessing admin routes
+    // Admin routes: only ADMIN role
     if (isAdminRoute && role !== 'ADMIN') {
       return NextResponse.redirect(new URL('/', request.url));
     }
 
-    // Prevent non-sellers from accessing seller routes (except buyers/pending sellers accessing verification)
+    // Seller routes: only approved SELLERs (except /seller/verification)
     if (isSellerRoute) {
-      const isVerificationRoute = request.nextUrl.pathname === '/seller/verification';
-      const isApprovedSeller = role === 'SELLER' || sellerStatus === 'APPROVED';
+      const isVerificationRoute = pathname === '/seller/verification';
+      const isApprovedSeller = role === 'SELLER' && sellerStatus === 'APPROVED';
 
       if (!isApprovedSeller) {
         if (isVerificationRoute) {
           return NextResponse.next();
         }
-        if (sellerStatus && sellerStatus !== 'APPROVED') {
+        if (role === 'SELLER' && sellerStatus && sellerStatus !== 'APPROVED') {
           return NextResponse.redirect(new URL('/seller/verification', request.url));
         }
         return NextResponse.redirect(new URL('/', request.url));
       }
 
+      // Approved sellers trying to access verification page → redirect to dashboard
       if (isApprovedSeller && isVerificationRoute) {
         return NextResponse.redirect(new URL('/seller/dashboard', request.url));
       }
-    }
-    
-    // Redirect logged-in users away from auth pages
-    if (request.nextUrl.pathname.startsWith('/auth/')) {
-      if (role === 'ADMIN') return NextResponse.redirect(new URL('/admin/dashboard', request.url));
-      if (role === 'SELLER') return NextResponse.redirect(new URL(sellerStatus === 'APPROVED' ? '/seller/dashboard' : '/seller/verification', request.url));
-      return NextResponse.redirect(new URL('/marketplace', request.url));
     }
   }
 
@@ -71,8 +95,7 @@ export default clerkMiddleware(async (auth, request) => {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-    '/(api|trpc)(.*)',
-    '/__clerk/:path*',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
+

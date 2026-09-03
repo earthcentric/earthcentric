@@ -49,7 +49,7 @@ export async function createCashfreeOrder(options: { amount: number; orderId: st
         customer_phone: options.customer.phone || "9999999999",
       },
       order_meta: {
-        return_url: `https://${process.env.NEXT_PUBLIC_APP_URL?.replace(/^https?:\/\//, '') || 'localhost:3000'}/checkout?order_id={order_id}`
+        return_url: `${process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000'}/checkout?order_id={order_id}`
       }
     };
     
