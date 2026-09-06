@@ -6,7 +6,7 @@ import Image from "next/image";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
-import { getWishlistIds, toggleWishlist } from "@/actions/wishlist";
+import { useWishlist } from "@/context/WishlistContext";
 import { Input, Textarea, Button } from "@/components/ui/shared";
 import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
 import { createEnquiry } from "@/actions/enquiries";
@@ -38,11 +38,12 @@ interface ProductClientViewProps {
 export default function ProductClientView({ product }: ProductClientViewProps) {
   const { addToCart } = useCart();
   const { user } = useAuth();
+  const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
+  const isWishlisted = isInWishlist(product.id);
   const [activeImage, setActiveImage] = useState(product.images[0]);
   const [quantity, setQuantity] = useState(product.moq || 1);
   const [related, setRelated] = useState<ProductItem[]>([]);
   const [addedNotify, setAddedNotify] = useState(false);
-  const [isWishlisted, setIsWishlisted] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
   const [isEligibleToReview, setIsEligibleToReview] = useState(false);
 
@@ -193,14 +194,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     { label: "Certifications", value: product.certifications.join(", ") || "BPI, USDA Biobased" },
   ];
 
-  // Wishlist
-  useEffect(() => {
-    if (user?.id) {
-      getWishlistIds(user.id).then((ids) => {
-        setIsWishlisted(ids.includes(product.id));
-      });
-    }
-  }, [user, product.id]);
+
 
   // Related products
   useEffect(() => {
@@ -249,26 +243,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   };
 
   const handleToggleWishlist = async () => {
-    if (!user?.id) {
-      toast.error("Please login to wishlist products");
-      return;
-    }
-    
-    // Optimistic update
-    setIsWishlisted(!isWishlisted);
-    
-    const res = await toggleWishlist(user.id, product.id);
-    if (res.success) {
-      if (res.isWishlisted) {
-        toast.success("Added to wishlist");
-      } else {
-        toast.success("Removed from wishlist");
-      }
-      setIsWishlisted(res.isWishlisted);
-    } else {
-      setIsWishlisted(isWishlisted); // revert
-      toast.error("Failed to update wishlist");
-    }
+    await contextToggleWishlist(product.id);
   };
 
   const handleReviewSubmit = async (e: React.FormEvent) => {

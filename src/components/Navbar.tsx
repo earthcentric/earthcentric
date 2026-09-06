@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, Role } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { useWishlist } from "@/context/WishlistContext";
 import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 import { UserButton } from "@clerk/nextjs";
 import { Button, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
@@ -266,6 +267,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
 export default function Navbar() {
   const { user, logout } = useAuth();
   const { cart, removeFromCart, updateQuantity, cartTotal, cartCount } = useCart();
+  const { wishlistCount } = useWishlist();
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -402,8 +404,19 @@ export default function Navbar() {
             )}
 
             {/* Wishlist Link */}
-            <Link href="/wishlist" className="hidden sm:flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none">
-              <Heart className="h-5 w-5" />
+            <Link 
+              href="/wishlist" 
+              className="hidden sm:flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none group"
+              title="View your wishlist"
+            >
+              <div className="relative">
+                <Heart className={`h-5 w-5 transition-transform group-hover:scale-110 ${wishlistCount > 0 ? "fill-rose-50 text-rose-500" : ""}`} />
+                {wishlistCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[9px] font-bold rounded-full h-4 min-w-4 px-1 flex items-center justify-center shadow-sm">
+                    {wishlistCount > 99 ? "99+" : wishlistCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-bold mt-1">Wishlist</span>
             </Link>
 
@@ -712,10 +725,18 @@ export default function Navbar() {
                 </Link>
                 <Link
                   href="/wishlist"
-                  className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
+                  className="flex items-center justify-between text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  My Wishlist
+                  <div className="flex items-center gap-2">
+                    <Heart className={`h-4 w-4 ${wishlistCount > 0 ? "fill-rose-500 text-rose-500" : ""}`} />
+                    <span>My Wishlist</span>
+                  </div>
+                  {wishlistCount > 0 && (
+                    <span className="bg-rose-500 text-white text-[11px] font-bold rounded-full px-2 py-0.5">
+                      {wishlistCount}
+                    </span>
+                  )}
                 </Link>
                 <button suppressHydrationWarning
                   onClick={() => {

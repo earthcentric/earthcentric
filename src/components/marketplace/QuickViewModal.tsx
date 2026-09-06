@@ -7,14 +7,15 @@ import { X, ShoppingBag, Heart, ShieldCheck, Leaf } from "lucide-react";
 import { Button, Badge } from "@/components/ui/shared";
 import { ProductItem } from "@/actions/products";
 import { getEffectiveUnitPrice } from "@/lib/offers";
+import { useWishlist } from "@/context/WishlistContext";
 
 interface QuickViewModalProps {
   product: ProductItem | null;
   isOpen: boolean;
   onClose: () => void;
   onAddToCart: (p: ProductItem) => void;
-  onToggleWishlist: (p: ProductItem) => void;
-  isWishlisted: boolean;
+  onToggleWishlist?: (p: ProductItem) => void;
+  isWishlisted?: boolean;
 }
 
 export default function QuickViewModal({
@@ -23,8 +24,19 @@ export default function QuickViewModal({
   onClose,
   onAddToCart,
   onToggleWishlist,
-  isWishlisted,
+  isWishlisted: propIsWishlisted,
 }: QuickViewModalProps) {
+  const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
+  const isWishlisted = product ? isInWishlist(product.id) : (propIsWishlisted ?? false);
+
+  const handleToggleWishlist = async () => {
+    if (!product) return;
+    if (onToggleWishlist) {
+      onToggleWishlist(product);
+    } else {
+      await contextToggleWishlist(product.id);
+    }
+  };
   // Lock scroll when modal is open
   useEffect(() => {
     if (isOpen) {
@@ -157,7 +169,7 @@ export default function QuickViewModal({
                 <span>Add to Cart</span>
               </Button>
               <Button
-                onClick={() => onToggleWishlist(product)}
+                onClick={handleToggleWishlist}
                 variant="outline"
                 className={`w-11 h-11 p-0 rounded-xl border-border/60 hover:bg-muted/30 flex items-center justify-center transition-all ${
                   isWishlisted ? "text-red-500 border-red-200 bg-red-50/20" : ""

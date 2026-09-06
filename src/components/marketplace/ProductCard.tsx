@@ -1,14 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Star, Leaf } from "lucide-react";
 import { ProductItem } from "@/actions/products";
-import { useAuth } from "@/context/AuthContext";
-import { toggleWishlist } from "@/actions/wishlist";
-import { toast } from "sonner";
+import { useWishlist } from "@/context/WishlistContext";
 import { isBuyXGetYActive, getEffectiveUnitPrice } from "@/lib/offers";
 import { SellerLogo } from "@/components/SellerLogo";
 
@@ -19,36 +17,15 @@ interface ProductCardProps {
   initialWishlisted?: boolean;
 }
 
-export default function ProductCard({ product, onAddToCart, onQuickView, initialWishlisted = false }: ProductCardProps) {
+export default function ProductCard({ product, onAddToCart, onQuickView }: ProductCardProps) {
   const router = useRouter();
-  const { user } = useAuth();
-  const [isWishlisted, setIsWishlisted] = useState(initialWishlisted);
-
-  useEffect(() => {
-    setIsWishlisted(initialWishlisted);
-  }, [initialWishlisted]);
+  const { isInWishlist, toggleWishlist } = useWishlist();
+  const isWishlisted = isInWishlist(product.id);
 
   const handleToggleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-
-    if (!user?.id) {
-      toast.error("Please login to wishlist products");
-      return;
-    }
-
-    // Optimistic update
-    setIsWishlisted(!isWishlisted);
-
-    const res = await toggleWishlist(user.id, product.id);
-    if (res.success) {
-      if (res.isWishlisted) toast.success("Added to wishlist");
-      else toast.success("Removed from wishlist");
-      setIsWishlisted(res.isWishlisted);
-    } else {
-      setIsWishlisted(isWishlisted); // revert on failure
-      toast.error("Failed to update wishlist");
-    }
+    await toggleWishlist(product.id);
   };
 
   // Compute pricing details

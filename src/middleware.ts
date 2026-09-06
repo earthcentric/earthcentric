@@ -13,6 +13,8 @@ export default clerkMiddleware(async (auth, request) => {
     pathname === '/privacy' ||
     pathname === '/terms' ||
     pathname === '/blog' ||
+    pathname === '/cart' ||
+    pathname === '/wishlist' ||
     pathname.startsWith('/auth/') ||
     pathname.startsWith('/sign-in') ||
     pathname.startsWith('/sign-up') ||
@@ -25,8 +27,7 @@ export default clerkMiddleware(async (auth, request) => {
   const isBuyerRoute =
     pathname.startsWith('/checkout') ||
     pathname.startsWith('/orders') ||
-    pathname.startsWith('/account') ||
-    pathname.startsWith('/wishlist');
+    pathname.startsWith('/account');
 
   // If it's a public path, allow through
   if (isPublicPath) {

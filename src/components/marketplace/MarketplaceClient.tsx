@@ -5,10 +5,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { getProducts, ProductItem, ProductFilter } from "@/actions/products";
-import { getWishlistIds } from "@/actions/wishlist";
 import { getAllBrands } from "@/actions/sellers";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { useWishlist } from "@/context/WishlistContext";
 import { Button, Card, Badge, Input } from "@/components/ui/shared";
 import { FadeInStagger, FadeInStaggerItem, ScaleHover } from "@/components/FramerComponents";
 import {
@@ -190,12 +190,12 @@ export default function MarketplaceClient() {
   
   // Cart Actions & Wishlist
   const { addToCart } = useCart();
+  const { wishlistIds, toggleWishlist, isInWishlist } = useWishlist();
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
 
   // Quick View Modal State
   const [selectedProductForQuickView, setSelectedProductForQuickView] = useState<ProductItem | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
-  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
 
   const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string}[]>([]);
 
@@ -255,15 +255,7 @@ export default function MarketplaceClient() {
     window.history.pushState({ path: url }, "", url);
   }, [category, search, selectedBrand, pricePreset, minPrice, maxPrice, sortBy, dealsOnly, newArrivalsOnly]);
 
-  // Load wishlist from database on mount
   const { user } = useAuth();
-  useEffect(() => {
-    if (user?.id) {
-      getWishlistIds(user.id).then((ids) => setWishlistIds(ids));
-    } else {
-      setWishlistIds([]);
-    }
-  }, [user]);
 
   // Fetch products from Prisma DB (or mock fallback) based on filters
   useEffect(() => {
@@ -361,16 +353,7 @@ export default function MarketplaceClient() {
   };
 
   const handleToggleWishlistAction = async (p: ProductItem) => {
-    if (!user?.id) return;
-    const { toggleWishlist } = await import("@/actions/wishlist");
-    const res = await toggleWishlist(user.id, p.id);
-    if (res.success) {
-      if (res.isWishlisted) {
-        setWishlistIds([...wishlistIds, p.id]);
-      } else {
-        setWishlistIds(wishlistIds.filter(id => id !== p.id));
-      }
-    }
+    await toggleWishlist(p.id);
   };
 
   const handleOpenQuickView = (p: ProductItem) => {
@@ -618,7 +601,6 @@ export default function MarketplaceClient() {
                         product={p}
                         onAddToCart={handleAddToCartAction}
                         onQuickView={handleOpenQuickView}
-                        initialWishlisted={wishlistIds.includes(p.id)}
                       />
                     </div>
                   ))}

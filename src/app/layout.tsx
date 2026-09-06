@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
+import { WishlistProvider } from "@/context/WishlistContext";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Toaster } from "sonner";
@@ -26,6 +27,7 @@ export default function RootLayout({
         <ClerkProvider>
           <AuthProvider>
           <CartProvider>
+          <WishlistProvider>
           <SmoothScroll>
           <Navbar />
           <main className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">{children}</main>
@@ -33,6 +35,7 @@ export default function RootLayout({
           <Toaster position="bottom-right" richColors />
           <ChatbotWidget />
           </SmoothScroll>
+          </WishlistProvider>
           </CartProvider>
           </AuthProvider>
         </ClerkProvider>
