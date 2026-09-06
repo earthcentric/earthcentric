@@ -38,18 +38,43 @@ export async function createCashfreeOrder(options: { amount: number; orderId: st
   }
 
   try {
+    const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const env = process.env.CASHFREE_ENVIRONMENT || "SANDBOX";
+    const isProduction = env === "PRODUCTION";
+
+    // In Cashfree PRODUCTION environment, return_url MUST start with https://
+    let returnUrl = `${rawAppUrl}/checkout?order_id={order_id}`;
+    if (isProduction && returnUrl.startsWith("http://")) {
+      returnUrl = returnUrl.replace(/^http:\/\//i, "https://");
+    }
+
+    // Sanitize customer_id: alphanumeric, underscores, and hyphens only (max 50 chars)
+    const sanitizedCustomerId = (options.customer.id || `cust_${Date.now()}`)
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .substring(0, 50) || `cust_${Date.now()}`;
+
+    // Sanitize customer_name: strip special characters and limit to 100 chars
+    const sanitizedName = (options.customer.name || "Customer")
+      .replace(/[^a-zA-Z0-9\s_-]/g, "")
+      .trim()
+      .substring(0, 100) || "Customer";
+
+    // Sanitize phone: ensure 10 valid digits for Indian numbers
+    const digitsOnly = (options.customer.phone || "").replace(/\D/g, "");
+    const sanitizedPhone = digitsOnly.length === 10 ? digitsOnly : (digitsOnly.length > 10 ? digitsOnly.slice(-10) : "9999999999");
+
     const request = {
-      order_amount: options.amount,
+      order_amount: Math.round(options.amount * 100) / 100,
       order_currency: "INR",
       order_id: options.orderId,
       customer_details: {
-        customer_id: options.customer.id.substring(0, 50),
-        customer_name: options.customer.name.substring(0, 100),
-        customer_email: options.customer.email,
-        customer_phone: options.customer.phone || "9999999999",
+        customer_id: sanitizedCustomerId,
+        customer_name: sanitizedName,
+        customer_email: options.customer.email || "customer@earthcentric.com",
+        customer_phone: sanitizedPhone,
       },
       order_meta: {
-        return_url: `${process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000'}/checkout?order_id={order_id}`
+        return_url: returnUrl
       }
     };
     
@@ -57,8 +82,10 @@ export async function createCashfreeOrder(options: { amount: number; orderId: st
     const response = await client!.PGCreateOrder(request);
     return response.data;
   } catch (error: any) {
-    console.error("Cashfree order creation failed:", error?.response?.data || error);
-    throw new Error("Failed to create Cashfree order");
+    const errorData = error?.response?.data;
+    const errorMsg = errorData?.message || error?.message || "Failed to create Cashfree order";
+    console.error("Cashfree order creation failed:", errorData || error);
+    throw new Error(`Failed to create Cashfree order: ${errorMsg}`);
   }
 }
 

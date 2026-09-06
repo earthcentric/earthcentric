@@ -116,7 +116,7 @@ export default function CheckoutPage() {
       });
 
       if (!res.success || !res.order) {
-        alert("Failed to initialize order payment. Try again.");
+        alert((res as any)?.error || "Failed to initialize order payment. Try again.");
         return;
       }
 

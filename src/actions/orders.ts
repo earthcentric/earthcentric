@@ -97,11 +97,20 @@ export async function createOrder(data: {
   const amountInPaise = Math.round(finalTotalAmount * 100);
 
   // Generate Cashfree Order strictly with server-calculated payable amount
-  const paymentOrder = await createCashfreeOrder({
-    amount: finalTotalAmount,
-    orderId: orderId,
-    customer: { id: data.userId, name: data.userEmail.split("@")[0], email: data.userEmail, phone: "" }
-  });
+  let paymentOrder;
+  try {
+    paymentOrder = await createCashfreeOrder({
+      amount: finalTotalAmount,
+      orderId: orderId,
+      customer: { id: data.userId, name: data.userEmail.split("@")[0], email: data.userEmail, phone: "" }
+    });
+  } catch (err: any) {
+    console.error("Cashfree order initialization failed in createOrder:", err);
+    return {
+      success: false,
+      error: err?.message || "Failed to initialize payment gateway order."
+    };
+  }
 
   try {
     // Group items by sellerId
@@ -149,6 +158,22 @@ export async function createOrder(data: {
         newOrders.push(newOrder);
       });
       return { success: true, order: newOrders[0], cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
+    }
+
+    // Ensure user exists in database before creating address
+    try {
+      await db.user.upsert({
+        where: { id: data.userId },
+        update: {},
+        create: {
+          id: data.userId,
+          email: data.userEmail || `${data.userId}@earthcentric.com`,
+          name: data.userEmail ? data.userEmail.split("@")[0] : "Customer",
+          role: "BUYER",
+        },
+      });
+    } catch (upsertError) {
+      console.warn("User upsert skipped or handled:", upsertError);
     }
 
     // Write to Prisma Database
