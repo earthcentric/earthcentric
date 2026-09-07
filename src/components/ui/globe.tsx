@@ -114,10 +114,28 @@ export default function Globe({ scrollProgress = 0, sellerCount = 1 }: { scrollP
       "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-water.png",
       () => renderer.render(scene, camera)
     );
-    // Cloud layer map
+    // Cloud layer map - using unpkg as CDN fallback
+    // Set up clouds material first (referenced in error callback)
+    const cloudsMat = new THREE.MeshPhongMaterial({
+      transparent: true,
+      opacity: 0, // start hidden, reveal on texture load success
+      blending: THREE.NormalBlending
+    });
+
     const cloudsTexture = textureLoader.load(
-      "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-clouds.png",
-      () => renderer.render(scene, camera)
+      "https://unpkg.com/three-globe/example/img/earth-clouds.png",
+      () => {
+        cloudsMat.map = cloudsTexture;
+        cloudsMat.opacity = 0.28; // reveal clouds on load success
+        cloudsMat.needsUpdate = true;
+        renderer.render(scene, camera);
+      },
+      undefined,
+      () => {
+        // Texture failed to load (404 or network error) — keep clouds hidden, no crash
+        console.warn("Globe cloud texture failed to load, rendering without clouds.");
+        renderer.render(scene, camera);
+      }
     );
 
     // 6. Earth Mesh setup (radius 1.6, 64 segments)
@@ -133,12 +151,6 @@ export default function Globe({ scrollProgress = 0, sellerCount = 1 }: { scrollP
 
     // 7. Cloud Layer Mesh setup (radius 1.615, slightly larger)
     const cloudsGeo = new THREE.SphereGeometry(1.615, 64, 64);
-    const cloudsMat = new THREE.MeshPhongMaterial({
-      map: cloudsTexture,
-      transparent: true,
-      opacity: 0.28,
-      blending: THREE.NormalBlending
-    });
     const cloudsMesh = new THREE.Mesh(cloudsGeo, cloudsMat);
     earthGroup.add(cloudsMesh);
 

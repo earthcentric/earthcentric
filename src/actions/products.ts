@@ -81,6 +81,8 @@ export interface ProductItem {
   tierDiscounts?: TierDiscount[] | null;
   individualDiscount?: IndividualDiscount | null;
   buyXGetYOffer?: BuyXGetYOffer | null;
+  highlights?: string[];
+  technicalSpecs?: string[];
   productDate?: Date | string;
   createdAt?: Date;
 }
@@ -810,6 +812,8 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         tierDiscounts: (p as any).tierDiscounts || null,
         individualDiscount: (p as any).individualDiscount || null,
         buyXGetYOffer: (p as any).buyXGetYOffer || null,
+        highlights: (p as any).highlights || [],
+        technicalSpecs: (p as any).technicalSpecs || [],
         productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
         createdAt: p.createdAt,
       };
@@ -882,6 +886,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
+      highlights: (p as any).highlights || [],
+      technicalSpecs: (p as any).technicalSpecs || [],
       productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
       createdAt: p.createdAt,
     };
@@ -910,6 +916,8 @@ export async function createProduct(data: {
   tierDiscounts?: TierDiscount[] | null;
   individualDiscount?: IndividualDiscount | null;
   buyXGetYOffer?: BuyXGetYOffer | null;
+  highlights?: string[]; // New optional field for product highlights
+  technicalSpecs?: string[]; // New optional field for technical specifications
 }): Promise<ProductItem> {
   try {
     // Process/upload all product images to Cloudinary (will return JSON strings)
@@ -955,6 +963,8 @@ export async function createProduct(data: {
         tierDiscounts: data.tierDiscounts || null,
         individualDiscount: data.individualDiscount || null,
         buyXGetYOffer: data.buyXGetYOffer || null,
+        highlights: data.highlights || [],
+        technicalSpecs: data.technicalSpecs || [],
         createdAt: new Date(),
       };
       
@@ -1054,6 +1064,8 @@ export async function createProduct(data: {
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
+      highlights: (p as any).highlights || data.highlights || [],
+      technicalSpecs: (p as any).technicalSpecs || data.technicalSpecs || [],
       productDate: p.productDate ? new Date(p.productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
     };
   } catch (error) {

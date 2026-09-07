@@ -1436,6 +1436,9 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  const [prodHighlights, setProdHighlights] = useState<string[]>([""]);
+  const [prodTechSpecs, setProdTechSpecs] = useState<{ label: string; value: string }[]>([{ label: "", value: "" }]);
+
   // Implementation omitted for brevity to focus on layout, 
   // reusing the same logic from before.
   const processFiles = useCallback((files: FileList | File[]) => {
@@ -1458,6 +1461,13 @@ function AddProductForm({ onBack, profile, reload }: any) {
     e.preventDefault();
     if (!user || !prodName || !prodPrice) return;
     const imageUrls = imagePreviews.length > 0 ? imagePreviews.map((img) => img.dataUrl) : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
+    
+    // Process seller highlights and technical specs
+    const validHighlights = prodHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
+    const validSpecs = prodTechSpecs
+      .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
+      .filter((s) => s.length > 0);
+
     await createProduct({
       name: prodName,
       description: prodDesc,
@@ -1470,6 +1480,8 @@ function AddProductForm({ onBack, profile, reload }: any) {
       sellerName: profile?.companyName || "Seller",
       originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
       bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,
+      highlights: validHighlights.length > 0 ? validHighlights : undefined,
+      technicalSpecs: validSpecs.length > 0 ? validSpecs : undefined,
     });
     reload();
     onBack();
@@ -1501,6 +1513,95 @@ function AddProductForm({ onBack, profile, reload }: any) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1"><Label>Eco Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
             <div className="space-y-1"><Label>Sustainability Details</Label><Input value={prodDetails} onChange={(e) => setProdDetails(e.target.value)} /></div>
+          </div>
+
+          {/* Key Product Highlights (Seller Provided) */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <Label className="font-bold text-xs text-[#2d4a36]">Key Product Highlights</Label>
+                <p className="text-[10px] text-muted-foreground">Add key selling points for buyers (e.g. "100% Organic Cotton")</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setProdHighlights([...prodHighlights, ""])} className="text-xs h-7">
+                + Add Highlight
+              </Button>
+            </div>
+            {prodHighlights.map((hl, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                <Input
+                  type="text"
+                  placeholder={`Highlight #${index + 1}`}
+                  value={hl}
+                  onChange={(e) => {
+                    const newHl = [...prodHighlights];
+                    newHl[index] = e.target.value;
+                    setProdHighlights(newHl);
+                  }}
+                  className="text-xs h-8 bg-white flex-1"
+                />
+                {prodHighlights.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setProdHighlights(prodHighlights.filter((_, i) => i !== index))}
+                    className="text-rose-500 hover:text-rose-600 text-xs h-8 px-2"
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Technical Specifications (Seller Provided) */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <Label className="font-bold text-xs text-[#2d4a36]">Technical Specifications</Label>
+                <p className="text-[10px] text-muted-foreground">Add specification key and value pairs (e.g. Material: Bamboo)</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setProdTechSpecs([...prodTechSpecs, { label: "", value: "" }])} className="text-xs h-7">
+                + Add Spec
+              </Button>
+            </div>
+            {prodTechSpecs.map((spec, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                <Input
+                  type="text"
+                  placeholder="Spec Name (e.g. Material)"
+                  value={spec.label}
+                  onChange={(e) => {
+                    const newSpecs = [...prodTechSpecs];
+                    newSpecs[index].label = e.target.value;
+                    setProdTechSpecs(newSpecs);
+                  }}
+                  className="text-xs h-8 bg-white w-1/2"
+                />
+                <Input
+                  type="text"
+                  placeholder="Value (e.g. 100% Cotton)"
+                  value={spec.value}
+                  onChange={(e) => {
+                    const newSpecs = [...prodTechSpecs];
+                    newSpecs[index].value = e.target.value;
+                    setProdTechSpecs(newSpecs);
+                  }}
+                  className="text-xs h-8 bg-white w-1/2"
+                />
+                {prodTechSpecs.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setProdTechSpecs(prodTechSpecs.filter((_, i) => i !== index))}
+                    className="text-rose-500 hover:text-rose-600 text-xs h-8 px-2"
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
 
           {/* Volume pricing deals */}

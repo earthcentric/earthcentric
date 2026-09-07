@@ -176,23 +176,33 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   if (badgeType === "verified") badgeLabel = "VERIFIED";
   else if (badgeType === "bestseller") badgeLabel = "BEST SELLER";
 
-  // Highlights from description
-  const highlights = [
-    `Natural ${product.certifications[0] || "organic"} materials — 100% food-safe`,
-    "Smooth splinter-free finish",
-    product.description.split(".")[0],
-  ];
+  // Highlights provided by seller or default fallback
+  const highlights = (product.highlights && product.highlights.length > 0)
+    ? product.highlights
+    : [
+        `Natural ${product.certifications[0] || "organic"} materials — 100% food-safe`,
+        "Smooth splinter-free finish",
+        product.description.split(".")[0],
+      ];
 
-  // Technical specs
-  const specs = [
-    { label: "Material", value: product.certifications[0] || "Natural Organic" },
-    { label: "Pack Size", value: `${Math.floor(product.stock / 5)} sets` },
-    { label: "Includes", value: product.name.split("–")[0]?.trim() || product.name },
-    { label: "Length", value: "140mm" },
-    { label: "Heat Resistant", value: "Yes (up to 80°C)" },
-    { label: "Biodegradable", value: "Yes — 90 days" },
-    { label: "Certifications", value: product.certifications.join(", ") || "BPI, USDA Biobased" },
-  ];
+  // Technical specs provided by seller or default fallback
+  const specs = (product.technicalSpecs && product.technicalSpecs.length > 0)
+    ? product.technicalSpecs.map((item: string) => {
+        const parts = item.split(":");
+        if (parts.length > 1) {
+          return { label: parts[0].trim(), value: parts.slice(1).join(":").trim() };
+        }
+        return { label: "Specification", value: item.trim() };
+      })
+    : [
+        { label: "Material", value: product.certifications[0] || "Natural Organic" },
+        { label: "Pack Size", value: `${Math.floor(product.stock / 5)} sets` },
+        { label: "Includes", value: product.name.split("–")[0]?.trim() || product.name },
+        { label: "Length", value: "140mm" },
+        { label: "Heat Resistant", value: "Yes (up to 80°C)" },
+        { label: "Biodegradable", value: "Yes — 90 days" },
+        { label: "Certifications", value: product.certifications.join(", ") || "BPI, USDA Biobased" },
+      ];
 
 
 
