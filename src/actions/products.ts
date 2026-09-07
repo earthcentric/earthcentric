@@ -1,6 +1,7 @@
 "use server";
 
 import db from "@/lib/db";
+import { revalidatePath } from "next/cache";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { createAdminNotification } from "@/actions/notifications";
 
@@ -1169,7 +1170,6 @@ export async function updateProduct(
         sustainabilityScore: Number(data.sustainabilityScore),
         sustainabilityDetail: data.sustainabilityDetail,
         categoryId: category.id,
-        isApproved: false,
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
@@ -1181,6 +1181,13 @@ export async function updateProduct(
         ...(data.technicalSpecs ? { technicalSpecs: data.technicalSpecs } : {}),
       } as any,
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${id}`);
+      revalidatePath("/seller/dashboard");
+    } catch (e) {}
 
     return true;
   } catch (error) {
