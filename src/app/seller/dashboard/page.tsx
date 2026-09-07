@@ -701,6 +701,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editIndivEndDate, setEditIndivEndDate] = useState("");
   const [editIndivStatus, setEditIndivStatus] = useState<"PENDING" | "APPROVED" | "REJECTED">("PENDING");
 
+  // Edit Highlights and Specs state
+  const [editHighlights, setEditHighlights] = useState<string[]>([""]);
+  const [editTechSpecs, setEditTechSpecs] = useState<{ label: string; value: string }[]>([{ label: "", value: "" }]);
+
   const handleEditClick = (p: any) => {
     setEditingProduct(p);
     setEditName(p.name);
@@ -714,6 +718,27 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditWholesalePrice(p.wholesalePrice?.toString() || "");
     setEditOriginalPrice(p.originalPrice?.toString() || "");
     setEditSlabs(p.bulkPriceSlabs || []);
+
+    // Set highlights
+    if (Array.isArray(p.highlights) && p.highlights.length > 0) {
+      setEditHighlights(p.highlights);
+    } else {
+      setEditHighlights([""]);
+    }
+
+    // Set specs
+    if (Array.isArray(p.technicalSpecs) && p.technicalSpecs.length > 0) {
+      const parsedSpecs = p.technicalSpecs.map((item: string) => {
+        const parts = item.split(":");
+        if (parts.length > 1) {
+          return { label: parts[0].trim(), value: parts.slice(1).join(":").trim() };
+        }
+        return { label: "Specification", value: item.trim() };
+      });
+      setEditTechSpecs(parsedSpecs);
+    } else {
+      setEditTechSpecs([{ label: "", value: "" }]);
+    }
 
     setEditEnableTierDiscount(Array.isArray(p.tierDiscounts) && p.tierDiscounts.length > 0);
     setEditTierDiscounts(Array.isArray(p.tierDiscounts) ? p.tierDiscounts : []);
@@ -772,6 +797,11 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       endDate: editBuyXEndDate || null,
     } : null;
 
+    const validHighlights = editHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
+    const validSpecs = editTechSpecs
+      .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
+      .filter((s) => s.length > 0);
+
     await updateProduct(editingProduct.id, {
       name: editName,
       description: editDesc,
@@ -786,6 +816,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       tierDiscounts: tierDiscountsPayload,
       individualDiscount: individualDiscountPayload,
       buyXGetYOffer: buyXGetYPayload,
+      highlights: validHighlights,
+      technicalSpecs: validSpecs,
     });
     setEditingProduct(null);
     reload();
@@ -1011,6 +1043,95 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
               <div className="space-y-1">
                 <Label>Sustainability Details</Label>
                 <Textarea value={editDetails} onChange={(e) => setEditDetails(e.target.value)} className="h-16" />
+              </div>
+
+              {/* Key Product Highlights (Seller Edit) */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <Label className="font-bold text-xs text-[#2d4a36]">Key Product Highlights</Label>
+                    <p className="text-[10px] text-muted-foreground">Modify key selling points shown on marketplace</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditHighlights([...editHighlights, ""])} className="text-xs h-7">
+                    + Add Highlight
+                  </Button>
+                </div>
+                {editHighlights.map((hl, index) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Input
+                      type="text"
+                      placeholder={`Highlight #${index + 1}`}
+                      value={hl}
+                      onChange={(e) => {
+                        const newHl = [...editHighlights];
+                        newHl[index] = e.target.value;
+                        setEditHighlights(newHl);
+                      }}
+                      className="text-xs h-8 bg-white flex-1"
+                    />
+                    {editHighlights.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditHighlights(editHighlights.filter((_, i) => i !== index))}
+                        className="text-rose-500 hover:text-rose-600 text-xs h-8 px-2"
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Technical Specifications (Seller Edit) */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <Label className="font-bold text-xs text-[#2d4a36]">Technical Specifications</Label>
+                    <p className="text-[10px] text-muted-foreground">Modify technical spec key and value pairs</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditTechSpecs([...editTechSpecs, { label: "", value: "" }])} className="text-xs h-7">
+                    + Add Spec
+                  </Button>
+                </div>
+                {editTechSpecs.map((spec, index) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Input
+                      type="text"
+                      placeholder="Spec Name (e.g. Material)"
+                      value={spec.label}
+                      onChange={(e) => {
+                        const newSpecs = [...editTechSpecs];
+                        newSpecs[index].label = e.target.value;
+                        setEditTechSpecs(newSpecs);
+                      }}
+                      className="text-xs h-8 bg-white w-1/2"
+                    />
+                    <Input
+                      type="text"
+                      placeholder="Value (e.g. 100% Cotton)"
+                      value={spec.value}
+                      onChange={(e) => {
+                        const newSpecs = [...editTechSpecs];
+                        newSpecs[index].value = e.target.value;
+                        setEditTechSpecs(newSpecs);
+                      }}
+                      className="text-xs h-8 bg-white w-1/2"
+                    />
+                    {editTechSpecs.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditTechSpecs(editTechSpecs.filter((_, i) => i !== index))}
+                        className="text-rose-500 hover:text-rose-600 text-xs h-8 px-2"
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                ))}
               </div>
 
               {/* Edit Slabs Section */}

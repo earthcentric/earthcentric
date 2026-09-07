@@ -1092,6 +1092,8 @@ export async function updateProduct(
     tierDiscounts?: TierDiscount[] | null;
     individualDiscount?: IndividualDiscount | null;
     buyXGetYOffer?: BuyXGetYOffer | null;
+    highlights?: string[];
+    technicalSpecs?: string[];
   }
 ): Promise<boolean> {
   try {
@@ -1114,6 +1116,8 @@ export async function updateProduct(
             tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
             individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
             buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
+            highlights: data.highlights !== undefined ? data.highlights : p.highlights,
+            technicalSpecs: data.technicalSpecs !== undefined ? data.technicalSpecs : p.technicalSpecs,
           };
         }
         return p;
@@ -1135,6 +1139,8 @@ export async function updateProduct(
           tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
           individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
           buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
+          highlights: data.highlights !== undefined ? data.highlights : MOCK_PRODUCTS[idx].highlights,
+          technicalSpecs: data.technicalSpecs !== undefined ? data.technicalSpecs : MOCK_PRODUCTS[idx].technicalSpecs,
         };
       }
       return true;
@@ -1171,6 +1177,8 @@ export async function updateProduct(
         tierDiscounts: data.tierDiscounts !== undefined ? (data.tierDiscounts as any) : null,
         individualDiscount: data.individualDiscount !== undefined ? (data.individualDiscount as any) : null,
         buyXGetYOffer: data.buyXGetYOffer !== undefined ? (data.buyXGetYOffer as any) : null,
+        ...(data.highlights ? { highlights: data.highlights } : {}),
+        ...(data.technicalSpecs ? { technicalSpecs: data.technicalSpecs } : {}),
       } as any,
     });
 
