@@ -24,8 +24,15 @@ export interface BuyerProfileData {
   image: string | null;
 }
 
-// ─── In-memory OTP store for password change ─────────────────────────────────
-const changePasswordOtpStore = new Map<string, { otp: string; expiresAt: number }>();
+const changePasswordOtpStore = new Map<
+  string,
+  {
+    otp: string;
+    expiresAt: number;
+    attempts?: number;
+    blockedUntil?: number;
+  }
+>();
 
 function hashValue(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -118,7 +125,7 @@ export async function getUserAddresses(userId: string): Promise<AddressData[]> {
       where: { userId },
       orderBy: [{ isDefault: "desc" }, { id: "asc" }],
     });
-    return addresses.map((a) => ({
+    return addresses.map((a: any) => ({
       id: a.id,
       street: a.street,
       city: a.city,
@@ -248,10 +255,24 @@ export async function sendChangePasswordOtp(
   try {
     const normalizedEmail = email.toLowerCase().trim();
 
+    const existing = changePasswordOtpStore.get(normalizedEmail);
+    if (existing && existing.blockedUntil && Date.now() < existing.blockedUntil) {
+      const remainingMins = Math.ceil((existing.blockedUntil - Date.now()) / (60 * 1000));
+      return {
+        success: false,
+        error: `Too many failed attempts. Account is locked. Please try again in ${remainingMins} minute(s).`,
+      };
+    }
+
     const otp = generateOtp();
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    changePasswordOtpStore.set(normalizedEmail, { otp, expiresAt });
+    changePasswordOtpStore.set(normalizedEmail, {
+      otp,
+      expiresAt,
+      attempts: 0,
+      blockedUntil: undefined,
+    });
 
     console.log(`\n╔══════════════════════════════════════╗`);
     console.log(`║   🔐  CHANGE PASSWORD OTP CODE        ║`);
@@ -310,12 +331,36 @@ export async function verifyChangePasswordOtp(
   const stored = changePasswordOtpStore.get(normalizedEmail);
 
   if (!stored) return { success: false, error: "No OTP found. Please request a new one." };
+
+  if (stored.blockedUntil && Date.now() < stored.blockedUntil) {
+    const remainingMins = Math.ceil((stored.blockedUntil - Date.now()) / (60 * 1000));
+    return {
+      success: false,
+      error: `Too many failed attempts. Account is locked. Please try again in ${remainingMins} minute(s).`,
+    };
+  }
+
   if (Date.now() > stored.expiresAt) {
     changePasswordOtpStore.delete(normalizedEmail);
     return { success: false, error: "OTP has expired. Please request a new one." };
   }
+
   if (stored.otp !== otp) {
-    return { success: false, error: "Incorrect OTP. Please try again." };
+    const failedCount = (stored.attempts || 0) + 1;
+    if (failedCount >= 5) {
+      stored.blockedUntil = Date.now() + 15 * 60 * 1000;
+      stored.attempts = failedCount;
+      return {
+        success: false,
+        error: "Too many failed attempts (5/5). Account locked for 15 minutes.",
+      };
+    }
+    stored.attempts = failedCount;
+    const remaining = 5 - failedCount;
+    return {
+      success: false,
+      error: `Incorrect OTP. You have ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`,
+    };
   }
 
   // Mark as verified by removing from store (consumed)

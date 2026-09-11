@@ -6,6 +6,7 @@ import { createAdminNotification } from "@/actions/notifications";
 import { createProduct } from "./products";
 import { getOrdersBySeller } from "./orders";
 import { cookies } from "next/headers";
+import { encrypt, decrypt } from "@/lib/encryption";
 
 export interface SellerProfile {
   id: string;
@@ -181,7 +182,7 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       ...(getUrlFromDb(seller.logoUrl) ? { companyLogo: getUrlFromDb(seller.logoUrl) } : {}),
       ...(seller.website ? { website: seller.website } : {}),
       ...(seller.gstNumber ? { gstNumber: seller.gstNumber } : {}),
-      ...(seller.panNumber ? { panNumber: seller.panNumber } : {}),
+      ...(seller.panNumber ? { panNumber: decrypt(seller.panNumber) || seller.panNumber } : {}),
       ...(seller.declaredRevenue ? { declaredRevenue: seller.declaredRevenue } : {}),
       verificationStatus: seller.verificationStatus as any,
       badges: seller.badges,
@@ -190,7 +191,7 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       ...(seller.phone ? { phone: seller.phone } : {}),
       ...((seller.user?.name || seller.ownerName) ? { ownerName: (seller.user?.name || seller.ownerName)! } : {}),
       ...((seller.user?.name || seller.founderName) ? { founderName: (seller.user?.name || seller.founderName)! } : {}),
-      ...(seller.aadharNumber ? { aadharNumber: seller.aadharNumber } : {}),
+      ...(seller.aadharNumber ? { aadharNumber: decrypt(seller.aadharNumber) || seller.aadharNumber } : {}),
       ...(seller.factoryAddress ? { factoryAddress: seller.factoryAddress } : {}),
       ...(seller.pickupAddress ? { pickupAddress: seller.pickupAddress } : {}),
       ...(seller.companyAddress ? { companyAddress: seller.companyAddress } : {}),
@@ -200,7 +201,7 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       ...(getUrlFromDb(seller.bankProofUrl) ? { bankProofUrl: getUrlFromDb(seller.bankProofUrl) } : {}),
       ...(seller.createdAt ? { createdAt: seller.createdAt } : {}),
       ...(seller.verifiedAt ? { verifiedAt: seller.verifiedAt } : {}),
-      documents: seller.documents.map((doc) => ({
+      documents: seller.documents.map((doc: any) => ({
         id: doc.id,
         type: doc.type,
         fileName: doc.fileName,
@@ -237,7 +238,7 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       ...(getUrlFromDb(seller.logoUrl) ? { companyLogo: getUrlFromDb(seller.logoUrl) } : {}),
       ...(seller.website ? { website: seller.website } : {}),
       ...(seller.gstNumber ? { gstNumber: seller.gstNumber } : {}),
-      ...(seller.panNumber ? { panNumber: seller.panNumber } : {}),
+      ...(seller.panNumber ? { panNumber: decrypt(seller.panNumber) || seller.panNumber } : {}),
       ...(seller.declaredRevenue ? { declaredRevenue: seller.declaredRevenue } : {}),
       verificationStatus: seller.verificationStatus as any,
       badges: seller.badges,
@@ -246,7 +247,7 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       ...(seller.phone ? { phone: seller.phone } : {}),
       ...((seller.user?.name || seller.ownerName) ? { ownerName: (seller.user?.name || seller.ownerName)! } : {}),
       ...((seller.user?.name || seller.founderName) ? { founderName: (seller.user?.name || seller.founderName)! } : {}),
-      ...(seller.aadharNumber ? { aadharNumber: seller.aadharNumber } : {}),
+      ...(seller.aadharNumber ? { aadharNumber: decrypt(seller.aadharNumber) || seller.aadharNumber } : {}),
       ...(seller.factoryAddress ? { factoryAddress: seller.factoryAddress } : {}),
       ...(seller.pickupAddress ? { pickupAddress: seller.pickupAddress } : {}),
       ...(seller.companyAddress ? { companyAddress: seller.companyAddress } : {}),
@@ -256,7 +257,7 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       ...(getUrlFromDb(seller.bankProofUrl) ? { bankProofUrl: getUrlFromDb(seller.bankProofUrl) } : {}),
       ...(seller.createdAt ? { createdAt: seller.createdAt } : {}),
       ...(seller.verifiedAt ? { verifiedAt: seller.verifiedAt } : {}),
-      documents: seller.documents.map((doc) => ({
+      documents: seller.documents.map((doc: any) => ({
         id: doc.id,
         type: doc.type,
         fileName: doc.fileName,
@@ -421,13 +422,13 @@ export async function submitSellerVerification(data: {
         logoUrl: uploadedLogoUrl,
         website: data.website,
         gstNumber: data.gstNumber,
-        panNumber: data.panNumber,
+        panNumber: encrypt(data.panNumber) || data.panNumber,
         declaredRevenue: data.declaredRevenue,
         verificationStatus: "PENDING",
         phone: data.phone,
         ownerName: data.ownerName,
         founderName: (data as any).founderName || data.ownerName,
-        aadharNumber: (data as any).aadharNumber,
+        aadharNumber: encrypt((data as any).aadharNumber) || (data as any).aadharNumber,
         factoryAddress: data.factoryAddress,
         pickupAddress: data.pickupAddress,
         companyAddress: data.companyAddress,
@@ -449,14 +450,14 @@ export async function submitSellerVerification(data: {
         description: data.description,
         website: data.website,
         gstNumber: data.gstNumber,
-        panNumber: data.panNumber,
+        panNumber: encrypt(data.panNumber) || data.panNumber,
         declaredRevenue: data.declaredRevenue,
         verificationStatus: "PENDING",
         ...(uploadedLogoUrl !== null ? { logoUrl: uploadedLogoUrl } : {}),
         phone: data.phone,
         ownerName: data.ownerName,
         founderName: (data as any).founderName || data.ownerName,
-        aadharNumber: (data as any).aadharNumber,
+        aadharNumber: encrypt((data as any).aadharNumber) || (data as any).aadharNumber,
         factoryAddress: data.factoryAddress,
         pickupAddress: data.pickupAddress,
         companyAddress: data.companyAddress,
@@ -513,7 +514,7 @@ export async function submitSellerVerification(data: {
       ...(seller.bankName ? { bankName: seller.bankName } : {}),
       ...(seller.bankIfsc ? { bankIfsc: seller.bankIfsc } : {}),
       ...(getUrlFromDb(seller.bankProofUrl) ? { bankProofUrl: getUrlFromDb(seller.bankProofUrl) } : {}),
-      documents: seller.documents.map((d) => ({
+      documents: seller.documents.map((d: any) => ({
         id: d.id,
         type: d.type,
         fileName: d.fileName,
@@ -631,7 +632,7 @@ export async function updateSellerProfile(
       ...(updatedSeller.bankAccountNo ? { bankAccountNo: updatedSeller.bankAccountNo } : {}),
       ...(updatedSeller.bankName ? { bankName: updatedSeller.bankName } : {}),
       ...(updatedSeller.bankIfsc ? { bankIfsc: updatedSeller.bankIfsc } : {}),
-      documents: updatedSeller.documents.map(d => ({
+      documents: updatedSeller.documents.map((d: any) => ({
         id: d.id,
         type: d.type,
         fileName: d.fileName,
@@ -758,8 +759,8 @@ export async function getSellerDashboardStats(
       },
     });
 
-    const revenue = orderItems.reduce((acc, curr) => acc + curr.price * curr.quantity, 0);
-    const ordersCount = new Set(orderItems.map((oi) => oi.orderId)).size;
+    const revenue = orderItems.reduce((acc: number, curr: any) => acc + curr.price * curr.quantity, 0);
+    const ordersCount = new Set(orderItems.map((oi: any) => oi.orderId)).size;
 
     const productSales: Record<string, { name: string; count: number }> = {};
     for (const item of orderItems) {
@@ -920,7 +921,7 @@ export async function getSellerAnalyticsTimeSeries(sellerId: string) {
         });
         
         const uniqueOrders = new Set<string>();
-        orderItems.forEach(item => {
+        orderItems.forEach((item: any) => {
           if (!uniqueOrders.has(item.orderId)) {
             uniqueOrders.add(item.orderId);
             orders.push({ createdAt: item.order.createdAt });
@@ -1045,7 +1046,7 @@ export async function getVerifiedSellers() {
       }
     });
 
-    return sellers.map(seller => ({
+    return sellers.map((seller: any) => ({
       id: seller.id,
       userId: seller.userId,
       companyName: seller.companyName,
@@ -1086,7 +1087,7 @@ export async function getAllBrands() {
     });
 
     const uniqueMap = new Map<string, { id: string; companyName: string }>();
-    sellers.forEach(s => {
+    sellers.forEach((s: any) => {
       if (s.companyName && !uniqueMap.has(s.companyName)) {
         uniqueMap.set(s.companyName, { id: s.id, companyName: s.companyName });
       }
@@ -1186,7 +1187,7 @@ export async function submit3StepSellerVerification(data: {
         data: {
           founderName: data.founderName,
           ownerName: data.founderName,
-          aadharNumber: data.aadharNumber,
+          aadharNumber: encrypt(data.aadharNumber) || data.aadharNumber,
           ...(data.logoUrl ? { logoUrl: data.logoUrl } : {})
         }
       });

@@ -85,12 +85,14 @@ model User {
 
 // Temporary OTP storage for buyer email verification during registration
 model OtpVerification {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  otpHash   String   // SHA-256 hashed OTP for security
-  expiresAt DateTime
-  verified  Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  email        String    @unique
+  otpHash      String    // SHA-256 hashed OTP for security
+  expiresAt    DateTime
+  verified     Boolean   @default(false)
+  attempts     Int       @default(0)
+  blockedUntil DateTime?
+  createdAt    DateTime  @default(now())
 }
 
 model Seller {

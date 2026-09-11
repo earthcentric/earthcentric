@@ -7,7 +7,16 @@ import crypto from "crypto";
 // ─── In-memory OTP store (for both mock and DB modes) ──────────────
 // In production, you'd use Redis or a database table for OTPs.
 // Using a server-side Map here for simplicity.
-const otpStore = new Map<string, { otp: string; expiresAt: number; attempts: number }>();
+const otpStore = new Map<
+  string,
+  {
+    otp: string;
+    expiresAt: number;
+    attempts: number;
+    verifyAttempts?: number;
+    blockedUntil?: number;
+  }
+>();
 
 function generateOTP(): string {
   return Math.floor(1000 + Math.random() * 9000).toString();
@@ -25,6 +34,16 @@ export async function requestPasswordReset(email: string): Promise<{
   }
 
   const normalizedEmail = email.toLowerCase().trim();
+
+  // Check lockout
+  const existing = otpStore.get(normalizedEmail);
+  if (existing && existing.blockedUntil && Date.now() < existing.blockedUntil) {
+    const remainingMins = Math.ceil((existing.blockedUntil - Date.now()) / (60 * 1000));
+    return {
+      success: false,
+      error: `Too many failed attempts. Account is locked. Please try again in ${remainingMins} minute(s).`,
+    };
+  }
 
   // Check if email exists in database (optional — can skip for privacy)
   try {
@@ -44,7 +63,6 @@ export async function requestPasswordReset(email: string): Promise<{
   }
 
   // Rate limiting: max 3 OTPs per email per 10 minutes
-  const existing = otpStore.get(normalizedEmail);
   if (existing && existing.attempts >= 3 && existing.expiresAt > Date.now()) {
     return {
       success: false,
@@ -60,6 +78,8 @@ export async function requestPasswordReset(email: string): Promise<{
     otp,
     expiresAt,
     attempts: (existing?.attempts || 0) + 1,
+    verifyAttempts: 0,
+    blockedUntil: undefined,
   });
 
   // Send OTP email
@@ -94,23 +114,40 @@ export async function verifyPasswordResetOTP(
     return { success: false, error: "No verification code found. Please request a new one." };
   }
 
+  // Check lockout
+  if (stored.blockedUntil && Date.now() < stored.blockedUntil) {
+    const remainingMins = Math.ceil((stored.blockedUntil - Date.now()) / (60 * 1000));
+    return {
+      success: false,
+      error: `Too many failed attempts. Account is locked. Please try again in ${remainingMins} minute(s).`,
+    };
+  }
+
   if (Date.now() > stored.expiresAt) {
     otpStore.delete(normalizedEmail);
     return { success: false, error: "Verification code expired. Please request a new one." };
   }
 
   if (stored.otp !== otpCode) {
-    return { success: false, error: "Invalid verification code. Please try again." };
+    const failedCount = (stored.verifyAttempts || 0) + 1;
+    if (failedCount >= 5) {
+      stored.blockedUntil = Date.now() + 15 * 60 * 1000;
+      stored.verifyAttempts = failedCount;
+      return {
+        success: false,
+        error: "Too many failed attempts (5/5). Account locked for 15 minutes.",
+      };
+    }
+    stored.verifyAttempts = failedCount;
+    const remaining = 5 - failedCount;
+    return {
+      success: false,
+      error: `Invalid verification code. You have ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`,
+    };
   }
 
   // OTP verified successfully — clean up
   otpStore.delete(normalizedEmail);
-
-  // In a real app, you'd now:
-  // 1. Generate a password reset token
-  // 2. Redirect to password reset form
-  // 3. Allow setting a new password
-  // For the demo, we'll just mark it as verified
 
   console.log(`[OTP] Verified successfully for ${normalizedEmail}`);
   return { success: true };

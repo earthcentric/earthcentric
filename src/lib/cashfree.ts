@@ -1,5 +1,6 @@
 import { Cashfree, CFEnvironment } from "cashfree-pg";
 import { getCredential } from "./credentials";
+import crypto from "crypto";
 
 let cashfreeClient: Cashfree | null = null;
 
@@ -106,6 +107,70 @@ export async function verifyPaymentSignature(orderId: string): Promise<boolean> 
     return false;
   } catch (error: any) {
     console.error("Failed to verify Cashfree payment:", error?.response?.data || error);
+    return false;
+  }
+}
+
+/**
+ * Cryptographically verifies incoming Cashfree webhook signature using HMAC-SHA256.
+ *
+ * Header requirements:
+ * - x-webhook-signature: Base64-encoded HMAC-SHA256 of (timestamp + rawBody)
+ * - x-webhook-timestamp: Unix timestamp when webhook was generated
+ */
+export async function verifyCashfreeWebhookSignature(
+  signature: string | null | undefined,
+  rawBody: string,
+  timestamp: string | null | undefined
+): Promise<boolean> {
+  if (!signature || !timestamp || !rawBody) {
+    return false;
+  }
+
+  const secretKey =
+    (await getCredential("CASHFREE_SECRET_KEY")) ||
+    process.env.CASHFREE_SECRET_KEY;
+
+  if (!secretKey) {
+    console.warn("Cashfree secret key not configured for webhook verification");
+    if (process.env.NODE_ENV === "development" && signature.startsWith("mock_sig_")) {
+      return true;
+    }
+    return false;
+  }
+
+  try {
+    // 1. Try Cashfree SDK's PGVerifyWebhookSignature if available
+    if (typeof (Cashfree as any)?.PGVerifyWebhookSignature === "function") {
+      try {
+        const verified = (Cashfree as any).PGVerifyWebhookSignature(
+          signature,
+          rawBody,
+          timestamp
+        );
+        if (verified) return true;
+      } catch {
+        // Fallback to crypto HMAC comparison below
+      }
+    }
+
+    // 2. Standard Cashfree HMAC-SHA256 verification
+    const signatureData = `${timestamp}${rawBody}`;
+    const computedSignature = crypto
+      .createHmac("sha256", secretKey)
+      .update(signatureData)
+      .digest("base64");
+
+    const computedBuffer = Buffer.from(computedSignature);
+    const signatureBuffer = Buffer.from(signature);
+
+    if (computedBuffer.length !== signatureBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(computedBuffer, signatureBuffer);
+  } catch (error) {
+    console.error("Error verifying Cashfree webhook signature:", error);
     return false;
   }
 }

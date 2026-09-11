@@ -6,6 +6,7 @@ import { sendSellerVerificationUpdateEmail } from "@/lib/email";
 import { getMockSellersInternal, updateMockSellerStatusInternal, SellerProfile } from "./sellers";
 import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId, getProducts, getProductById, updateProduct } from "./products";
 import { createNotification } from "./notifications";
+import { encrypt, decrypt } from "@/lib/encryption";
 
 export interface PlatformStats {
   totalRevenue: number;
@@ -54,7 +55,7 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
       ...(getUrlFromDb(s.logoUrl) ? { logoUrl: getUrlFromDb(s.logoUrl) } : {}),
       ...(s.website ? { website: s.website } : {}),
       ...(s.gstNumber ? { gstNumber: s.gstNumber } : {}),
-      ...(s.panNumber ? { panNumber: s.panNumber } : {}),
+      ...(s.panNumber ? { panNumber: decrypt(s.panNumber) || s.panNumber } : {}),
       verificationStatus: s.verificationStatus as any,
       badges: s.badges,
       ...(s.phone ? { phone: s.phone } : {}),
@@ -116,7 +117,7 @@ export async function approveSeller(
           businessType: updatedData?.businessType,
           website: updatedData?.website,
           gstNumber: updatedData?.gstNumber,
-          panNumber: updatedData?.panNumber,
+          panNumber: updatedData?.panNumber ? (encrypt(updatedData.panNumber) || updatedData.panNumber) : undefined,
         },
         include: {
           user: true,
@@ -185,7 +186,7 @@ export async function rejectSeller(
           businessType: updatedData?.businessType,
           website: updatedData?.website,
           gstNumber: updatedData?.gstNumber,
-          panNumber: updatedData?.panNumber,
+          panNumber: updatedData?.panNumber ? (encrypt(updatedData.panNumber) || updatedData.panNumber) : undefined,
         },
         include: {
           user: true,
