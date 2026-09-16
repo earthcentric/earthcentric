@@ -4,7 +4,7 @@ import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount } from "@/actions/admin";
+import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount, getAllProductsForAdminPromotions, updateProductPromotionsByAdmin } from "@/actions/admin";
 import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
 import { getAllOrdersForAdmin, updateOrderStatus, trackOrderById } from "@/actions/orders";
 import { SellerProfile } from "@/actions/sellers";
@@ -51,6 +51,13 @@ import {
   Mail,
   Calendar,
   Phone,
+  Tag,
+  Percent,
+  Gift,
+  Plus,
+  Trash2,
+  Edit3,
+  Sparkles,
 } from "lucide-react";
 
 // Mock User Data for User Management View
@@ -267,7 +274,7 @@ export default function AdminDashboard() {
             <SidebarLink icon={ShieldAlert} label="Seller Verification" value="sellers" />
             <SidebarLink icon={Users} label="User Management" value="users" />
             <SidebarLink icon={PackageCheck} label="Product Approval" value="products" />
-            <SidebarLink icon={Coins} label="Discount Approval" value="discounts" badge={pendingDiscounts.filter((d: any) => d.discount?.status === "PENDING").length} />
+            <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" badge={pendingDiscounts.filter((d: any) => d.discount?.status === "PENDING").length} />
             <SidebarLink icon={Mail} label="Messages" value="messages" badge={messagesUnreadCount} />
             <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
             <SidebarLink icon={Wallet} label="Payments" value="payments" />
@@ -417,7 +424,7 @@ export default function AdminDashboard() {
             {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} globalSearch={globalSearch} />}
             {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} globalSearch={globalSearch} />}
             {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
-            {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} globalSearch={globalSearch} />}
+            {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "messages" && <AdminMessagesView onViewSellerProfile={(sId) => setSelectedSellerId(sId)} />}
             {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "disputes" && <DisputesView disputes={disputes} onResolve={loadAdminData} adminEmail={user?.email} />}
@@ -1065,7 +1072,7 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
           <TableBody>
             {displayProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-10 text-xs text-muted-foreground">
                   No products pending sustainable verification review.
                 </TableCell>
               </TableRow>
@@ -1096,7 +1103,16 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
                   <TableCell className="py-4">
                     <p className="text-xs font-semibold text-muted-foreground">{p.moq ? `${p.moq} units` : "1 unit"}</p>
                   </TableCell>
-                  <TableCell className="py-4">
+                  <TableCell className="py-4 max-w-xs">
+                    <div className="flex items-center space-x-1 mb-1">
+                      <Leaf className="h-3 w-3 text-emerald-600 shrink-0" />
+                      <span className="text-[10px] font-bold text-emerald-800">
+                        Score: {p.sustainabilityScore ?? 85}/100
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2" title={p.sustainabilityDetail || p.claims}>
+                      {p.sustainabilityDetail || p.claims || "Eco-certified sustainable claims"}
+                    </p>
                   </TableCell>
                   <TableCell className="py-4">
                     <Badge className="bg-amber-100 text-amber-800 border-none text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-1" /> Pending review</Badge>
@@ -2353,24 +2369,191 @@ function CredentialsManagerView({ credentials, reload, globalSearch }: { credent
 }
 
 // --------------------------------------------------------------------------
-// DISCOUNT APPROVAL VIEW
+// PROMOTIONS & DISCOUNT APPROVAL VIEW
 // --------------------------------------------------------------------------
-function DiscountApprovalView({ pendingDiscounts, reload, globalSearch }: { pendingDiscounts: any[]; reload: () => void; globalSearch?: string }) {
-  const displayDiscounts = globalSearch
-    ? pendingDiscounts.filter((d: any) => 
-        d.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
-        d.seller?.companyName?.toLowerCase().includes(globalSearch.toLowerCase())
-      )
-    : pendingDiscounts;
-
+function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSearch }: { pendingDiscounts: any[]; reload: () => void; adminEmail?: string; globalSearch?: string }) {
+  const [subTab, setSubTab] = useState<"pending" | "catalog">("pending");
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // Catalog promotions state
+  const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [promoSearch, setPromoSearch] = useState("");
+
+  // Edit promotions modal state
+  const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [savingPromo, setSavingPromo] = useState(false);
+
+  // Form states for modal
+  const [individualDiscount, setIndividualDiscount] = useState<{
+    enabled: boolean;
+    discountType: "PERCENTAGE" | "FIXED";
+    discountValue: number;
+    startDate?: string;
+    endDate?: string;
+  }>({
+    enabled: false,
+    discountType: "PERCENTAGE",
+    discountValue: 10,
+  });
+
+  const [tierDiscounts, setTierDiscounts] = useState<{
+    enabled: boolean;
+    tiers: Array<{ minQuantity: number; discountType: "PERCENTAGE" | "FIXED"; discountValue: number }>;
+  }>({
+    enabled: false,
+    tiers: [{ minQuantity: 5, discountType: "PERCENTAGE", discountValue: 10 }],
+  });
+
+  const [buyXGetYOffer, setBuyXGetYOffer] = useState<{
+    enabled: boolean;
+    buyQty: number;
+    getQty: number;
+    maxFree: number;
+  }>({
+    enabled: false,
+    buyQty: 2,
+    getQty: 1,
+    maxFree: 5,
+  });
+
+  const loadCatalog = async () => {
+    setLoadingCatalog(true);
+    try {
+      const prods = await getAllProductsForAdminPromotions();
+      setCatalogProducts(prods);
+    } catch (err) {
+      console.error("Failed to load catalog for promotions:", err);
+    } finally {
+      setLoadingCatalog(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCatalog();
+  }, []);
+
+  const openPromoEditor = (prod: any) => {
+    setEditingProduct(prod);
+
+    // Populate individual discount
+    const ind = prod.individualDiscount;
+    if (ind && (ind.enabled !== false || ind.status === "APPROVED")) {
+      setIndividualDiscount({
+        enabled: ind.enabled ?? (ind.status === "APPROVED"),
+        discountType: ind.discountType || "PERCENTAGE",
+        discountValue: Number(ind.discountValue || 10),
+        startDate: ind.startDate || "",
+        endDate: ind.endDate || "",
+      });
+    } else {
+      setIndividualDiscount({
+        enabled: false,
+        discountType: "PERCENTAGE",
+        discountValue: 10,
+      });
+    }
+
+    // Populate tier discounts
+    const td = prod.tierDiscounts;
+    if (td && Array.isArray(td.tiers) && td.tiers.length > 0) {
+      setTierDiscounts({
+        enabled: td.enabled ?? true,
+        tiers: td.tiers.map((t: any) => ({
+          minQuantity: Number(t.minQuantity || 5),
+          discountType: t.discountType || "PERCENTAGE",
+          discountValue: Number(t.discountValue || 10),
+        })),
+      });
+    } else {
+      setTierDiscounts({
+        enabled: false,
+        tiers: [{ minQuantity: 5, discountType: "PERCENTAGE", discountValue: 10 }],
+      });
+    }
+
+    // Populate buy X get Y offer
+    const bogo = prod.buyXGetYOffer;
+    if (bogo && (bogo.enabled !== false)) {
+      setBuyXGetYOffer({
+        enabled: bogo.enabled ?? true,
+        buyQty: Number(bogo.buyQty || 2),
+        getQty: Number(bogo.getQty || 1),
+        maxFree: Number(bogo.maxFree || 5),
+      });
+    } else {
+      setBuyXGetYOffer({
+        enabled: false,
+        buyQty: 2,
+        getQty: 1,
+        maxFree: 5,
+      });
+    }
+  };
+
+  const handleSavePromo = async () => {
+    if (!editingProduct) return;
+    setSavingPromo(true);
+
+    const payload: any = {
+      individualDiscount: individualDiscount.enabled
+        ? {
+            enabled: true,
+            discountType: individualDiscount.discountType,
+            discountValue: Number(individualDiscount.discountValue),
+            status: "APPROVED",
+            approvedBy: adminEmail || "admin@earthcentric.com",
+            approvedAt: new Date().toISOString(),
+            startDate: individualDiscount.startDate || undefined,
+            endDate: individualDiscount.endDate || undefined,
+          }
+        : { enabled: false, status: "DISABLED" },
+      tierDiscounts: tierDiscounts.enabled
+        ? {
+            enabled: true,
+            tiers: tierDiscounts.tiers.map((t) => ({
+              minQuantity: Math.max(2, Number(t.minQuantity)),
+              discountType: t.discountType,
+              discountValue: Number(t.discountValue),
+            })),
+          }
+        : { enabled: false, tiers: [] },
+      buyXGetYOffer: buyXGetYOffer.enabled
+        ? {
+            enabled: true,
+            buyQty: Math.max(1, Number(buyXGetYOffer.buyQty)),
+            getQty: Math.max(1, Number(buyXGetYOffer.getQty)),
+            maxFree: Math.max(1, Number(buyXGetYOffer.maxFree)),
+          }
+        : { enabled: false },
+    };
+
+    const success = await updateProductPromotionsByAdmin(
+      editingProduct.id,
+      payload,
+      adminEmail || "admin@earthcentric.com"
+    );
+
+    setSavingPromo(false);
+
+    if (success) {
+      toast.success("Promotional rules updated successfully!");
+      setEditingProduct(null);
+      await loadCatalog();
+      reload();
+    } else {
+      toast.error("Failed to update promotional rules.");
+    }
+  };
 
   const handleApprove = async (productId: string) => {
     setProcessingId(productId);
     const ok = await approveDiscount(productId);
     setProcessingId(null);
-    if (ok) toast.success("Discount approved successfully!");
-    else toast.error("Failed to approve discount.");
+    if (ok) {
+      toast.success("Discount approved successfully!");
+      loadCatalog();
+    } else toast.error("Failed to approve discount.");
     reload();
   };
 
@@ -2378,113 +2561,579 @@ function DiscountApprovalView({ pendingDiscounts, reload, globalSearch }: { pend
     setProcessingId(productId);
     const ok = await rejectDiscount(productId);
     setProcessingId(null);
-    if (ok) toast.success("Discount rejected.");
-    else toast.error("Failed to reject discount.");
+    if (ok) {
+      toast.success("Discount rejected.");
+      loadCatalog();
+    } else toast.error("Failed to reject discount.");
     reload();
   };
 
+  const displayDiscounts = globalSearch
+    ? pendingDiscounts.filter((d: any) =>
+        d.productName?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+        d.sellerName?.toLowerCase().includes(globalSearch.toLowerCase())
+      )
+    : pendingDiscounts;
+
+  const displayCatalog = catalogProducts.filter((p: any) => {
+    const q = (promoSearch || globalSearch || "").toLowerCase();
+    if (!q) return true;
+    return (
+      p.name?.toLowerCase().includes(q) ||
+      p.sellerName?.toLowerCase().includes(q) ||
+      p.category?.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
-          <Coins className="h-6 w-6 text-primary" />
-          <span>Discount Approval Management</span>
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1">
-          Review and approve individual product discount requests created by sellers before they become active.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
+            <Tag className="h-6 w-6 text-emerald-700" />
+            <span>Promotions & Promotional Rules</span>
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Review seller discount requests or directly configure Individual Discounts, Volume Tiers, and Buy X Get Y Free offers across EarthCentric products.
+          </p>
+        </div>
+
+        {/* Sub tabs */}
+        <div className="flex items-center space-x-2 bg-[#e9ece6] p-1 rounded-xl self-start">
+          <button
+            onClick={() => setSubTab("pending")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              subTab === "pending"
+                ? "bg-white text-[#1a3321] shadow-sm"
+                : "text-muted-foreground hover:text-[#1a3321]"
+            }`}
+          >
+            Pending Requests ({pendingDiscounts.filter((d: any) => d.discount?.status === "PENDING").length})
+          </button>
+          <button
+            onClick={() => {
+              setSubTab("catalog");
+              loadCatalog();
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              subTab === "catalog"
+                ? "bg-white text-[#1a3321] shadow-sm"
+                : "text-muted-foreground hover:text-[#1a3321]"
+            }`}
+          >
+            Catalog Promotional Rules ({catalogProducts.length})
+          </button>
+        </div>
       </div>
 
-      <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Product & Seller</TableHead>
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Original Price</TableHead>
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Discount Offered</TableHead>
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Final Selling Price</TableHead>
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Status</TableHead>
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {displayDiscounts.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-xs text-muted-foreground">
-                  No discount requests found.
-                </TableCell>
+      {subTab === "pending" && (
+        <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
+                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Product & Seller</TableHead>
+                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Original Price</TableHead>
+                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Discount Offered</TableHead>
+                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Final Selling Price</TableHead>
+                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Status</TableHead>
+                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Actions</TableHead>
               </TableRow>
-            ) : (
-              displayDiscounts.map((item: any) => {
-                const disc = item.discount;
-                const origPrice = Number(item.originalPrice || item.price);
-                let finalPrice = origPrice;
-                if (disc.discountType === "PERCENTAGE") {
-                  finalPrice = Math.max(0, origPrice - (origPrice * Number(disc.discountValue)) / 100);
-                } else if (disc.discountType === "FIXED") {
-                  finalPrice = Math.max(0, origPrice - Number(disc.discountValue));
-                }
+            </TableHeader>
+            <TableBody>
+              {displayDiscounts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-xs text-muted-foreground">
+                    No discount requests found pending review.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                displayDiscounts.map((item: any) => {
+                  const disc = item.discount;
+                  const origPrice = Number(item.originalPrice || item.price);
+                  let finalPrice = origPrice;
+                  if (disc.discountType === "PERCENTAGE") {
+                    finalPrice = Math.max(0, origPrice - (origPrice * Number(disc.discountValue)) / 100);
+                  } else if (disc.discountType === "FIXED") {
+                    finalPrice = Math.max(0, origPrice - Number(disc.discountValue));
+                  }
 
-                return (
-                  <TableRow key={item.productId} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
-                    <TableCell className="py-4">
-                      <div>
-                        <p className="text-xs font-bold text-[#1a3321]">{item.productName}</p>
-                        <p className="text-[10px] text-muted-foreground">by {item.sellerName}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4 text-xs font-semibold text-muted-foreground">
-                      ₹{origPrice}
-                    </TableCell>
-                    <TableCell className="py-4">
-                      <Badge variant="outline" className="text-xs font-bold bg-amber-50 text-amber-700 border-amber-200">
-                        {disc.discountType === "PERCENTAGE" ? `${disc.discountValue}% OFF` : `₹${disc.discountValue} OFF`}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="py-4 text-xs font-bold text-emerald-700">
-                      ₹{finalPrice}
-                    </TableCell>
-                    <TableCell className="py-4">
-                      {disc.status === "APPROVED" ? (
-                        <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[10px] font-bold">APPROVED</Badge>
-                      ) : disc.status === "REJECTED" ? (
-                        <Badge className="bg-rose-50 text-rose-700 border-none text-[10px] font-bold">REJECTED</Badge>
-                      ) : (
-                        <Badge className="bg-amber-50 text-amber-700 border-none text-[10px] font-bold">PENDING APPROVAL</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="py-4 text-right pr-6 space-x-2">
-                      {disc.status === "PENDING" ? (
-                        <>
-                          <Button
-                            size="sm"
-                            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 h-8 rounded-lg cursor-pointer"
-                            disabled={processingId === item.productId}
-                            onClick={() => handleApprove(item.productId)}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="text-xs px-3 h-8 rounded-lg cursor-pointer"
-                            disabled={processingId === item.productId}
-                            onClick={() => handleReject(item.productId)}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      ) : (
-                        <span className="text-xs text-muted-foreground italic">Reviewed</span>
-                      )}
+                  return (
+                    <TableRow key={item.productId} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
+                      <TableCell className="py-4">
+                        <div>
+                          <p className="text-xs font-bold text-[#1a3321]">{item.productName}</p>
+                          <p className="text-[10px] text-muted-foreground">by {item.sellerName}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-4 text-xs font-semibold text-muted-foreground">
+                        ₹{origPrice}
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <Badge variant="outline" className="text-xs font-bold bg-amber-50 text-amber-700 border-amber-200">
+                          {disc.discountType === "PERCENTAGE" ? `${disc.discountValue}% OFF` : `₹${disc.discountValue} OFF`}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="py-4 text-xs font-bold text-emerald-700">
+                        ₹{finalPrice}
+                      </TableCell>
+                      <TableCell className="py-4">
+                        {disc.status === "APPROVED" ? (
+                          <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[10px] font-bold">APPROVED</Badge>
+                        ) : disc.status === "REJECTED" ? (
+                          <Badge className="bg-rose-50 text-rose-700 border-none text-[10px] font-bold">REJECTED</Badge>
+                        ) : (
+                          <Badge className="bg-amber-50 text-amber-700 border-none text-[10px] font-bold">PENDING APPROVAL</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4 text-right pr-6 space-x-2">
+                        {disc.status === "PENDING" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 h-8 rounded-lg cursor-pointer"
+                              disabled={processingId === item.productId}
+                              onClick={() => handleApprove(item.productId)}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="text-xs px-3 h-8 rounded-lg cursor-pointer"
+                              disabled={processingId === item.productId}
+                              onClick={() => handleReject(item.productId)}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Reviewed</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      {subTab === "catalog" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="relative w-full max-w-sm">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search products, sellers, categories..."
+                value={promoSearch}
+                onChange={(e) => setPromoSearch(e.target.value)}
+                className="pl-9 h-9 text-xs bg-white rounded-xl border-[#e9ece6]"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={loadCatalog}
+              disabled={loadingCatalog}
+              className="text-xs border-[#e9ece6] rounded-xl hover:bg-[#f4f5f3]"
+            >
+              {loadingCatalog ? "Refreshing..." : "Refresh Catalog"}
+            </Button>
+          </div>
+
+          <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Product</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Seller</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Base Price</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Individual Discount</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Tier Discounts</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Buy X Get Y</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Market Status</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingCatalog ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-xs text-muted-foreground">
+                      <div className="h-6 w-6 border-2 border-[#1a3321] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                      Loading promotional catalog...
                     </TableCell>
                   </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+                ) : displayCatalog.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-xs text-muted-foreground">
+                      No products found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  displayCatalog.map((p: any) => {
+                    const ind = p.individualDiscount;
+                    const hasInd = ind && (ind.enabled ?? (ind.status === "APPROVED")) && Number(ind.discountValue) > 0;
+                    
+                    const td = p.tierDiscounts;
+                    const hasTd = td && (td.enabled ?? true) && Array.isArray(td.tiers) && td.tiers.length > 0;
+
+                    const bxgy = p.buyXGetYOffer;
+                    const hasBxgy = bxgy && (bxgy.enabled ?? true) && Number(bxgy.buyQty) > 0 && Number(bxgy.getQty) > 0;
+
+                    return (
+                      <TableRow key={p.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
+                        <TableCell className="py-4">
+                          <div>
+                            <p className="text-xs font-bold text-[#1a3321]">{p.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{p.category}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4 text-xs text-[#1a3321] font-semibold">
+                          {p.sellerName}
+                        </TableCell>
+                        <TableCell className="py-4 text-xs font-black text-[#1a3321]">
+                          ₹{p.price}
+                        </TableCell>
+                        <TableCell className="py-4">
+                          {hasInd ? (
+                            <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-bold">
+                              {ind.discountType === "PERCENTAGE" ? `${ind.discountValue}% OFF` : `₹${ind.discountValue} OFF`}
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">None</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-4">
+                          {hasTd ? (
+                            <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-[10px] font-bold">
+                              {td.tiers.length} Tier{td.tiers.length > 1 ? "s" : ""}
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">None</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-4">
+                          {hasBxgy ? (
+                            <Badge className="bg-purple-50 text-purple-800 border-purple-200 text-[10px] font-bold">
+                              Buy {bxgy.buyQty} Get {bxgy.getQty}
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">None</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-4">
+                          {p.isApproved && p.status === "APPROVED" ? (
+                            <Badge className="bg-emerald-100 text-emerald-800 border-none text-[9px] font-bold">Active</Badge>
+                          ) : (
+                            <Badge className="bg-amber-100 text-amber-800 border-none text-[9px] font-bold">{p.status || "Pending"}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-4 text-right pr-6">
+                          <Button
+                            size="sm"
+                            onClick={() => openPromoEditor(p)}
+                            className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs px-3 h-8 rounded-xl flex items-center space-x-1.5 ml-auto"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                            <span>Configure</span>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Modal for Super Admin to Configure Product Promotions ── */}
+      {editingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !savingPromo && setEditingProduct(null)} />
+          <Card className="relative w-full max-w-2xl bg-white border border-[#e9ece6] rounded-3xl shadow-2xl z-10 max-h-[90vh] overflow-y-auto p-6 space-y-6">
+            <div className="flex items-start justify-between border-b border-[#e9ece6] pb-4">
+              <div>
+                <Badge className="bg-emerald-100 text-emerald-800 border-none text-[10px] font-bold mb-1.5">
+                  Super Admin Promotional Rules
+                </Badge>
+                <h2 className="text-xl font-extrabold text-[#1a3321]">{editingProduct.name}</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Category: {editingProduct.category} | Seller: {editingProduct.sellerName} | Base Price: ₹{editingProduct.price}
+                </p>
+              </div>
+              <button
+                onClick={() => !savingPromo && setEditingProduct(null)}
+                className="text-muted-foreground hover:text-[#1a3321] p-1 rounded-full hover:bg-[#f4f5f3]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Section 1: Individual Discount */}
+            <div className="p-4 rounded-2xl border border-[#e9ece6] bg-[#fdfdfc] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Percent className="h-4 w-4 text-emerald-700" />
+                  <span className="text-sm font-bold text-[#1a3321]">1. Individual Product Discount</span>
+                </div>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={individualDiscount.enabled}
+                    onChange={(e) => setIndividualDiscount((prev) => ({ ...prev, enabled: e.target.checked }))}
+                    className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="text-xs font-semibold text-[#1a3321]">
+                    {individualDiscount.enabled ? "Active" : "Disabled"}
+                  </span>
+                </label>
+              </div>
+
+              {individualDiscount.enabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#e9ece6]">
+                  <div>
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Type</Label>
+                    <select
+                      value={individualDiscount.discountType}
+                      onChange={(e: any) =>
+                        setIndividualDiscount((prev) => ({ ...prev, discountType: e.target.value }))
+                      }
+                      className="w-full mt-1 border border-input rounded-xl px-3 py-1.5 text-xs bg-white"
+                    >
+                      <option value="PERCENTAGE">Percentage (% Off)</option>
+                      <option value="FIXED">Flat Amount (₹ Off)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Value</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={individualDiscount.discountValue}
+                      onChange={(e) =>
+                        setIndividualDiscount((prev) => ({ ...prev, discountValue: Number(e.target.value) }))
+                      }
+                      className="mt-1 h-8 text-xs rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Calculated Price</Label>
+                    <div className="mt-1 h-8 px-3 flex items-center bg-emerald-50 text-emerald-800 font-bold text-xs rounded-xl border border-emerald-100">
+                      ₹
+                      {individualDiscount.discountType === "PERCENTAGE"
+                        ? Math.max(0, Math.round(editingProduct.price * (1 - individualDiscount.discountValue / 100)))
+                        : Math.max(0, editingProduct.price - individualDiscount.discountValue)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Tier / Volume Discounts */}
+            <div className="p-4 rounded-2xl border border-[#e9ece6] bg-[#fdfdfc] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Tag className="h-4 w-4 text-blue-700" />
+                  <span className="text-sm font-bold text-[#1a3321]">2. Tier / Volume Discounts</span>
+                </div>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tierDiscounts.enabled}
+                    onChange={(e) => setTierDiscounts((prev) => ({ ...prev, enabled: e.target.checked }))}
+                    className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs font-semibold text-[#1a3321]">
+                    {tierDiscounts.enabled ? "Active" : "Disabled"}
+                  </span>
+                </label>
+              </div>
+
+              {tierDiscounts.enabled && (
+                <div className="space-y-3 pt-2 border-t border-[#e9ece6]">
+                  <p className="text-[11px] text-muted-foreground">
+                    Define bulk quantity purchase tiers. Buyers who order at least the tier threshold will automatically receive that tier's discount.
+                  </p>
+                  {tierDiscounts.tiers.map((tier, idx) => (
+                    <div key={idx} className="flex items-center space-x-2 bg-white p-2 rounded-xl border border-[#e9ece6]">
+                      <div className="flex-1">
+                        <Label className="text-[10px] text-muted-foreground">Min Quantity</Label>
+                        <Input
+                          type="number"
+                          min="2"
+                          value={tier.minQuantity}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setTierDiscounts((prev) => {
+                              const copy = [...prev.tiers];
+                              copy[idx] = { ...copy[idx], minQuantity: val };
+                              return { ...prev, tiers: copy };
+                            });
+                          }}
+                          className="h-7 text-xs rounded-lg mt-0.5"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-[10px] text-muted-foreground">Type</Label>
+                        <select
+                          value={tier.discountType}
+                          onChange={(e: any) => {
+                            const val = e.target.value;
+                            setTierDiscounts((prev) => {
+                              const copy = [...prev.tiers];
+                              copy[idx] = { ...copy[idx], discountType: val };
+                              return { ...prev, tiers: copy };
+                            });
+                          }}
+                          className="w-full mt-0.5 border border-input rounded-lg px-2 py-1 text-xs bg-white"
+                        >
+                          <option value="PERCENTAGE">% Off</option>
+                          <option value="FIXED">₹ Off</option>
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-[10px] text-muted-foreground">Discount Value</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={tier.discountValue}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setTierDiscounts((prev) => {
+                              const copy = [...prev.tiers];
+                              copy[idx] = { ...copy[idx], discountValue: val };
+                              return { ...prev, tiers: copy };
+                            });
+                          }}
+                          className="h-7 text-xs rounded-lg mt-0.5"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTierDiscounts((prev) => ({
+                            ...prev,
+                            tiers: prev.tiers.filter((_, i) => i !== idx),
+                          }));
+                        }}
+                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg mt-3"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setTierDiscounts((prev) => ({
+                        ...prev,
+                        tiers: [
+                          ...prev.tiers,
+                          {
+                            minQuantity: (prev.tiers[prev.tiers.length - 1]?.minQuantity || 5) + 5,
+                            discountType: "PERCENTAGE",
+                            discountValue: (prev.tiers[prev.tiers.length - 1]?.discountValue || 10) + 5,
+                          },
+                        ],
+                      }));
+                    }}
+                    className="text-xs border-dashed border-[#8ca193] text-[#1a3321] rounded-xl hover:bg-[#f4f5f3]"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add Another Tier
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Buy X Get Y Free */}
+            <div className="p-4 rounded-2xl border border-[#e9ece6] bg-[#fdfdfc] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Gift className="h-4 w-4 text-purple-700" />
+                  <span className="text-sm font-bold text-[#1a3321]">3. Buy X Get Y Free (BOGO / BXGY)</span>
+                </div>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={buyXGetYOffer.enabled}
+                    onChange={(e) => setBuyXGetYOffer((prev) => ({ ...prev, enabled: e.target.checked }))}
+                    className="h-4 w-4 rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-xs font-semibold text-[#1a3321]">
+                    {buyXGetYOffer.enabled ? "Active" : "Disabled"}
+                  </span>
+                </label>
+              </div>
+
+              {buyXGetYOffer.enabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#e9ece6]">
+                  <div>
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Buy Quantity (X)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={buyXGetYOffer.buyQty}
+                      onChange={(e) => setBuyXGetYOffer((prev) => ({ ...prev, buyQty: Number(e.target.value) }))}
+                      className="mt-1 h-8 text-xs rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Get Free Quantity (Y)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={buyXGetYOffer.getQty}
+                      onChange={(e) => setBuyXGetYOffer((prev) => ({ ...prev, getQty: Number(e.target.value) }))}
+                      className="mt-1 h-8 text-xs rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Max Free Per Order</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={buyXGetYOffer.maxFree}
+                      onChange={(e) => setBuyXGetYOffer((prev) => ({ ...prev, maxFree: Number(e.target.value) }))}
+                      className="mt-1 h-8 text-xs rounded-xl"
+                    />
+                  </div>
+                  <div className="sm:col-span-3 bg-purple-50 text-purple-900 text-xs p-2.5 rounded-xl border border-purple-100 flex items-center space-x-2">
+                    <Sparkles className="h-4 w-4 text-purple-700 shrink-0" />
+                    <span>
+                      Customer Rule: For every <strong>{buyXGetYOffer.buyQty}</strong> purchased, they receive <strong>{buyXGetYOffer.getQty} free</strong> (capped at {buyXGetYOffer.maxFree} free units).
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-[#e9ece6]">
+              <Button
+                variant="outline"
+                onClick={() => setEditingProduct(null)}
+                disabled={savingPromo}
+                className="text-xs rounded-xl border-[#e9ece6]"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSavePromo}
+                disabled={savingPromo}
+                className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs px-5 rounded-xl"
+              >
+                {savingPromo ? "Saving Rules..." : "Save Promotional Rules"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -81,6 +81,8 @@ export interface ProductItem {
   tierDiscounts?: TierDiscount[] | null;
   individualDiscount?: IndividualDiscount | null;
   buyXGetYOffer?: BuyXGetYOffer | null;
+  status?: string;
+  rejectionReason?: string | null;
   productDate?: Date | string;
   createdAt?: Date;
 }
@@ -645,9 +647,10 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
     };
 
     // Public marketplace requests only show approved items.
-    // Seller dashboards bypass this to display pending/unapproved items too.
+    // Seller dashboards bypass this to display pending/unapproved/rejected items too.
     if (!filters.sellerId) {
       whereClause.isApproved = true;
+      whereClause.status = "APPROVED";
     }
 
     // Use AND array to compose filters safely (avoids OR clause conflicts)
@@ -788,8 +791,10 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         description: p.description,
         price: p.price,
         stock: p.stock,
-        sustainabilityScore: 85,
-        sustainabilityDetail: "",
+        sustainabilityScore: p.sustainabilityScore ?? 85,
+        sustainabilityDetail: p.sustainabilityDetail || "",
+        status: p.status,
+        rejectionReason: p.rejectionReason,
         images: p.images.map((img) => getUrlFromDb(img.url)),
         category: p.category.name,
         categoryId: p.categoryId,
@@ -858,8 +863,10 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       description: p.description,
       price: p.price,
       stock: p.stock,
-      sustainabilityScore: 85,
-      sustainabilityDetail: "",
+      sustainabilityScore: p.sustainabilityScore ?? 85,
+      sustainabilityDetail: p.sustainabilityDetail || "",
+      status: p.status,
+      rejectionReason: p.rejectionReason,
       images: p.images.map((img) => getUrlFromDb(img.url)),
       category: p.category.name,
       categoryId: p.categoryId,
@@ -924,21 +931,22 @@ export async function createProduct(data: {
 
     const isMockDb = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMockDb) {
-      const isSellerApproved = data.sellerId === "seller-1" || data.sellerId === "seller-pkg" || data.sellerId.includes("seller");
       const newProduct: ProductItem = {
         id: `prod-${Math.floor(Math.random() * 10000)}`,
         name: data.name,
-        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Math.floor(Math.random() * 1000)}`,
+        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
         productDate: productDateVal.toISOString().split("T")[0],
-        sustainabilityScore: Number(data.sustainabilityScore),
-        sustainabilityDetail: data.sustainabilityDetail,
+        sustainabilityScore: Number(data.sustainabilityScore) || 85,
+        sustainabilityDetail: data.sustainabilityDetail || "",
         images: uploadedImages.map(img => getUrlFromDb(img.url)),
         category: data.categoryName,
         categoryId: `c_${data.categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-        isApproved: isSellerApproved,
+        status: "PENDING_APPROVAL",
+        isApproved: false,
+        rejectionReason: null,
         sellerId: data.sellerId,
         seller: {
           id: data.sellerId,
@@ -971,7 +979,6 @@ export async function createProduct(data: {
       throw new Error(`Seller profile not found for ID or User ID: ${data.sellerId}`);
     }
     const resolvedSellerId = seller.id;
-    const autoApprove = seller.verificationStatus === "APPROVED";
 
     // Handle Category look-up/creation
     let category = await db.category.findUnique({ where: { name: data.categoryName } });
@@ -984,19 +991,26 @@ export async function createProduct(data: {
       });
     }
 
+    const scoreVal = Number.isFinite(Number(data.sustainabilityScore))
+      ? Math.round(Number(data.sustainabilityScore))
+      : 85;
+    const detailVal = data.sustainabilityDetail || "";
+
     const p = (await db.product.create({
       data: {
         name: data.name,
-        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Math.floor(Math.random() * 1000)}`,
+        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
         productDate: productDateVal,
-        sustainabilityScore: Number(data.sustainabilityScore),
-        sustainabilityDetail: data.sustainabilityDetail,
+        sustainabilityScore: scoreVal,
+        sustainabilityDetail: detailVal,
         categoryId: category.id,
         sellerId: resolvedSellerId,
-        isApproved: autoApprove,
+        status: "PENDING_APPROVAL",
+        isApproved: false,
+        rejectionReason: null,
         ...(data.tierDiscounts ? { tierDiscounts: (data.tierDiscounts as any) } : {}),
         ...(data.individualDiscount ? { individualDiscount: (data.individualDiscount as any) } : {}),
         ...(data.buyXGetYOffer ? { buyXGetYOffer: (data.buyXGetYOffer as any) } : {}),
@@ -1015,13 +1029,11 @@ export async function createProduct(data: {
       },
     })) as any;
 
-    if (!autoApprove) {
-      await createAdminNotification(
-        "Product Approval Required",
-        `Seller "${p.seller.companyName}" added a new product "${p.name}" which requires approval.`,
-        "products"
-      );
-    }
+    await createAdminNotification(
+      "Product Approval Required",
+      `Seller "${p.seller.companyName}" added a new product "${p.name}" which requires Super Admin approval.`,
+      "products"
+    ).catch(() => {});
 
     return {
       id: p.id,
@@ -1030,8 +1042,10 @@ export async function createProduct(data: {
       description: p.description,
       price: p.price,
       stock: p.stock,
-      sustainabilityScore: 85,
-      sustainabilityDetail: "",
+      sustainabilityScore: p.sustainabilityScore ?? scoreVal,
+      sustainabilityDetail: p.sustainabilityDetail ?? detailVal,
+      status: p.status,
+      rejectionReason: p.rejectionReason,
       images: p.images.map((img: any) => getUrlFromDb(img.url)),
       category: p.category.name,
       categoryId: p.categoryId,
@@ -1056,9 +1070,9 @@ export async function createProduct(data: {
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
       productDate: p.productDate ? new Date(p.productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to create product in DB:", error);
-    throw new Error("Failed to create product. Ensure your database is correctly configured.");
+    throw new Error(error?.message || "Failed to create product. Ensure your database is correctly configured.");
   }
 }
 
@@ -1080,9 +1094,13 @@ export async function updateProduct(
     tierDiscounts?: TierDiscount[] | null;
     individualDiscount?: IndividualDiscount | null;
     buyXGetYOffer?: BuyXGetYOffer | null;
+    reapprovalRequired?: boolean;
+    status?: string;
   }
 ): Promise<boolean> {
   try {
+    const reapproval = data.reapprovalRequired ?? true;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       dynamicProducts = dynamicProducts.map((p) => {
         if (p.id === id) {
@@ -1102,6 +1120,8 @@ export async function updateProduct(
             tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
             individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
             buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
+            isApproved: reapproval ? false : p.isApproved,
+            status: reapproval ? "PENDING_APPROVAL" : (data.status || p.status),
           };
         }
         return p;
@@ -1123,44 +1143,71 @@ export async function updateProduct(
           tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
           individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
           buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
+          isApproved: reapproval ? false : MOCK_PRODUCTS[idx].isApproved,
+          status: reapproval ? "PENDING_APPROVAL" : (data.status || MOCK_PRODUCTS[idx].status),
         };
       }
       return true;
     }
 
     // Database Update
-    let category = await db.category.findUnique({ where: { name: data.categoryName } });
-    if (!category) {
-      category = await db.category.create({
-        data: {
-          name: data.categoryName,
-          slug: data.categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        },
-      });
+    const updatePayload: any = {};
+    if (data.name !== undefined) {
+      updatePayload.name = data.name;
+      updatePayload.slug = `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Math.floor(Math.random() * 1000)}`;
+    }
+    if (data.description !== undefined) updatePayload.description = data.description;
+    if (data.price !== undefined) updatePayload.price = Number(data.price);
+    if (data.stock !== undefined) updatePayload.stock = Number(data.stock);
+    if (data.productDate) updatePayload.productDate = new Date(data.productDate);
+    if (data.sustainabilityScore !== undefined) updatePayload.sustainabilityScore = Number(data.sustainabilityScore);
+    if (data.sustainabilityDetail !== undefined) updatePayload.sustainabilityDetail = data.sustainabilityDetail;
+    if (data.moq !== undefined) updatePayload.moq = Number(data.moq);
+    if (data.wholesalePrice !== undefined) updatePayload.wholesalePrice = data.wholesalePrice ? Number(data.wholesalePrice) : null;
+    if (data.originalPrice !== undefined) updatePayload.originalPrice = data.originalPrice ? Number(data.originalPrice) : null;
+    if (data.bulkPriceSlabs !== undefined) updatePayload.bulkPriceSlabs = data.bulkPriceSlabs;
+    if (data.tierDiscounts !== undefined) updatePayload.tierDiscounts = data.tierDiscounts as any;
+    if (data.individualDiscount !== undefined) updatePayload.individualDiscount = data.individualDiscount as any;
+    if (data.buyXGetYOffer !== undefined) updatePayload.buyXGetYOffer = data.buyXGetYOffer as any;
+
+    if (data.categoryName) {
+      let category = await db.category.findUnique({ where: { name: data.categoryName } });
+      if (!category) {
+        category = await db.category.create({
+          data: {
+            name: data.categoryName,
+            slug: data.categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          },
+        });
+      }
+      updatePayload.categoryId = category.id;
     }
 
-    await db.product.update({
+    if (reapproval) {
+      updatePayload.isApproved = false;
+      updatePayload.status = "PENDING_APPROVAL";
+      updatePayload.rejectionReason = null;
+    } else if (data.status) {
+      updatePayload.status = data.status as any;
+      if (data.status === "APPROVED") {
+        updatePayload.isApproved = true;
+        updatePayload.rejectionReason = null;
+      }
+    }
+
+    const updated = await db.product.update({
       where: { id },
-      data: {
-        name: data.name,
-        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Math.floor(Math.random() * 1000)}`,
-        description: data.description,
-        price: Number(data.price),
-        stock: Number(data.stock),
-        ...(data.productDate ? { productDate: new Date(data.productDate) } : {}),
-        sustainabilityScore: Number(data.sustainabilityScore),
-        sustainabilityDetail: data.sustainabilityDetail,
-        categoryId: category.id,
-        isApproved: false,
-        moq: data.moq ? Number(data.moq) : 1,
-        wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
-        originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
-        bulkPriceSlabs: data.bulkPriceSlabs || null,
-        tierDiscounts: data.tierDiscounts !== undefined ? (data.tierDiscounts as any) : null,
-        individualDiscount: data.individualDiscount !== undefined ? (data.individualDiscount as any) : null,
-        buyXGetYOffer: data.buyXGetYOffer !== undefined ? (data.buyXGetYOffer as any) : null,
-      } as any,
+      data: updatePayload,
+      include: { seller: true }
     });
+
+    if (reapproval) {
+      await createAdminNotification(
+        "Product Update Requires Approval",
+        `Seller "${updated.seller?.companyName || 'Seller'}" updated product "${updated.name}". It requires re-approval.`,
+        "products"
+      ).catch(() => {});
+    }
 
     return true;
   } catch (error) {

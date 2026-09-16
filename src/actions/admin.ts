@@ -857,14 +857,19 @@ let mockPendingProducts = [
 export async function getPendingProducts(): Promise<any[]> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const mockPending = mockPendingProducts.filter(p => !p.isApproved && !p.isArchived);
+      const mockPending = mockPendingProducts.filter(p => !p.isApproved && !p.isArchived && (p as any).status !== "REJECTED");
       const dynProds = await getDynamicProducts();
-      const dynamicPending = dynProds.filter(p => !p.isApproved);
+      const dynamicPending = dynProds.filter(p => !p.isApproved && p.status !== "REJECTED");
       return [...mockPending, ...dynamicPending];
     }
     const dbProducts = await db.product.findMany({
-      where: { isApproved: false, isArchived: false },
-      include: { category: true, images: true, seller: true, reviews: true }
+      where: { 
+        isApproved: false, 
+        isArchived: false,
+        status: { in: ["PENDING_APPROVAL", "DRAFT", "NEEDS_CHANGES"] }
+      },
+      include: { category: true, images: true, seller: true, reviews: true },
+      orderBy: { createdAt: "desc" }
     });
     return dbProducts.map(p => {
       const rating = p.reviews.length > 0 ? p.reviews.reduce((acc, curr) => acc + curr.rating, 0) / p.reviews.length : 0;
@@ -874,13 +879,29 @@ export async function getPendingProducts(): Promise<any[]> {
         slug: p.slug,
         description: p.description,
         price: p.price,
+        wholesalePrice: p.wholesalePrice || null,
+        originalPrice: p.originalPrice || null,
+        moq: p.moq || 1,
         stock: p.stock,
+        sustainabilityScore: p.sustainabilityScore ?? 85,
+        sustainabilityDetail: p.sustainabilityDetail || "",
+        status: p.status,
+        rejectionReason: p.rejectionReason,
+        tierDiscounts: (p as any).tierDiscounts || null,
+        individualDiscount: (p as any).individualDiscount || null,
+        buyXGetYOffer: (p as any).buyXGetYOffer || null,
+        createdAt: p.createdAt,
         images: p.images.map(img => getUrlFromDb(img.url)),
         category: p.category.name,
         categoryId: p.categoryId,
         isApproved: p.isApproved,
         sellerId: p.sellerId,
-        seller: { id: p.seller.id, companyName: p.seller.companyName, badges: p.seller.badges },
+        seller: { 
+          id: p.seller.id, 
+          companyName: p.seller.companyName, 
+          badges: p.seller.badges,
+          phone: p.seller.phone || "",
+        },
         certifications: [],
         rating,
         reviewsCount: p.reviews.length
@@ -897,7 +918,7 @@ export async function approveProduct(productId: string, adminEmail: string, cate
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       mockPendingProducts = mockPendingProducts.map(p => {
         if (p.id === productId) {
-          return { ...p, isApproved: true, ...(categoryId ? { categoryId } : {}) };
+          return { ...p, isApproved: true, status: "APPROVED", rejectionReason: null, ...(categoryId ? { categoryId } : {}) };
         }
         return p;
       });
@@ -905,7 +926,12 @@ export async function approveProduct(productId: string, adminEmail: string, cate
       return true;
     }
 
-    const updateData: any = { isApproved: true, status: "APPROVED" };
+    const updateData: any = { 
+      isApproved: true, 
+      status: "APPROVED",
+      rejectionReason: null,
+      isArchived: false,
+    };
     if (categoryId) updateData.categoryId = categoryId;
 
     const product = await db.product.update({
@@ -918,12 +944,17 @@ export async function approveProduct(productId: string, adminEmail: string, cate
       data: {
         action: "APPROVE_PRODUCT",
         adminEmail,
-        details: `Approved product ${productId}${categoryId ? ` with category ${categoryId}` : ""}`
+        details: `Approved product "${product.name}" (${productId})${categoryId ? ` with category ${categoryId}` : ""}`
       }
     });
 
     if (product.seller?.userId) {
-      await createNotification(product.seller.userId, "Product Approved", `Your product "${product.name}" has been approved and is now live.`, "/seller/dashboard");
+      await createNotification(
+        product.seller.userId,
+        "Product Approved 🎉",
+        `Your product "${product.name}" has been approved by Super Admin and is now live on the marketplace!`,
+        "/seller/dashboard"
+      ).catch(() => {});
     }
 
     return true;
@@ -944,7 +975,7 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       mockPendingProducts = mockPendingProducts.map(p => {
         if (p.id === productId) {
-          return { ...p, isArchived: true };
+          return { ...p, isApproved: false, status: "REJECTED", rejectionReason: reason, isArchived: false };
         }
         return p;
       });
@@ -954,7 +985,12 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
 
     const product = await db.product.update({
       where: { id: productId },
-      data: { isArchived: true },
+      data: { 
+        isApproved: false, 
+        status: "REJECTED", 
+        rejectionReason: reason || "Product claims do not meet sustainable standards.",
+        isArchived: false,
+      },
       include: { seller: true }
     });
 
@@ -962,12 +998,17 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
       data: {
         action: "REJECT_PRODUCT",
         adminEmail,
-        details: `Rejected product ${productId}. Reason: ${reason}`
+        details: `Rejected product "${product.name}" (${productId}). Reason: ${reason}`
       }
     });
 
     if (product.seller?.userId) {
-      await createNotification(product.seller.userId, "Product Rejected", `Your product "${product.name}" was rejected. Reason: ${reason}`, "/seller/dashboard");
+      await createNotification(
+        product.seller.userId,
+        "Product Listing Rejected ❌",
+        `Your product "${product.name}" could not be approved. Reason: ${reason || "Does not comply with sustainable guidelines."}`,
+        "/seller/dashboard"
+      ).catch(() => {});
     }
 
     return true;
@@ -975,7 +1016,7 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
     console.error("rejectProduct failed:", e);
     mockPendingProducts = mockPendingProducts.map(p => {
       if (p.id === productId) {
-        return { ...p, isArchived: true };
+        return { ...p, isApproved: false, status: "REJECTED" };
       }
       return p;
     });
@@ -1393,7 +1434,7 @@ export async function approveDiscount(productId: string): Promise<boolean> {
 
     const updatedDiscount = {
       ...product.individualDiscount,
-      status: "APPROVED",
+      status: "APPROVED" as const,
     };
 
     await updateProduct(productId, {
@@ -1403,6 +1444,8 @@ export async function approveDiscount(productId: string): Promise<boolean> {
       stock: product.stock,
       categoryName: product.category,
       individualDiscount: updatedDiscount as any,
+      reapprovalRequired: false,
+      status: "APPROVED",
     });
 
     if (product.sellerId) {
@@ -1428,7 +1471,7 @@ export async function rejectDiscount(productId: string): Promise<boolean> {
 
     const updatedDiscount = {
       ...product.individualDiscount,
-      status: "REJECTED",
+      status: "REJECTED" as const,
     };
 
     await updateProduct(productId, {
@@ -1438,6 +1481,8 @@ export async function rejectDiscount(productId: string): Promise<boolean> {
       stock: product.stock,
       categoryName: product.category,
       individualDiscount: updatedDiscount as any,
+      reapprovalRequired: false,
+      status: "APPROVED",
     });
 
     if (product.sellerId) {
@@ -1455,4 +1500,102 @@ export async function rejectDiscount(productId: string): Promise<boolean> {
     return false;
   }
 }
+
+export async function getAllProductsForAdminPromotions(): Promise<any[]> {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const all = await getProducts({});
+      return all;
+    }
+
+    const products = await db.product.findMany({
+      where: { isArchived: false },
+      include: {
+        category: true,
+        seller: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      originalPrice: p.originalPrice || p.price,
+      category: p.category.name,
+      sellerName: p.seller.companyName,
+      sellerId: p.sellerId,
+      status: p.status,
+      isApproved: p.isApproved,
+      individualDiscount: (p as any).individualDiscount || null,
+      tierDiscounts: (p as any).tierDiscounts || null,
+      buyXGetYOffer: (p as any).buyXGetYOffer || null,
+    }));
+  } catch (error) {
+    console.error("Failed to fetch products for admin promotions:", error);
+    return [];
+  }
+}
+
+export async function updateProductPromotionsByAdmin(
+  productId: string,
+  promotions: {
+    individualDiscount?: any;
+    tierDiscounts?: any;
+    buyXGetYOffer?: any;
+  },
+  adminEmail: string
+): Promise<boolean> {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const product = await getProductById(productId);
+      if (product) {
+        if (promotions.individualDiscount !== undefined) product.individualDiscount = promotions.individualDiscount;
+        if (promotions.tierDiscounts !== undefined) product.tierDiscounts = promotions.tierDiscounts;
+        if (promotions.buyXGetYOffer !== undefined) product.buyXGetYOffer = promotions.buyXGetYOffer;
+      }
+      return true;
+    }
+
+    const updateData: any = {};
+    if (promotions.individualDiscount !== undefined) {
+      updateData.individualDiscount = promotions.individualDiscount;
+    }
+    if (promotions.tierDiscounts !== undefined) {
+      updateData.tierDiscounts = promotions.tierDiscounts;
+    }
+    if (promotions.buyXGetYOffer !== undefined) {
+      updateData.buyXGetYOffer = promotions.buyXGetYOffer;
+    }
+
+    const updated = await db.product.update({
+      where: { id: productId },
+      data: updateData,
+      include: { seller: true },
+    });
+
+    await db.auditLog.create({
+      data: {
+        action: "UPDATE_PRODUCT_PROMOTIONS",
+        adminEmail,
+        details: `Updated promotional rules for "${updated.name}" (${productId}): ${JSON.stringify(promotions)}`,
+      },
+    }).catch(() => {});
+
+    if (updated.seller?.userId) {
+      await createNotification(
+        updated.seller.userId,
+        "Product Promotions Updated ⚡",
+        `Super Admin updated the promotional configuration for "${updated.name}".`,
+        "/seller/dashboard"
+      ).catch(() => {});
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to update promotions for product ${productId}:`, error);
+    return false;
+  }
+}
+
 
