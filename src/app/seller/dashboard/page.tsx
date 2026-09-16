@@ -809,6 +809,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       stock: Number(editStock),
       productDate: editDate,
       categoryName: editCat,
+      sustainabilityScore: Number(editScore) || 85,
+      sustainabilityDetail: editDetails,
       moq: editMoq ? Number(editMoq) : undefined,
       wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
       originalPrice: editOriginalPrice ? Number(editOriginalPrice) : undefined,
@@ -818,7 +820,9 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       buyXGetYOffer: buyXGetYPayload,
       highlights: validHighlights,
       technicalSpecs: validSpecs,
+      reapprovalRequired: true,
     });
+    toast.info("Product updated and submitted for Super Admin re-approval.");
     setEditingProduct(null);
     reload();
   };
@@ -961,14 +965,27 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                       <span className="text-[9px] text-muted-foreground">orders</span>
                     </TableCell>
                     <TableCell className="py-4">
-                      {p.isApproved === false ? (
-                        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-none text-[9px]">Pending Approval</Badge>
+                      {p.status === "REJECTED" ? (
+                        <div className="space-y-1">
+                          <Badge variant="outline" className="bg-rose-100 text-rose-800 border-none text-[9px] font-bold">
+                            Rejected
+                          </Badge>
+                          {p.rejectionReason && (
+                            <p className="text-[9px] text-rose-600 font-medium max-w-[170px] bg-rose-50 p-1 rounded border border-rose-100 leading-tight break-words" title={p.rejectionReason}>
+                              {p.rejectionReason}
+                            </p>
+                          )}
+                        </div>
+                      ) : p.isApproved === false || p.status === "PENDING_APPROVAL" ? (
+                        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-none text-[9px] font-bold">
+                          Pending Approval
+                        </Badge>
                       ) : isOut ? (
                         <Badge variant="outline" className="bg-red-50 text-red-600 border-none text-[9px]">Out of Stock</Badge>
                       ) : isLow ? (
                         <Badge variant="outline" className="bg-amber-50 text-amber-600 border-none text-[9px]">Low Stock</Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-none text-[9px]">Active</Badge>
+                        <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-none text-[9px] font-bold">Approved / Active</Badge>
                       )}
                     </TableCell>
                     <TableCell className="py-4 text-right">
@@ -1553,6 +1570,7 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodOriginalPrice, setProdOriginalPrice] = useState("");
   const [prodDate, setProdDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [prodSlabs, setProdSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1581,31 +1599,42 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !prodName || !prodPrice) return;
-    const imageUrls = imagePreviews.length > 0 ? imagePreviews.map((img) => img.dataUrl) : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
-    
-    // Process seller highlights and technical specs
-    const validHighlights = prodHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
-    const validSpecs = prodTechSpecs
-      .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
-      .filter((s) => s.length > 0);
+    setIsSubmitting(true);
+    try {
+      const imageUrls = imagePreviews.length > 0 ? imagePreviews.map((img) => img.dataUrl) : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
+      
+      // Process seller highlights and technical specs
+      const validHighlights = prodHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
+      const validSpecs = prodTechSpecs
+        .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
+        .filter((s) => s.length > 0);
 
-    await createProduct({
-      name: prodName,
-      description: prodDesc,
-      price: Number(prodPrice),
-      stock: Number(prodStock),
-      productDate: prodDate,
-      categoryName: prodCat,
-      imageUrls,
-      sellerId: user.id,
-      sellerName: profile?.companyName || "Seller",
-      originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
-      bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,
-      highlights: validHighlights.length > 0 ? validHighlights : undefined,
-      technicalSpecs: validSpecs.length > 0 ? validSpecs : undefined,
-    });
-    reload();
-    onBack();
+      await createProduct({
+        name: prodName,
+        description: prodDesc,
+        price: Number(prodPrice),
+        stock: Number(prodStock),
+        productDate: prodDate,
+        categoryName: prodCat,
+        sustainabilityScore: Number(prodScore) || 85,
+        sustainabilityDetail: prodDetails || "",
+        imageUrls,
+        sellerId: user.id,
+        sellerName: profile?.companyName || "Seller",
+        originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
+        bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,
+        highlights: validHighlights.length > 0 ? validHighlights : undefined,
+        technicalSpecs: validSpecs.length > 0 ? validSpecs : undefined,
+      });
+      toast.success("Product submitted successfully! It is now waiting for Super Admin approval before appearing on the marketplace.");
+      reload();
+      onBack();
+    } catch (err: any) {
+      console.error("Failed to add product:", err);
+      toast.error(err?.message || "Failed to submit product. Please check required fields.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1797,7 +1826,9 @@ function AddProductForm({ onBack, profile, reload }: any) {
               </div>
             </div>
           </div>
-          <MetalButton type="submit" variant="success">Publish Product</MetalButton>
+          <MetalButton type="submit" variant="success" disabled={isSubmitting}>
+            {isSubmitting ? "Submitting for Approval..." : "Publish Product"}
+          </MetalButton>
         </form>
       </Card>
     </div>

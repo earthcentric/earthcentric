@@ -3,8 +3,11 @@ import { BuyXGetYOffer, IndividualDiscount, TierDiscount } from "@/actions/produ
 /**
  * Checks if a Buy X Get Y offer is currently active based on enabled flag and dates
  */
-export function isBuyXGetYActive(offer?: BuyXGetYOffer | null): boolean {
-  if (!offer || !offer.enabled || !offer.buyQuantity || !offer.getQuantity) return false;
+export function isBuyXGetYActive(offer?: any | null): boolean {
+  if (!offer || offer.enabled === false) return false;
+  const buyQty = Number(offer.buyQuantity ?? offer.buyQty ?? 0);
+  const getQty = Number(offer.getQuantity ?? offer.getQty ?? 0);
+  if (buyQty <= 0 || getQty <= 0) return false;
   
   const now = new Date();
   
@@ -26,31 +29,48 @@ export function isBuyXGetYActive(offer?: BuyXGetYOffer | null): boolean {
 /**
  * Calculates the number of free items earned based on purchased quantity and active offer
  */
-export function calculateBuyXGetYFreeItems(quantity: number, offer?: BuyXGetYOffer | null): number {
+export function calculateBuyXGetYFreeItems(quantity: number, offer?: any | null): number {
   if (!isBuyXGetYActive(offer)) return 0;
   
-  const buyQty = Number(offer!.buyQuantity);
-  const getQty = Number(offer!.getQuantity);
+  const buyQty = Number(offer.buyQuantity ?? offer.buyQty ?? 0);
+  const getQty = Number(offer.getQuantity ?? offer.getQty ?? 0);
   
   if (buyQty <= 0 || getQty <= 0) return 0;
   
   const sets = Math.floor(quantity / buyQty);
   let freeItems = sets * getQty;
   
-  if (offer!.maxFreeQuantity && Number(offer!.maxFreeQuantity) > 0) {
-    freeItems = Math.min(freeItems, Number(offer!.maxFreeQuantity));
+  const maxFree = Number(offer.maxFreeQuantity ?? offer.maxFree ?? 0);
+  if (maxFree > 0) {
+    freeItems = Math.min(freeItems, maxFree);
   }
   
   return freeItems;
 }
 
 /**
+ * Convenience helper to calculate BXGY offer directly from a product object
+ */
+export function calculateBXGYOffer(
+  product: { buyXGetYOffer?: any | null } | null | undefined,
+  quantity: number
+): { freeQuantity: number; active: boolean } {
+  const offer = product?.buyXGetYOffer;
+  const active = isBuyXGetYActive(offer);
+  const freeQuantity = calculateBuyXGetYFreeItems(quantity, offer);
+  return { freeQuantity, active };
+}
+
+/**
  * Checks if an Individual Product Discount is currently active and approved.
  */
-export function isIndividualDiscountActive(discount?: IndividualDiscount | null): boolean {
-  if (!discount || discount.status !== "APPROVED" || !discount.discountValue || Number(discount.discountValue) <= 0) {
+export function isIndividualDiscountActive(discount?: any | null): boolean {
+  if (!discount || discount.enabled === false) return false;
+  if (discount.status && discount.status !== "APPROVED") {
     return false;
   }
+  const val = Number(discount.discountValue ?? 0);
+  if (val <= 0) return false;
 
   const now = new Date();
 
@@ -79,8 +99,8 @@ export function getEffectiveUnitPrice(
   product: {
     price: number;
     originalPrice?: number;
-    individualDiscount?: IndividualDiscount | null;
-    tierDiscounts?: TierDiscount[] | null;
+    individualDiscount?: any | null;
+    tierDiscounts?: any | null;
   },
   quantity: number = 1
 ): {
@@ -89,6 +109,7 @@ export function getEffectiveUnitPrice(
   discountAmountPerItem: number;
   discountPercentage: number;
   appliedDiscountType: "INDIVIDUAL" | "TIER" | "NONE";
+  appliedRule: "INDIVIDUAL" | "TIER" | "NONE";
   badgeText?: string;
 } {
   const basePrice = Number(product.price);
@@ -122,8 +143,14 @@ export function getEffectiveUnitPrice(
   }
 
   // 2. Check Tier Discounts (Applies when quantity threshold met)
-  if (product.tierDiscounts && Array.isArray(product.tierDiscounts) && product.tierDiscounts.length > 0) {
-    const eligibleTiers = product.tierDiscounts.filter(t => quantity >= Number(t.minQuantity));
+  const tierConfig = product.tierDiscounts as any;
+  const isTierEnabled = tierConfig ? tierConfig.enabled !== false : true;
+  const rawTiers: any[] = Array.isArray(product.tierDiscounts)
+    ? product.tierDiscounts
+    : (tierConfig?.tiers && Array.isArray(tierConfig.tiers) ? tierConfig.tiers : []);
+
+  if (isTierEnabled && rawTiers.length > 0) {
+    const eligibleTiers = rawTiers.filter(t => quantity >= Number(t.minQuantity));
     for (const tier of eligibleTiers) {
       let tierPrice = basePrice;
       let tierPct = 0;
@@ -168,6 +195,7 @@ export function getEffectiveUnitPrice(
     discountAmountPerItem,
     discountPercentage,
     appliedDiscountType: appliedType,
+    appliedRule: appliedType,
     badgeText,
   };
 }

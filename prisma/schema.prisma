@@ -177,13 +177,17 @@ model Product {
   unit                 String   @default("piece") // e.g. piece, kg, box
   bulkPriceSlabs       Json?    // [{min: 100, price: 150}]
   tierDiscounts        Json?    // [{minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15}]
+  individualDiscount   Json?    // {enabled: true, discountType: "PERCENTAGE", discountValue: 10, startDate: "2026-07-01", endDate: "2026-12-31", status: "APPROVED"}
   buyXGetYOffer        Json?    // {enabled: true, buyQuantity: 2, getQuantity: 1, maxFreeQuantity: 5, startDate: "2026-07-01", endDate: "2026-12-31"}
   materialUsed         String?
   deliveryTime         String?
   returnEligibility    String?
   stock                Int      @default(0)
   productDate          DateTime @default(now())
-  status               ProductStatus @default(DRAFT)
+  sustainabilityScore  Int      @default(85)
+  sustainabilityDetail String?
+  rejectionReason      String?
+  status               ProductStatus @default(PENDING_APPROVAL)
   isApproved           Boolean  @default(false)
   isArchived           Boolean  @default(false)
   createdAt            DateTime @default(now())
