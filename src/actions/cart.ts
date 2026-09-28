@@ -43,7 +43,7 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
     const items: CartItem[] = [];
     for (const item of cart.items) {
       const product = await getProductById(item.productId);
-      if (product) {
+      if (product && product.isApproved && product.status === "APPROVED") {
         items.push({
           id: product.id,
           name: product.name,
@@ -76,7 +76,7 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
     const updatedItems: CartItem[] = [];
     for (const item of cartItems) {
       const product = await getProductById(item.id);
-      if (product) {
+      if (product && product.isApproved && product.status === "APPROVED") {
         updatedItems.push({
           ...item,
           name: product.name,
@@ -90,8 +90,6 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
           individualDiscount: product.individualDiscount || null,
           tierDiscounts: product.tierDiscounts || null,
         });
-      } else {
-        updatedItems.push(item);
       }
     }
     return updatedItems;
@@ -107,6 +105,17 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
 export async function addToDbCart(userId: string, productId: string, quantity: number): Promise<boolean> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      return false;
+    }
+
+    // Verify product exists and is approved for public purchase
+    const product = await db.product.findUnique({
+      where: { id: productId },
+      select: { id: true, isApproved: true, status: true, isArchived: true },
+    });
+
+    if (!product || !product.isApproved || product.status !== "APPROVED" || product.isArchived) {
+      console.warn(`Attempted to add unapproved/archived product ${productId} to cart.`);
       return false;
     }
 

@@ -999,8 +999,8 @@ export default function Navbar() {
                       {isBuyXGetYActive(item.buyXGetYOffer) && (() => {
                         const freeItems = calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer);
                         const savings = freeItems * item.price;
-                        const buyQty = item.buyXGetYOffer!.buyQuantity;
-                        const getQty = item.buyXGetYOffer!.getQuantity;
+                        const buyQty = Number(item.buyXGetYOffer?.buyQuantity || 2);
+                        const getQty = Number(item.buyXGetYOffer?.getQuantity || 1);
                         return (
                           <div className="p-2 rounded-xl bg-[#f0f7f2] border border-[#2d4a36]/20 text-[11px] space-y-0.5">
                             <div className="flex items-center justify-between font-bold text-[#1f3a2e]">

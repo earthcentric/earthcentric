@@ -20,6 +20,7 @@ export interface ProductFilter {
   selectedDate?: string;
   selectedMonth?: string;
   selectedYear?: string;
+  includeUnapproved?: boolean;
 }
 
 export interface SellerInfo {
@@ -39,18 +40,19 @@ export interface TierDiscount {
 
 export interface IndividualDiscount {
   id?: string;
-  discountType: "PERCENTAGE" | "FIXED";
-  discountValue: number;
+  enabled?: boolean;
+  discountType?: "PERCENTAGE" | "FIXED";
+  discountValue?: number;
   startDate?: string | null;
   endDate?: string | null;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status?: "PENDING" | "APPROVED" | "REJECTED";
   createdAt?: string | Date;
 }
 
 export interface BuyXGetYOffer {
   enabled: boolean;
-  buyQuantity: number;
-  getQuantity: number;
+  buyQuantity?: number;
+  getQuantity?: number;
   maxFreeQuantity?: number | null;
   startDate?: string | null;
   endDate?: string | null;
@@ -79,9 +81,9 @@ export interface ProductItem {
   wholesalePrice?: number;
   originalPrice?: number;
   bulkPriceSlabs?: any;
-  tierDiscounts?: TierDiscount[] | null;
-  individualDiscount?: IndividualDiscount | null;
-  buyXGetYOffer?: BuyXGetYOffer | null;
+  tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
+  individualDiscount?: IndividualDiscount | any | null;
+  buyXGetYOffer?: BuyXGetYOffer | any | null;
   highlights?: string[];
   technicalSpecs?: string[];
   status?: string;
@@ -650,8 +652,8 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
     };
 
     // Public marketplace requests only show approved items.
-    // Seller dashboards bypass this to display pending/unapproved/rejected items too.
-    if (!filters.sellerId) {
+    // Seller dashboards pass includeUnapproved: true to display pending/unapproved/rejected items.
+    if (!filters.includeUnapproved) {
       whereClause.isApproved = true;
       whereClause.status = "APPROVED";
     }
@@ -921,12 +923,69 @@ export async function createProduct(data: {
   wholesalePrice?: number;
   originalPrice?: number;
   bulkPriceSlabs?: any;
-  tierDiscounts?: TierDiscount[] | null;
-  individualDiscount?: IndividualDiscount | null;
-  buyXGetYOffer?: BuyXGetYOffer | null;
+  tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
+  individualDiscount?: IndividualDiscount | any | null;
+  buyXGetYOffer?: BuyXGetYOffer | any | null;
   highlights?: string[]; // New optional field for product highlights
   technicalSpecs?: string[]; // New optional field for technical specifications
 }): Promise<ProductItem> {
+  // Input validations
+  if (!data.name || typeof data.name !== "string" || data.name.trim().length < 2) {
+    throw new Error("Product name must be at least 2 characters.");
+  }
+  if (data.price === undefined || isNaN(Number(data.price)) || Number(data.price) <= 0) {
+    throw new Error("Product price must be a valid positive number.");
+  }
+  if (data.stock === undefined || isNaN(Number(data.stock)) || Number(data.stock) < 0) {
+    throw new Error("Product stock must be a non-negative number.");
+  }
+  if (!data.imageUrls || !Array.isArray(data.imageUrls) || data.imageUrls.length === 0) {
+    throw new Error("At least one product image is required.");
+  }
+  if (!data.categoryName || typeof data.categoryName !== "string" || data.categoryName.trim().length === 0) {
+    throw new Error("Category name is required.");
+  }
+
+  // Validate promotional rules if provided
+  if (data.individualDiscount && data.individualDiscount.discountValue !== undefined) {
+    const val = Number(data.individualDiscount.discountValue);
+    if (val <= 0) {
+      throw new Error("Individual discount value must be greater than 0.");
+    }
+    if (data.individualDiscount.discountType === "PERCENTAGE" && val > 100) {
+      throw new Error("Individual discount percentage cannot exceed 100%.");
+    }
+    if (data.individualDiscount.discountType === "FIXED" && val >= Number(data.price)) {
+      throw new Error("Fixed discount amount cannot exceed or equal the product price.");
+    }
+  }
+
+  if (data.tierDiscounts && Array.isArray(data.tierDiscounts)) {
+    for (const t of data.tierDiscounts) {
+      if (!t.minQuantity || Number(t.minQuantity) < 2) {
+        throw new Error("Tier minimum quantity must be at least 2.");
+      }
+      if (!t.discountValue || Number(t.discountValue) <= 0) {
+        throw new Error("Tier discount value must be greater than 0.");
+      }
+      if (t.discountType === "PERCENTAGE" && Number(t.discountValue) > 100) {
+        throw new Error("Tier discount percentage cannot exceed 100%.");
+      }
+      if (t.discountType === "FIXED" && Number(t.discountValue) >= Number(data.price)) {
+        throw new Error("Tier fixed discount cannot exceed or equal the product price.");
+      }
+    }
+  }
+
+  if (data.buyXGetYOffer && data.buyXGetYOffer.enabled) {
+    if (!data.buyXGetYOffer.buyQuantity || Number(data.buyXGetYOffer.buyQuantity) < 1) {
+      throw new Error("Buy X quantity must be at least 1.");
+    }
+    if (!data.buyXGetYOffer.getQuantity || Number(data.buyXGetYOffer.getQuantity) < 1) {
+      throw new Error("Get Y quantity must be at least 1.");
+    }
+  }
+
   try {
     // Process/upload all product images to Cloudinary (will return JSON strings)
     const uploadedImages = await Promise.all(
@@ -1023,7 +1082,7 @@ export async function createProduct(data: {
         isApproved: false,
         rejectionReason: null,
         ...(data.tierDiscounts ? { tierDiscounts: (data.tierDiscounts as any) } : {}),
-        ...(data.individualDiscount ? { individualDiscount: (data.individualDiscount as any) } : {}),
+        ...(data.individualDiscount ? { individualDiscount: { ...(data.individualDiscount as any), status: "PENDING" } } : {}),
         ...(data.buyXGetYOffer ? { buyXGetYOffer: (data.buyXGetYOffer as any) } : {}),
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
@@ -1045,6 +1104,15 @@ export async function createProduct(data: {
       `Seller "${p.seller.companyName}" added a new product "${p.name}" which requires Super Admin approval.`,
       "products"
     ).catch(() => {});
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/marketplace");
+      revalidatePath("/seller/dashboard");
+      revalidatePath("/admin/dashboard");
+    } catch (revalErr) {
+      // Catch in case called from non-request context
+    }
 
     return {
       id: p.id,
@@ -1104,9 +1172,9 @@ export async function updateProduct(
     wholesalePrice?: number;
     originalPrice?: number;
     bulkPriceSlabs?: any;
-    tierDiscounts?: TierDiscount[] | null;
-    individualDiscount?: IndividualDiscount | null;
-    buyXGetYOffer?: BuyXGetYOffer | null;
+    tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
+    individualDiscount?: IndividualDiscount | any | null;
+    buyXGetYOffer?: BuyXGetYOffer | any | null;
     highlights?: string[];
     technicalSpecs?: string[];
     reapprovalRequired?: boolean;
@@ -1186,7 +1254,21 @@ export async function updateProduct(
     if (data.originalPrice !== undefined) updatePayload.originalPrice = data.originalPrice ? Number(data.originalPrice) : null;
     if (data.bulkPriceSlabs !== undefined) updatePayload.bulkPriceSlabs = data.bulkPriceSlabs;
     if (data.tierDiscounts !== undefined) updatePayload.tierDiscounts = data.tierDiscounts as any;
-    if (data.individualDiscount !== undefined) updatePayload.individualDiscount = data.individualDiscount as any;
+    if (data.individualDiscount !== undefined) {
+      const indiv = data.individualDiscount as any;
+      if (indiv && indiv.enabled !== false && Number(indiv.discountValue) > 0) {
+        updatePayload.individualDiscount = {
+          ...indiv,
+          enabled: true,
+          status: indiv.status === "APPROVED" && data.reapprovalRequired === false ? "APPROVED" : "PENDING",
+        };
+      } else {
+        updatePayload.individualDiscount = {
+          enabled: false,
+          discountValue: 0,
+        };
+      }
+    }
     if (data.buyXGetYOffer !== undefined) updatePayload.buyXGetYOffer = data.buyXGetYOffer as any;
     if (data.highlights !== undefined) updatePayload.highlights = data.highlights;
     if (data.technicalSpecs !== undefined) updatePayload.technicalSpecs = data.technicalSpecs;
@@ -1360,6 +1442,10 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
   MOCK_PRODUCTS.forEach((p) => map.set(p.id, p));
   dynamicProducts.forEach((p) => map.set(p.id, p));
   let list = Array.from(map.values());
+
+  if (!filters.includeUnapproved) {
+    list = list.filter((p) => p.isApproved && (p.status === "APPROVED" || !p.status));
+  }
 
   if (filters.sellerId) {
     list = list.filter((p) => p.sellerId === filters.sellerId || p.seller.id === filters.sellerId);

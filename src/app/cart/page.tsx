@@ -101,8 +101,8 @@ export default function CartPage() {
 
                   {/* Buy X Get Y Offer Breakdown */}
                   {isBuyXGetYActive(item.buyXGetYOffer) && (() => {
-                    const buyQty = item.buyXGetYOffer!.buyQuantity;
-                    const getQty = item.buyXGetYOffer!.getQuantity;
+                    const buyQty = Number(item.buyXGetYOffer?.buyQuantity || 2);
+                    const getQty = Number(item.buyXGetYOffer?.getQuantity || 1);
                     const freeItems = calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer);
                     const savings = freeItems * item.price;
                     const neededForNext = buyQty - (item.quantity % buyQty);

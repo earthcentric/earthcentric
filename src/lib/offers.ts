@@ -1,35 +1,63 @@
 import { BuyXGetYOffer, IndividualDiscount, TierDiscount } from "@/actions/products";
 
 /**
- * Checks if a Buy X Get Y offer is currently active based on enabled flag and dates
+ * Checks if a Buy X Get Y offer is currently active based on enabled flag, status, and dates
  */
 export function isBuyXGetYActive(offer?: any | null): boolean {
-  if (!offer || offer.enabled === false) return false;
+  if (!offer) return false;
+  // If explicitly disabled or pending initial approval, not active
+  if (offer.enabled === false) return false;
+  if (offer.approvalStatus === "PENDING_APPROVAL") return false;
+  if (offer.status && offer.status !== "ACTIVE" && offer.status !== "APPROVED") {
+    // If it is in deactivation approval, it stays active until super admin approves deactivation
+    if (offer.approvalStatus !== "PENDING_DEACTIVATION") {
+      return false;
+    }
+  }
+
   const buyQty = Number(offer.buyQuantity ?? offer.buyQty ?? 0);
   const getQty = Number(offer.getQuantity ?? offer.getQty ?? 0);
   if (buyQty <= 0 || getQty <= 0) return false;
   
   const now = new Date();
   
-  if (offer.startDate) {
+  if (offer.startDate && typeof offer.startDate === "string" && offer.startDate.trim() !== "") {
     const start = new Date(offer.startDate);
-    start.setHours(0, 0, 0, 0);
-    if (now < start) return false;
+    if (!isNaN(start.getTime())) {
+      start.setHours(0, 0, 0, 0);
+      if (now < start) return false;
+    }
   }
   
-  if (offer.endDate) {
+  if (offer.endDate && typeof offer.endDate === "string" && offer.endDate.trim() !== "") {
     const end = new Date(offer.endDate);
-    end.setHours(23, 59, 59, 999);
-    if (now > end) return false;
+    if (!isNaN(end.getTime())) {
+      end.setHours(23, 59, 59, 999);
+      if (now > end) return false;
+    }
   }
   
   return true;
 }
 
 /**
- * Calculates the number of free items earned based on purchased quantity and active offer
+ * Calculates the number of free items earned based on purchased quantity and active offer.
+ * Supports either (quantity, offer) or (offer, quantity) invocation signatures.
  */
-export function calculateBuyXGetYFreeItems(quantity: number, offer?: any | null): number {
+export function calculateBuyXGetYFreeItems(arg1: any, arg2?: any): number {
+  let quantity: number;
+  let offer: any;
+
+  if (typeof arg1 === "number") {
+    quantity = arg1;
+    offer = arg2;
+  } else if (typeof arg2 === "number") {
+    quantity = arg2;
+    offer = arg1;
+  } else {
+    return 0;
+  }
+
   if (!isBuyXGetYActive(offer)) return 0;
   
   const buyQty = Number(offer.buyQuantity ?? offer.buyQty ?? 0);
@@ -65,28 +93,67 @@ export function calculateBXGYOffer(
  * Checks if an Individual Product Discount is currently active and approved.
  */
 export function isIndividualDiscountActive(discount?: any | null): boolean {
-  if (!discount || discount.enabled === false) return false;
-  if (discount.status && discount.status !== "APPROVED") {
-    return false;
+  if (!discount) return false;
+  // If explicitly disabled or pending initial approval, not active
+  if (discount.enabled === false) return false;
+  if (discount.approvalStatus === "PENDING_APPROVAL") return false;
+  if (discount.status && discount.status !== "ACTIVE" && discount.status !== "APPROVED") {
+    // If pending deactivation approval, it stays active for buyers
+    if (discount.approvalStatus !== "PENDING_DEACTIVATION") {
+      return false;
+    }
   }
   const val = Number(discount.discountValue ?? 0);
   if (val <= 0) return false;
 
   const now = new Date();
 
-  if (discount.startDate) {
+  if (discount.startDate && typeof discount.startDate === "string" && discount.startDate.trim() !== "") {
     const start = new Date(discount.startDate);
-    start.setHours(0, 0, 0, 0);
-    if (now < start) return false;
+    if (!isNaN(start.getTime())) {
+      start.setHours(0, 0, 0, 0);
+      if (now < start) return false;
+    }
   }
 
-  if (discount.endDate) {
+  if (discount.endDate && typeof discount.endDate === "string" && discount.endDate.trim() !== "") {
     const end = new Date(discount.endDate);
-    end.setHours(23, 59, 59, 999);
-    if (now > end) return false;
+    if (!isNaN(end.getTime())) {
+      end.setHours(23, 59, 59, 999);
+      if (now > end) return false;
+    }
   }
 
   return true;
+}
+
+/**
+ * Checks if a product's Tier Discounts are currently active and enabled.
+ */
+export function isTierDiscountActive(tierDiscounts?: any | null): boolean {
+  if (!tierDiscounts) return false;
+  if (Array.isArray(tierDiscounts)) return tierDiscounts.length > 0;
+  if (tierDiscounts.enabled === false) return false;
+  if (tierDiscounts.approvalStatus === "PENDING_APPROVAL") return false;
+  if (tierDiscounts.status && tierDiscounts.status !== "ACTIVE" && tierDiscounts.status !== "APPROVED") {
+    // If pending deactivation approval, it stays active for buyers
+    if (tierDiscounts.approvalStatus !== "PENDING_DEACTIVATION") {
+      return false;
+    }
+  }
+  const tiers = Array.isArray(tierDiscounts.tiers) ? tierDiscounts.tiers : [];
+  return tiers.length > 0;
+}
+
+/**
+ * Extracts the list of active tiers from a product's tierDiscounts field.
+ */
+export function getProductTiers(tierDiscounts?: any | null): TierDiscount[] {
+  if (!tierDiscounts) return [];
+  if (Array.isArray(tierDiscounts)) return tierDiscounts;
+  if (tierDiscounts.enabled === false) return [];
+  if (tierDiscounts.approvalStatus === "PENDING_APPROVAL") return [];
+  return Array.isArray(tierDiscounts.tiers) ? tierDiscounts.tiers : [];
 }
 
 /**
@@ -101,6 +168,7 @@ export function getEffectiveUnitPrice(
     originalPrice?: number;
     individualDiscount?: any | null;
     tierDiscounts?: any | null;
+    bulkPriceSlabs?: any | null;
   },
   quantity: number = 1
 ): {
@@ -143,13 +211,8 @@ export function getEffectiveUnitPrice(
   }
 
   // 2. Check Tier Discounts (Applies when quantity threshold met)
-  const tierConfig = product.tierDiscounts as any;
-  const isTierEnabled = tierConfig ? tierConfig.enabled !== false : true;
-  const rawTiers: any[] = Array.isArray(product.tierDiscounts)
-    ? product.tierDiscounts
-    : (tierConfig?.tiers && Array.isArray(tierConfig.tiers) ? tierConfig.tiers : []);
-
-  if (isTierEnabled && rawTiers.length > 0) {
+  if (isTierDiscountActive(product.tierDiscounts)) {
+    const rawTiers = getProductTiers(product.tierDiscounts);
     const eligibleTiers = rawTiers.filter(t => quantity >= Number(t.minQuantity));
     for (const tier of eligibleTiers) {
       let tierPrice = basePrice;
@@ -170,6 +233,22 @@ export function getEffectiveUnitPrice(
         badgeText = tier.discountType === "PERCENTAGE" 
           ? `Bulk ${tier.discountValue}% OFF` 
           : `Bulk Save ₹${tier.discountValue}`;
+      }
+    }
+  }
+
+  // 3. Check Bulk Wholesale Slabs
+  if (product.bulkPriceSlabs && Array.isArray(product.bulkPriceSlabs)) {
+    for (const slab of product.bulkPriceSlabs) {
+      const minQty = Number(slab.minQty ?? 0);
+      const maxQty = slab.maxQty !== null && slab.maxQty !== undefined ? Number(slab.maxQty) : Infinity;
+      if (quantity >= minQty && quantity <= maxQty) {
+        const slabPrice = Number(slab.pricePerUnit);
+        if (slabPrice < bestUnitPrice) {
+          bestUnitPrice = slabPrice;
+          appliedType = "TIER";
+          badgeText = `Bulk ₹${slabPrice}/unit`;
+        }
       }
     }
   }

@@ -11,7 +11,7 @@ import { Input, Textarea, Button } from "@/components/ui/shared";
 import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
 import { createEnquiry } from "@/actions/enquiries";
 import { SellerLogo } from "@/components/SellerLogo";
-import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice, isIndividualDiscountActive } from "@/lib/offers";
+import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice, isIndividualDiscountActive, isTierDiscountActive, getProductTiers } from "@/lib/offers";
 import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
 import {
   Star,
@@ -224,27 +224,26 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Find matching bulk price slab if the selected quantity meets or exceeds it
+  // Calculate active unit price accounting for individual product discounts, tier discounts, and bulk slabs
   const getActiveUnitPrice = () => {
-    if (!product.bulkPriceSlabs || !(product.bulkPriceSlabs as any[]).length) {
-      return product.price;
-    }
-    const slabs = [...(product.bulkPriceSlabs as any[])].sort((a, b) => b.min - a.min);
-    const matchingSlab = slabs.find(s => quantity >= s.min);
-    return matchingSlab ? matchingSlab.price : product.price;
+    const effective = getEffectiveUnitPrice(product, quantity);
+    return effective.unitPrice;
   };
 
   const handleAddToCart = () => {
-    const activePrice = getActiveUnitPrice();
     addToCart(
       {
         id: product.id,
         name: product.name,
-        price: activePrice,
+        price: product.price,
+        originalPrice: product.originalPrice,
         image: product.images[0] || "",
         sellerName: product.seller?.companyName || "EarthCentric",
         sellerId: product.sellerId,
         moq: product.moq,
+        individualDiscount: product.individualDiscount,
+        tierDiscounts: product.tierDiscounts,
+        buyXGetYOffer: product.buyXGetYOffer,
       },
       quantity
     );
@@ -549,6 +548,74 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   ) : null}
                 </div>
               )}
+
+              {/* Tier Discounts Card */}
+              {isTierDiscountActive(product.tierDiscounts) && (() => {
+                const tiers = getProductTiers(product.tierDiscounts)
+                  .slice()
+                  .sort((a, b) => Number(a.minQuantity) - Number(b.minQuantity));
+                if (tiers.length === 0) return null;
+
+                return (
+                  <div className="bg-emerald-50/40 border border-emerald-100 rounded-2xl p-4 space-y-2.5 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>📊</span>
+                        <span>Bulk Quantity Tier Discounts</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold font-sans">Click to set quantity</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {tiers.map((tier: any, i: number) => {
+                        const minQ = Number(tier.minQuantity);
+                        const isPerc = tier.discountType === "PERCENTAGE";
+                        const discVal = Number(tier.discountValue);
+                        const unitP = isPerc
+                          ? Math.round(product.price * (1 - discVal / 100))
+                          : Math.max(0, product.price - discVal);
+                        const tierTotal = unitP * minQ;
+                        const regularTotal = product.price * minQ;
+                        const savings = regularTotal - tierTotal;
+                        const isQualifying = quantity >= minQ;
+
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => setQuantity(minQ)}
+                            className={`bg-white border rounded-xl p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md select-none ${
+                              isQualifying
+                                ? "border-[#0F6E56] ring-2 ring-[#0F6E56]/15 bg-emerald-50/10"
+                                : "border-slate-100"
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className="text-xs font-bold text-slate-800 block">Buy {minQ}+ units</span>
+                                <span className="text-[10px] text-slate-400 block mt-0.5">₹{unitP.toLocaleString()} / unit</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-base font-black text-[#0F6E56] block">
+                                  {isPerc ? `${discVal}% OFF` : `₹${discVal} OFF`}
+                                </span>
+                              </div>
+                            </div>
+                            {savings > 0 && (
+                              <div className="mt-2 pt-2 border-t border-slate-50 flex items-center justify-between text-[10px] font-bold">
+                                <span className="text-emerald-700">Save ₹{savings.toLocaleString()} for {minQ} units</span>
+                                {isQualifying && (
+                                  <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[9px]">
+                                    ✓ Active
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Volume Discount Deals Slabs */}
               {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (

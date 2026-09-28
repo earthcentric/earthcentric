@@ -86,6 +86,12 @@ export async function createOrder(data: {
         error: `Cannot purchase "${product.name}". It is not currently active or approved on the marketplace.`
       };
     }
+    if (product.stock !== undefined && product.stock < item.quantity) {
+      return {
+        success: false,
+        error: `Insufficient stock for "${product.name}". Available: ${product.stock}, requested: ${item.quantity}.`
+      };
+    }
 
     const effective = getEffectiveUnitPrice(product, item.quantity);
     const unitPrice = effective.unitPrice;
@@ -98,6 +104,19 @@ export async function createOrder(data: {
       ...item,
       price: unitPrice,
     });
+
+    // Check for active Buy X Get Y promotion
+    const freeQuantity = calculateBuyXGetYFreeItems(product.buyXGetYOffer, item.quantity);
+    if (freeQuantity > 0) {
+      verifiedItems.push({
+        productId: item.productId,
+        name: `${item.name} (Free Item - BXGY Offer)`,
+        price: 0,
+        quantity: freeQuantity,
+        image: item.image,
+        sellerId: item.sellerId || product.sellerId,
+      });
+    }
   }
 
   const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : data.totalAmount;

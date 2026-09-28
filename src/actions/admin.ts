@@ -7,6 +7,8 @@ import { getMockSellersInternal, updateMockSellerStatusInternal, SellerProfile }
 import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId, getProducts, getProductById, updateProduct } from "./products";
 import { createNotification } from "./notifications";
 import { encrypt, decrypt } from "@/lib/encryption";
+import { revalidatePath } from "next/cache";
+import { verifyAdminAuth } from "@/lib/auth-server";
 
 export interface PlatformStats {
   totalRevenue: number;
@@ -958,6 +960,14 @@ export async function approveProduct(productId: string, adminEmail: string, cate
       ).catch(() => {});
     }
 
+    try {
+      revalidatePath("/");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/seller/dashboard");
+    } catch (revalErr) {}
+
     return true;
   } catch (e) {
     console.error("approveProduct failed:", e);
@@ -1011,6 +1021,14 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
         "/seller/dashboard"
       ).catch(() => {});
     }
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/seller/dashboard");
+    } catch (revalErr) {}
 
     return true;
   } catch (e) {
@@ -1411,93 +1429,49 @@ export async function uploadAdBanner(base64Image: string): Promise<string> {
 
 export async function getPendingDiscounts(): Promise<any[]> {
   try {
-    const allProducts = await getProducts({});
-    const productsWithDiscounts = allProducts.filter(p => p.individualDiscount && p.individualDiscount.status);
-    return productsWithDiscounts.map(p => ({
-      productId: p.id,
-      productName: p.name,
-      sellerName: p.seller.companyName,
-      sellerId: p.sellerId,
-      price: p.price,
-      originalPrice: p.originalPrice || p.price,
-      discount: p.individualDiscount,
-    }));
+    const { getAllDiscountApprovalRequests } = await import("@/actions/discounts");
+    const requests = await getAllDiscountApprovalRequests({ status: "ALL" });
+    return requests;
   } catch (error) {
     console.error("Failed to fetch pending discounts:", error);
     return [];
   }
 }
 
-export async function approveDiscount(productId: string): Promise<boolean> {
+export async function approveDiscount(requestIdOrProductId: string, adminEmail: string = "admin@earthcentric.com"): Promise<boolean> {
   try {
-    const product = await getProductById(productId);
-    if (!product || !product.individualDiscount) return false;
-
-    const updatedDiscount = {
-      ...product.individualDiscount,
-      status: "APPROVED" as const,
-    };
-
-    await updateProduct(productId, {
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      stock: product.stock,
-      categoryName: product.category,
-      individualDiscount: updatedDiscount as any,
-      reapprovalRequired: false,
-      status: "APPROVED",
-    });
-
-    if (product.sellerId) {
-      await createNotification(
-        product.sellerId,
-        "Product Discount Approved 🎉",
-        `Your discount for product "${product.name}" has been approved by Super Admin and is now active!`,
-        "/seller/dashboard"
-      ).catch(() => {});
+    const { approveDiscountRequest, getAllDiscountApprovalRequests } = await import("@/actions/discounts");
+    
+    // Check if passed string is a requestId
+    let res = await approveDiscountRequest(requestIdOrProductId, adminEmail);
+    if (!res.success) {
+      // If not a requestId, search pending requests by productId
+      const pending = await getAllDiscountApprovalRequests({ productId: requestIdOrProductId, status: "PENDING" });
+      if (pending.length > 0) {
+        res = await approveDiscountRequest(pending[0].id, adminEmail);
+      }
     }
-
-    return true;
+    return res.success;
   } catch (error) {
-    console.error(`Failed to approve discount for product ${productId}:`, error);
+    console.error(`Failed to approve discount for ${requestIdOrProductId}:`, error);
     return false;
   }
 }
 
-export async function rejectDiscount(productId: string): Promise<boolean> {
+export async function rejectDiscount(requestIdOrProductId: string, rejectionReason?: string, adminEmail: string = "admin@earthcentric.com"): Promise<boolean> {
   try {
-    const product = await getProductById(productId);
-    if (!product || !product.individualDiscount) return false;
-
-    const updatedDiscount = {
-      ...product.individualDiscount,
-      status: "REJECTED" as const,
-    };
-
-    await updateProduct(productId, {
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      stock: product.stock,
-      categoryName: product.category,
-      individualDiscount: updatedDiscount as any,
-      reapprovalRequired: false,
-      status: "APPROVED",
-    });
-
-    if (product.sellerId) {
-      await createNotification(
-        product.sellerId,
-        "Product Discount Rejected ⚠️",
-        `Your discount request for product "${product.name}" was reviewed and rejected by Super Admin.`,
-        "/seller/dashboard"
-      ).catch(() => {});
+    const { rejectDiscountRequest, getAllDiscountApprovalRequests } = await import("@/actions/discounts");
+    
+    let res = await rejectDiscountRequest(requestIdOrProductId, rejectionReason, adminEmail);
+    if (!res.success) {
+      const pending = await getAllDiscountApprovalRequests({ productId: requestIdOrProductId, status: "PENDING" });
+      if (pending.length > 0) {
+        res = await rejectDiscountRequest(pending[0].id, rejectionReason, adminEmail);
+      }
     }
-
-    return true;
+    return res.success;
   } catch (error) {
-    console.error(`Failed to reject discount for product ${productId}:`, error);
+    console.error(`Failed to reject discount for ${requestIdOrProductId}:`, error);
     return false;
   }
 }
@@ -1558,6 +1532,49 @@ export async function updateProductPromotionsByAdmin(
       return true;
     }
 
+    const existingProduct = await db.product.findUnique({ where: { id: productId } });
+    if (!existingProduct) {
+      throw new Error(`Product not found: ${productId}`);
+    }
+
+    // Input validation for promotions
+    if (promotions.individualDiscount && promotions.individualDiscount.discountValue !== undefined) {
+      const val = Number(promotions.individualDiscount.discountValue);
+      if (val <= 0) throw new Error("Individual discount value must be greater than 0.");
+      if (promotions.individualDiscount.discountType === "PERCENTAGE" && val > 100) {
+        throw new Error("Individual discount percentage cannot exceed 100%.");
+      }
+      if (promotions.individualDiscount.discountType === "FIXED" && val >= existingProduct.price) {
+        throw new Error("Fixed discount amount cannot exceed or equal the product price.");
+      }
+    }
+
+    if (promotions.tierDiscounts && Array.isArray(promotions.tierDiscounts)) {
+      for (const t of promotions.tierDiscounts) {
+        if (!t.minQuantity || Number(t.minQuantity) < 2) {
+          throw new Error("Tier minimum quantity must be at least 2.");
+        }
+        if (!t.discountValue || Number(t.discountValue) <= 0) {
+          throw new Error("Tier discount value must be greater than 0.");
+        }
+        if (t.discountType === "PERCENTAGE" && Number(t.discountValue) > 100) {
+          throw new Error("Tier discount percentage cannot exceed 100%.");
+        }
+        if (t.discountType === "FIXED" && Number(t.discountValue) >= existingProduct.price) {
+          throw new Error("Tier fixed discount cannot exceed or equal the product price.");
+        }
+      }
+    }
+
+    if (promotions.buyXGetYOffer && promotions.buyXGetYOffer.enabled) {
+      if (!promotions.buyXGetYOffer.buyQuantity || Number(promotions.buyXGetYOffer.buyQuantity) < 1) {
+        throw new Error("Buy X quantity must be at least 1.");
+      }
+      if (!promotions.buyXGetYOffer.getQuantity || Number(promotions.buyXGetYOffer.getQuantity) < 1) {
+        throw new Error("Get Y quantity must be at least 1.");
+      }
+    }
+
     const updateData: any = {};
     if (promotions.individualDiscount !== undefined) {
       updateData.individualDiscount = promotions.individualDiscount;
@@ -1591,6 +1608,14 @@ export async function updateProductPromotionsByAdmin(
         "/seller/dashboard"
       ).catch(() => {});
     }
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/seller/dashboard");
+    } catch (revalErr) {}
 
     return true;
   } catch (error) {

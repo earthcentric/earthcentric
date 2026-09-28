@@ -343,9 +343,14 @@ export default function MarketplaceClient() {
       id: p.id,
       name: p.name,
       price: p.price,
+      originalPrice: p.originalPrice,
       image: p.images[0] || "",
       sellerName: p.seller.companyName,
       sellerId: p.sellerId,
+      moq: p.moq,
+      buyXGetYOffer: p.buyXGetYOffer || null,
+      individualDiscount: p.individualDiscount || null,
+      tierDiscounts: p.tierDiscounts || null,
     }, 1);
 
     setAddedItemName(p.name);

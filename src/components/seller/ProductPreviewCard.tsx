@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Star, Leaf, Tag, Gift, Layers, CheckCircle2, AlertTriangle, XCircle, Info, X, ShieldCheck } from "lucide-react";
 import { ProductItem, getProductById } from "@/actions/products";
-import { getEffectiveUnitPrice, isIndividualDiscountActive, isBuyXGetYActive } from "@/lib/offers";
+import { getEffectiveUnitPrice, isIndividualDiscountActive, isBuyXGetYActive, isTierDiscountActive, getProductTiers } from "@/lib/offers";
 
 // In-memory global product cache to avoid redundant API fetches
 const productCache = new Map<string, ProductItem>();
@@ -156,7 +156,7 @@ function CardContent({ product, loading }: { product: ProductItem | null; loadin
   const effective = getEffectiveUnitPrice(product, 1);
   const isApprovedDisc = isIndividualDiscountActive(product.individualDiscount);
   const isBuyXGetY = isBuyXGetYActive(product.buyXGetYOffer);
-  const hasTierDiscounts = Array.isArray(product.tierDiscounts) && product.tierDiscounts.length > 0;
+  const hasTierDiscounts = isTierDiscountActive(product.tierDiscounts);
 
   // Status Badge formatting
   let statusBadge = (
@@ -286,7 +286,7 @@ function CardContent({ product, loading }: { product: ProductItem | null; loadin
                 <span>Tier Volume Pricing</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {product.tierDiscounts!.map((tier, idx) => (
+                {getProductTiers(product.tierDiscounts).map((tier: any, idx: number) => (
                   <span key={idx} className="bg-white border border-slate-200 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-md shadow-2xs">
                     Buy {tier.minQuantity}+ → {tier.discountType === "PERCENTAGE" ? `${tier.discountValue}% OFF` : `Save ₹${tier.discountValue}`}
                   </span>

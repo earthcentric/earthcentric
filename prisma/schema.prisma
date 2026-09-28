@@ -131,6 +131,7 @@ model Seller {
   reviews        Review[] // Direct reviews of the seller
   payoutRequests PayoutRequest[]
   orders         Order[]
+  discountRequests DiscountApprovalRequest[]
 }
 
 model SellerDocument {
@@ -200,6 +201,7 @@ model Product {
   wishlistItems  WishlistItem[]
   reviews        Review[]
   enquiries      Enquiry[]
+  discountRequests DiscountApprovalRequest[]
 }
 
 model ProductCertification {
@@ -453,4 +455,47 @@ model SystemCredential {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+enum DiscountType {
+  INDIVIDUAL
+  TIER
+  BUY_X_GET_Y
+}
+
+enum DiscountRequestedAction {
+  ACTIVATE
+  DEACTIVATE
+  UPDATE
+}
+
+enum DiscountApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model DiscountApprovalRequest {
+  id              String                  @id @default(cuid())
+  sellerId        String
+  seller          Seller                  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  discountType    DiscountType            // INDIVIDUAL, TIER, BUY_X_GET_Y
+  requestedAction DiscountRequestedAction // ACTIVATE, DEACTIVATE, UPDATE
+  status          DiscountApprovalStatus  @default(PENDING) // PENDING, APPROVED, REJECTED
+  proposedConfig  Json                    // The proposed discount configuration
+  currentConfig   Json?                   // Snapshot of current configuration at request time
+  rejectionReason String?
+  requestedBy     String?                 // seller user id or email
+  reviewedBy      String?                 // admin user id or email
+  requestedAt     DateTime                @default(now())
+  reviewedAt      DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([sellerId])
+  @@index([productId])
+  @@index([status])
+}
+
 

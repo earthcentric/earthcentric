@@ -274,7 +274,7 @@ export default function AdminDashboard() {
             <SidebarLink icon={ShieldAlert} label="Seller Verification" value="sellers" />
             <SidebarLink icon={Users} label="User Management" value="users" />
             <SidebarLink icon={PackageCheck} label="Product Approval" value="products" />
-            <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" badge={pendingDiscounts.filter((d: any) => d.discount?.status === "PENDING").length} />
+            <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" badge={pendingDiscounts.filter((d: any) => (d.status || d.discount?.status) === "PENDING").length} />
             <SidebarLink icon={Mail} label="Messages" value="messages" badge={messagesUnreadCount} />
             <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
             <SidebarLink icon={Wallet} label="Payments" value="payments" />
@@ -1008,18 +1008,38 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
 
   const handleApproveConfirm = async () => {
     if (!approveId) return;
-    await approveProduct(approveId, adminEmail || "admin@earthcentric.com", selectedCategoryId || undefined);
-    setApproveId(null);
-    setSelectedCategoryId("");
-    reload();
+    try {
+      const ok = await approveProduct(approveId, adminEmail || "admin@earthcentric.com", selectedCategoryId || undefined);
+      if (ok) {
+        toast.success("Product approved and is now live on the marketplace!");
+      } else {
+        toast.error("Failed to approve product.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to approve product.");
+    } finally {
+      setApproveId(null);
+      setSelectedCategoryId("");
+      reload();
+    }
   };
 
   const handleReject = async () => {
     if (!rejectId) return;
-    await rejectProduct(rejectId, rejectReason || "Product claims do not meet sustainable standards.", adminEmail || "admin@earthcentric.com");
-    setRejectId(null);
-    setRejectReason("");
-    reload();
+    try {
+      const ok = await rejectProduct(rejectId, rejectReason || "Product claims do not meet sustainable standards.", adminEmail || "admin@earthcentric.com");
+      if (ok) {
+        toast.success("Product rejected. Seller has been notified.");
+      } else {
+        toast.error("Failed to reject product.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to reject product.");
+    } finally {
+      setRejectId(null);
+      setRejectReason("");
+      reload();
+    }
   };
 
 
@@ -2374,6 +2394,11 @@ function CredentialsManagerView({ credentials, reload, globalSearch }: { credent
 function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSearch }: { pendingDiscounts: any[]; reload: () => void; adminEmail?: string; globalSearch?: string }) {
   const [subTab, setSubTab] = useState<"pending" | "catalog">("pending");
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [discountStatusFilter, setDiscountStatusFilter] = useState<"PENDING" | "APPROVED" | "REJECTED" | "ALL">("PENDING");
+
+  // Rejection modal state
+  const [rejectModalItem, setRejectModalItem] = useState<any | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState("");
 
   // Catalog promotions state
   const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
@@ -2546,34 +2571,84 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
     }
   };
 
-  const handleApprove = async (productId: string) => {
-    setProcessingId(productId);
-    const ok = await approveDiscount(productId);
+  const handleApprove = async (item: any) => {
+    const idToUse = item.id || item.productId;
+    setProcessingId(idToUse);
+    const ok = await approveDiscount(idToUse, adminEmail || "admin@earthcentric.com");
     setProcessingId(null);
     if (ok) {
-      toast.success("Discount approved successfully!");
+      toast.success("Discount request approved successfully! Live status updated.");
       loadCatalog();
-    } else toast.error("Failed to approve discount.");
+    } else {
+      toast.error("Failed to approve discount.");
+    }
     reload();
   };
 
-  const handleReject = async (productId: string) => {
-    setProcessingId(productId);
-    const ok = await rejectDiscount(productId);
+  const openRejectModal = (item: any) => {
+    setRejectModalItem(item);
+    setRejectionReasonInput("");
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectModalItem) return;
+    const idToUse = rejectModalItem.id || rejectModalItem.productId;
+    setProcessingId(idToUse);
+    const ok = await rejectDiscount(idToUse, rejectionReasonInput || "Does not meet promotional policy guidelines.", adminEmail || "admin@earthcentric.com");
     setProcessingId(null);
+    setRejectModalItem(null);
     if (ok) {
-      toast.success("Discount rejected.");
+      toast.success("Discount request rejected.");
       loadCatalog();
-    } else toast.error("Failed to reject discount.");
+    } else {
+      toast.error("Failed to reject discount.");
+    }
     reload();
   };
 
-  const displayDiscounts = globalSearch
-    ? pendingDiscounts.filter((d: any) =>
-        d.productName?.toLowerCase().includes(globalSearch.toLowerCase()) ||
-        d.sellerName?.toLowerCase().includes(globalSearch.toLowerCase())
-      )
-    : pendingDiscounts;
+  // Filter normalization
+  const normalizedDiscounts = pendingDiscounts.map((item: any) => {
+    // If legacy format where discount is inside item.discount
+    if (item.discount && !item.discountType) {
+      return {
+        id: item.productId,
+        sellerId: item.sellerId || "",
+        sellerName: item.sellerName || "Seller",
+        productId: item.productId,
+        productName: item.productName || "Product",
+        productPrice: Number(item.price || item.originalPrice || 259),
+        originalPrice: Number(item.originalPrice || item.price || 259),
+        discountType: "INDIVIDUAL",
+        requestedAction: "ACTIVATE",
+        status: item.discount.status || "PENDING",
+        proposedConfig: item.discount,
+        currentConfig: null,
+        requestedAt: new Date(),
+      };
+    }
+    return item;
+  });
+
+  const displayDiscounts = normalizedDiscounts.filter((d: any) => {
+    const q = (globalSearch || "").toLowerCase();
+    if (!q) return true;
+    return (
+      d.productName?.toLowerCase().includes(q) ||
+      d.sellerName?.toLowerCase().includes(q) ||
+      d.discountType?.toLowerCase().includes(q) ||
+      d.requestedAction?.toLowerCase().includes(q)
+    );
+  });
+
+  const pendingCount = displayDiscounts.filter((d: any) => (d.status || d.discount?.status) === "PENDING").length;
+  const approvedCount = displayDiscounts.filter((d: any) => (d.status || d.discount?.status) === "APPROVED").length;
+  const rejectedCount = displayDiscounts.filter((d: any) => (d.status || d.discount?.status) === "REJECTED").length;
+
+  const filteredDiscounts = displayDiscounts.filter((d: any) => {
+    const st = d.status || d.discount?.status || "PENDING";
+    if (discountStatusFilter === "ALL") return true;
+    return st === discountStatusFilter;
+  });
 
   const displayCatalog = catalogProducts.filter((p: any) => {
     const q = (promoSearch || globalSearch || "").toLowerCase();
@@ -2591,10 +2666,10 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
         <div>
           <h1 className="text-2xl font-extrabold text-[#1a3321] flex items-center space-x-2">
             <Tag className="h-6 w-6 text-emerald-700" />
-            <span>Promotions & Promotional Rules</span>
+            <span>Promotions & Discount Approval Workflow</span>
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Review seller discount requests or directly configure Individual Discounts, Volume Tiers, and Buy X Get Y Free offers across EarthCentric products.
+            Super Admin approval dashboard for seller discount activations, deactivations, tier volume rules, and Buy X Get Y Free offers.
           </p>
         </div>
 
@@ -2602,20 +2677,20 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
         <div className="flex items-center space-x-2 bg-[#e9ece6] p-1 rounded-xl self-start">
           <button
             onClick={() => setSubTab("pending")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               subTab === "pending"
                 ? "bg-white text-[#1a3321] shadow-sm"
                 : "text-muted-foreground hover:text-[#1a3321]"
             }`}
           >
-            Pending Requests ({pendingDiscounts.filter((d: any) => d.discount?.status === "PENDING").length})
+            Discount Requests ({displayDiscounts.length})
           </button>
           <button
             onClick={() => {
               setSubTab("catalog");
               loadCatalog();
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               subTab === "catalog"
                 ? "bg-white text-[#1a3321] shadow-sm"
                 : "text-muted-foreground hover:text-[#1a3321]"
@@ -2627,96 +2702,338 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
       </div>
 
       {subTab === "pending" && (
-        <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
-                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Product & Seller</TableHead>
-                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Original Price</TableHead>
-                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Discount Offered</TableHead>
-                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Final Selling Price</TableHead>
-                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Status</TableHead>
-                <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayDiscounts.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-xs text-muted-foreground">
-                    No discount requests found pending review.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                displayDiscounts.map((item: any) => {
-                  const disc = item.discount;
-                  const origPrice = Number(item.originalPrice || item.price);
-                  let finalPrice = origPrice;
-                  if (disc.discountType === "PERCENTAGE") {
-                    finalPrice = Math.max(0, origPrice - (origPrice * Number(disc.discountValue)) / 100);
-                  } else if (disc.discountType === "FIXED") {
-                    finalPrice = Math.max(0, origPrice - Number(disc.discountValue));
-                  }
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-muted-foreground">Filter by status:</span>
+            <button
+              onClick={() => setDiscountStatusFilter("PENDING")}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                discountStatusFilter === "PENDING"
+                  ? "bg-amber-100 text-amber-900 border border-amber-300 shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Pending Approval ({pendingCount})
+            </button>
+            <button
+              onClick={() => setDiscountStatusFilter("APPROVED")}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                discountStatusFilter === "APPROVED"
+                  ? "bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Approved ({approvedCount})
+            </button>
+            <button
+              onClick={() => setDiscountStatusFilter("REJECTED")}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                discountStatusFilter === "REJECTED"
+                  ? "bg-rose-100 text-rose-900 border border-rose-300 shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Rejected ({rejectedCount})
+            </button>
+            <button
+              onClick={() => setDiscountStatusFilter("ALL")}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                discountStatusFilter === "ALL"
+                  ? "bg-[#1a3321] text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              All ({displayDiscounts.length})
+            </button>
+          </div>
 
-                  return (
-                    <TableRow key={item.productId} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
-                      <TableCell className="py-4">
-                        <div>
-                          <p className="text-xs font-bold text-[#1a3321]">{item.productName}</p>
-                          <p className="text-[10px] text-muted-foreground">by {item.sellerName}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-4 text-xs font-semibold text-muted-foreground">
-                        ₹{origPrice}
-                      </TableCell>
-                      <TableCell className="py-4">
-                        <Badge variant="outline" className="text-xs font-bold bg-amber-50 text-amber-700 border-amber-200">
-                          {disc.discountType === "PERCENTAGE" ? `${disc.discountValue}% OFF` : `₹${disc.discountValue} OFF`}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-4 text-xs font-bold text-emerald-700">
-                        ₹{finalPrice}
-                      </TableCell>
-                      <TableCell className="py-4">
-                        {disc.status === "APPROVED" ? (
-                          <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[10px] font-bold">APPROVED</Badge>
-                        ) : disc.status === "REJECTED" ? (
-                          <Badge className="bg-rose-50 text-rose-700 border-none text-[10px] font-bold">REJECTED</Badge>
-                        ) : (
-                          <Badge className="bg-amber-50 text-amber-700 border-none text-[10px] font-bold">PENDING APPROVAL</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-4 text-right pr-6 space-x-2">
-                        {disc.status === "PENDING" ? (
-                          <>
-                            <Button
-                              size="sm"
-                              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 h-8 rounded-lg cursor-pointer"
-                              disabled={processingId === item.productId}
-                              onClick={() => handleApprove(item.productId)}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="text-xs px-3 h-8 rounded-lg cursor-pointer"
-                              disabled={processingId === item.productId}
-                              onClick={() => handleReject(item.productId)}
-                            >
-                              Reject
-                            </Button>
-                          </>
-                        ) : (
-                          <span className="text-xs text-muted-foreground italic">Reviewed</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </Card>
+          <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Seller & Product</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Discount Type</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Requested Action</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Discount Details</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Dates & Requested At</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4">Status & Live State</TableHead>
+                  <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Decision Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredDiscounts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-12 text-xs text-muted-foreground">
+                      No discount requests found for status &quot;{discountStatusFilter.toLowerCase()}&quot;.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredDiscounts.map((item: any) => {
+                    const reqAction = item.requestedAction || "ACTIVATE";
+                    const discType = item.discountType || "INDIVIDUAL";
+                    const cfg = item.proposedConfig || item.discount || {};
+                    const origPrice = Number(item.originalPrice || item.productPrice || item.price || 259);
+                    const itemStatus = item.status || item.discount?.status || "PENDING";
+
+                    // Pricing breakdown for individual discounts
+                    let discountAmount = 0;
+                    let finalPrice = origPrice;
+                    if (discType === "INDIVIDUAL") {
+                      const val = Number(cfg.discountValue || 0);
+                      if (cfg.discountType === "PERCENTAGE") {
+                        discountAmount = (origPrice * val) / 100;
+                        finalPrice = Math.max(0, origPrice - discountAmount);
+                      } else {
+                        discountAmount = val;
+                        finalPrice = Math.max(0, origPrice - discountAmount);
+                      }
+                    }
+
+                    // Determine current live state
+                    let liveStateLabel = "INACTIVE";
+                    let liveStateClass = "bg-slate-100 text-slate-700";
+                    if (itemStatus === "APPROVED" && (reqAction === "ACTIVATE" || reqAction === "UPDATE")) {
+                      liveStateLabel = "ACTIVE (Live for Buyers)";
+                      liveStateClass = "bg-emerald-100 text-emerald-800 font-bold";
+                    } else if (itemStatus === "PENDING" && reqAction === "DEACTIVATE") {
+                      liveStateLabel = "ACTIVE (Live until approved)";
+                      liveStateClass = "bg-amber-100 text-amber-900 font-bold border border-amber-300";
+                    } else if (itemStatus === "REJECTED" && reqAction === "DEACTIVATE") {
+                      liveStateLabel = "ACTIVE (Deactivation rejected)";
+                      liveStateClass = "bg-emerald-100 text-emerald-800 font-bold";
+                    } else if (itemStatus === "PENDING" && reqAction === "UPDATE") {
+                      liveStateLabel = "ACTIVE (Old config live)";
+                      liveStateClass = "bg-sky-100 text-sky-800 font-bold";
+                    }
+
+                    const requestedDateFormatted = item.requestedAt
+                      ? new Date(item.requestedAt).toLocaleString("en-GB", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Recently";
+
+                    return (
+                      <TableRow key={item.id || item.productId} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
+                        {/* 1. Seller & Product */}
+                        <TableCell className="py-4">
+                          <div>
+                            <p className="text-xs font-bold text-[#1a3321]">{item.productName}</p>
+                            <p className="text-[10px] text-muted-foreground">Seller: <strong className="text-foreground">{item.sellerName}</strong></p>
+                            <p className="text-[10px] text-slate-400">Base Price: ₹{origPrice}</p>
+                          </div>
+                        </TableCell>
+
+                        {/* 2. Discount Type Badge */}
+                        <TableCell className="py-4">
+                          {discType === "INDIVIDUAL" ? (
+                            <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-bold">
+                              🏷️ Individual Discount
+                            </Badge>
+                          ) : discType === "TIER" ? (
+                            <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-[10px] font-bold">
+                              📊 Tier Discounts
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-purple-50 text-purple-800 border-purple-200 text-[10px] font-bold">
+                              🎁 Buy X Get Y Free
+                            </Badge>
+                          )}
+                        </TableCell>
+
+                        {/* 3. Requested Action Badge */}
+                        <TableCell className="py-4">
+                          {reqAction === "ACTIVATE" ? (
+                            <Badge className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold">
+                              ▲ ACTIVATE
+                            </Badge>
+                          ) : reqAction === "DEACTIVATE" ? (
+                            <Badge className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold">
+                              ▼ DEACTIVATE
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-sky-100 text-sky-900 border border-sky-300 text-[10px] font-extrabold">
+                              ⚡ UPDATE
+                            </Badge>
+                          )}
+                        </TableCell>
+
+                        {/* 4. Discount Details */}
+                        <TableCell className="py-4">
+                          {reqAction === "DEACTIVATE" ? (
+                            <span className="text-[11px] text-muted-foreground italic">Request to disable active discount</span>
+                          ) : discType === "INDIVIDUAL" ? (
+                            <div className="text-xs space-y-0.5">
+                              <p className="font-bold text-[#1a3321]">
+                                {cfg.discountType === "PERCENTAGE" ? `${cfg.discountValue}% OFF` : `₹${cfg.discountValue} FLAT OFF`}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                Disc: <span className="text-amber-700 font-bold">-₹{discountAmount.toFixed(2)}</span> → Final: <span className="text-emerald-700 font-extrabold">₹{finalPrice.toFixed(2)}</span>
+                              </p>
+                            </div>
+                          ) : discType === "TIER" ? (
+                            <div className="text-[11px] space-y-0.5">
+                              {Array.isArray(cfg.tiers) && cfg.tiers.length > 0 ? (
+                                cfg.tiers.map((t: any, idx: number) => (
+                                  <p key={idx} className="font-semibold text-slate-700">
+                                    Buy {t.minQuantity}+ → {t.discountType === "PERCENTAGE" ? `${t.discountValue}% off` : `₹${t.discountValue} off`}
+                                  </p>
+                                ))
+                              ) : (
+                                <span className="text-muted-foreground">No tiers defined</span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-xs space-y-0.5">
+                              <p className="font-bold text-purple-900">
+                                Buy {cfg.buyQuantity ?? cfg.buyQty ?? 2} → Get {cfg.getQuantity ?? cfg.getQty ?? 1} FREE
+                              </p>
+                              {(cfg.maxFreeQuantity ?? cfg.maxFree) && (
+                                <p className="text-[10px] text-muted-foreground">Max free: {cfg.maxFreeQuantity ?? cfg.maxFree} units</p>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+
+                        {/* 5. Dates & Requested At */}
+                        <TableCell className="py-4">
+                          <div className="text-[10px] space-y-0.5">
+                            <p className="text-muted-foreground">
+                              Requested: <strong className="text-slate-700">{requestedDateFormatted}</strong>
+                            </p>
+                            {(cfg.startDate || cfg.endDate) && (
+                              <p className="text-slate-500 font-medium">
+                                Period: {cfg.startDate || "Immediate"} to {cfg.endDate || "Ongoing"}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* 6. Status & Live State */}
+                        <TableCell className="py-4">
+                          <div className="space-y-1">
+                            <div>
+                              {itemStatus === "APPROVED" ? (
+                                <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[10px] font-bold">APPROVED</Badge>
+                              ) : itemStatus === "REJECTED" ? (
+                                <Badge className="bg-rose-50 text-rose-700 border-none text-[10px] font-bold">REJECTED</Badge>
+                              ) : (
+                                <Badge className="bg-amber-50 text-amber-700 border-none text-[10px] font-bold">PENDING APPROVAL</Badge>
+                              )}
+                            </div>
+                            <div className="text-[9px]">
+                              <span className={`px-1.5 py-0.5 rounded-sm ${liveStateClass}`}>
+                                Live: {liveStateLabel}
+                              </span>
+                            </div>
+                            {item.rejectionReason && itemStatus === "REJECTED" && (
+                              <p className="text-[9px] text-rose-600 bg-rose-50 p-1 rounded border border-rose-100 max-w-[160px] break-words">
+                                Reason: {item.rejectionReason}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* 7. Decision Actions */}
+                        <TableCell className="py-4 text-right pr-6 space-x-2">
+                          {itemStatus === "PENDING" ? (
+                            <>
+                              <Button
+                                size="sm"
+                                className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 h-8 rounded-lg cursor-pointer"
+                                disabled={processingId === (item.id || item.productId)}
+                                onClick={() => handleApprove(item)}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="text-xs px-3 h-8 rounded-lg cursor-pointer"
+                                disabled={processingId === (item.id || item.productId)}
+                                onClick={() => openRejectModal(item)}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              Reviewed by {item.reviewedBy ? item.reviewedBy.split("@")[0] : "Admin"}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Rejection Reason Modal for Super Admin ── */}
+      {rejectModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !processingId && setRejectModalItem(null)} />
+          <Card className="relative w-full max-w-md bg-white border border-[#e9ece6] rounded-2xl shadow-2xl z-10 p-6 space-y-4 text-left">
+            <div className="flex items-start justify-between border-b border-[#e9ece6] pb-3">
+              <div>
+                <h3 className="font-extrabold text-base text-[#1a3321]">Reject Discount Request</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Provide a clear reason for rejecting this discount request. The seller will receive a notification with this feedback.
+                </p>
+              </div>
+              <button
+                onClick={() => !processingId && setRejectModalItem(null)}
+                className="text-muted-foreground hover:text-[#1a3321] p-1 rounded-full"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+              <p><strong className="text-[#1a3321]">Seller:</strong> {rejectModalItem.sellerName}</p>
+              <p><strong className="text-[#1a3321]">Product:</strong> {rejectModalItem.productName}</p>
+              <p><strong className="text-[#1a3321]">Discount Type:</strong> {rejectModalItem.discountType}</p>
+              <p><strong className="text-[#1a3321]">Action:</strong> {rejectModalItem.requestedAction}</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-[#1a3321]">Rejection Reason / Feedback</Label>
+              <Textarea
+                placeholder="e.g. Discount percentage is higher than maximum allowed (40%), minimum tier quantity too low, etc."
+                value={rejectionReasonInput}
+                onChange={(e) => setRejectionReasonInput(e.target.value)}
+                className="text-xs h-24 rounded-xl"
+              />
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#e9ece6]">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRejectModalItem(null)}
+                disabled={Boolean(processingId)}
+                className="text-xs rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleConfirmReject}
+                disabled={Boolean(processingId)}
+                className="text-xs rounded-xl font-bold"
+              >
+                {processingId ? "Rejecting..." : "Confirm Rejection"}
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
 
       {subTab === "catalog" && (

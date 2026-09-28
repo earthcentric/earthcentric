@@ -238,6 +238,34 @@ export async function getAdminNotifications() {
       }
     });
 
+    // 5. Fetch pending discount requests
+    try {
+      const pendingDiscounts = await (db as any).discountApprovalRequest.findMany({
+        where: { status: "PENDING" },
+        include: {
+          product: { select: { name: true } },
+          seller: { select: { companyName: true } },
+        },
+      });
+      pendingDiscounts.forEach((disc: any) => {
+        const notifId = `disc-${disc.id}`;
+        const exists = notificationsList.some(n => n.id === notifId || (n.message.includes(disc.product?.name) && n.actionUrl.includes("promotions")));
+        if (!exists) {
+          const typeLabel = disc.discountType === "INDIVIDUAL" ? "Individual Product Discount" : disc.discountType === "TIER" ? "Tier Discounts" : "Buy X Get Y Free Offer";
+          const actionLabel = disc.requestedAction === "DEACTIVATE" ? "deactivate" : disc.requestedAction === "UPDATE" ? "update" : "activate";
+          notificationsList.push({
+            id: notifId,
+            title: `Discount ${disc.requestedAction === "DEACTIVATE" ? "Deactivation" : "Approval"} Required 🏷️`,
+            message: `Seller "${disc.seller?.companyName}" requested to ${actionLabel} ${typeLabel} on "${disc.product?.name}".`,
+            redirectSection: "promotions",
+            actionUrl: "/admin/dashboard?tab=promotions",
+            isRead: false,
+            createdAt: disc.requestedAt,
+          });
+        }
+      });
+    } catch (discErr) {}
+
     // Sort by date descending
     return notificationsList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (e) {
@@ -280,7 +308,7 @@ export async function markNotificationAsRead(id: string) {
   }
 }
 
-export async function getUserNotifications(userId: string) {
+export async function getUserNotifications(userId: string, isSeller: boolean = false) {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   // Default eco offers & deals for all buyers
@@ -323,7 +351,8 @@ export async function getUserNotifications(userId: string) {
       t.includes("payout settled") ||
       t.includes("product approval") ||
       t.includes("seller onboarding") ||
-      a.includes("/seller/dashboard?tab=enquiries")
+      t.includes("discount") ||
+      a.includes("/seller/dashboard")
     );
   };
 
@@ -331,7 +360,9 @@ export async function getUserNotifications(userId: string) {
     if (!mockUserNotifications[userId]) {
       mockUserNotifications[userId] = [...defaultOffers];
     }
-    const filteredMock = mockUserNotifications[userId].filter((n) => !isSellerAlert(n));
+    const filteredMock = isSeller
+      ? mockUserNotifications[userId]
+      : mockUserNotifications[userId].filter((n) => !isSellerAlert(n));
     return filteredMock.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
@@ -362,6 +393,10 @@ export async function getUserNotifications(userId: string) {
         createdAt: n.createdAt
       };
     });
+
+    if (isSeller) {
+      return notifList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
 
     // 2. Fetch Buyer's Orders to auto-generate Order Booked / Cancelled / Shipped notifications if missing
     try {

@@ -560,9 +560,14 @@ export default function Homepage() {
                             id: item.id,
                             name: item.name,
                             price: item.price,
+                            originalPrice: item.originalPrice,
                             image: itemImage,
                             sellerName: sellerName,
                             sellerId: item.sellerId,
+                            moq: item.moq,
+                            buyXGetYOffer: item.buyXGetYOffer || null,
+                            individualDiscount: item.individualDiscount || null,
+                            tierDiscounts: item.tierDiscounts || null,
                           }, 1);
                           setAddedItemName(item.name);
                           setTimeout(() => setAddedItemName(null), 2000);

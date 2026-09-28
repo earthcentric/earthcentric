@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Star, Leaf } from "lucide-react";
 import { ProductItem } from "@/actions/products";
 import { useWishlist } from "@/context/WishlistContext";
-import { isBuyXGetYActive, getEffectiveUnitPrice } from "@/lib/offers";
+import { isBuyXGetYActive, getEffectiveUnitPrice, isTierDiscountActive, getProductTiers } from "@/lib/offers";
 import { SellerLogo } from "@/components/SellerLogo";
 
 interface ProductCardProps {
@@ -147,6 +147,25 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
               </span>
             </div>
           )}
+
+          {/* Tier Discounts Promo Badge */}
+          {isTierDiscountActive(product.tierDiscounts) && (() => {
+            const tiers = getProductTiers(product.tierDiscounts).slice().sort((a, b) => Number(a.minQuantity) - Number(b.minQuantity));
+            if (tiers.length === 0) return null;
+            const firstTier = tiers[0];
+            const isPerc = firstTier.discountType === "PERCENTAGE";
+            return (
+              <div className="bg-emerald-50 text-emerald-800 text-[10px] font-black rounded-lg px-2.5 py-1.5 border border-emerald-100 flex items-center justify-between shadow-xs select-none">
+                <span className="flex items-center gap-1 font-extrabold">
+                  <span>📊</span>
+                  <span>Buy {firstTier.minQuantity}+: {isPerc ? `${firstTier.discountValue}% OFF` : `₹${firstTier.discountValue} OFF`}</span>
+                </span>
+                <span className="bg-emerald-700 text-white text-[8px] px-1.5 py-0.5 rounded font-extrabold tracking-wider uppercase">
+                  Tier Deal
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Bundle Deal Promo */}
           {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (() => {

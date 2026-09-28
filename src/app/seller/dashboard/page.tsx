@@ -12,6 +12,7 @@ import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPay
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
 import { getUnreadMessageCount } from "@/actions/messages";
+import { requestDiscountApproval } from "@/actions/discounts";
 import * as XLSX from "xlsx";
 import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, MetalButton } from "@/components/ui/shared";
 import { FadeIn } from "@/components/FramerComponents";
@@ -115,7 +116,7 @@ export default function SellerDashboard() {
     const aData = await getSellerAnalyticsTimeSeries(sellerId || "seller-1");
     setAnalyticsData(aData);
 
-    const sellerProducts = await getProducts({ sellerId: sellerId, filterType, selectedDate, selectedMonth, selectedYear });
+    const sellerProducts = await getProducts({ sellerId: sellerId, filterType, selectedDate, selectedMonth, selectedYear, includeUnapproved: true });
     setProducts(sellerProducts);
 
     const sellerOrders = await getOrdersBySeller(sellerId);
@@ -127,7 +128,7 @@ export default function SellerDashboard() {
     const pRequests = await getSellerPayoutRequests(sellerId);
     setPayoutRequests(pRequests);
 
-    const userNotifs = await getUserNotifications(user.id);
+    const userNotifs = await getUserNotifications(user.id, true);
     setNotifications(userNotifs);
 
     const unreadMsgs = await getUnreadMessageCount(sellerId || user.id);
@@ -664,6 +665,7 @@ function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
 // PRODUCTS TAB VIEW
 // --------------------------------------------------------------------------
 function ProductsView({ products, stats, handleArchive, handleUpdateStock, reload, profile }: any) {
+  const { user } = useAuth();
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCat, setSelectedCat] = useState("all");
@@ -686,12 +688,19 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   // Edit Product Offers state
   const [editEnableTierDiscount, setEditEnableTierDiscount] = useState(false);
   const [editTierDiscounts, setEditTierDiscounts] = useState<TierDiscount[]>([]);
+  const [editTierApprovalStatus, setEditTierApprovalStatus] = useState<string>("NONE");
+  const [editTierRejectionReason, setEditTierRejectionReason] = useState<string>("");
+  const [initialTierConfig, setInitialTierConfig] = useState<{ active: boolean; config: any }>({ active: false, config: null });
+
   const [editBuyXGetYEnabled, setEditBuyXGetYEnabled] = useState(false);
   const [editBuyXBuyQty, setEditBuyXBuyQty] = useState("2");
   const [editBuyXGetQty, setEditBuyXGetQty] = useState("1");
   const [editBuyXMaxFree, setEditBuyXMaxFree] = useState("");
   const [editBuyXStartDate, setEditBuyXStartDate] = useState("");
   const [editBuyXEndDate, setEditBuyXEndDate] = useState("");
+  const [editBuyXApprovalStatus, setEditBuyXApprovalStatus] = useState<string>("NONE");
+  const [editBuyXRejectionReason, setEditBuyXRejectionReason] = useState<string>("");
+  const [initialBuyXConfig, setInitialBuyXConfig] = useState<{ active: boolean; config: any }>({ active: false, config: null });
 
   // Edit Individual Product Discount state
   const [editEnableIndividualDiscount, setEditEnableIndividualDiscount] = useState(false);
@@ -700,6 +709,9 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editIndivStartDate, setEditIndivStartDate] = useState("");
   const [editIndivEndDate, setEditIndivEndDate] = useState("");
   const [editIndivStatus, setEditIndivStatus] = useState<"PENDING" | "APPROVED" | "REJECTED">("PENDING");
+  const [editIndivApprovalStatus, setEditIndivApprovalStatus] = useState<string>("NONE");
+  const [editIndivRejectionReason, setEditIndivRejectionReason] = useState<string>("");
+  const [initialIndivConfig, setInitialIndivConfig] = useState<{ active: boolean; config: any }>({ active: false, config: null });
 
   // Edit Highlights and Specs state
   const [editHighlights, setEditHighlights] = useState<string[]>([""]);
@@ -740,67 +752,298 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       setEditTechSpecs([{ label: "", value: "" }]);
     }
 
-    setEditEnableTierDiscount(Array.isArray(p.tierDiscounts) && p.tierDiscounts.length > 0);
-    setEditTierDiscounts(Array.isArray(p.tierDiscounts) ? p.tierDiscounts : []);
+    // Parse Tier Discounts
+    const rawTiers: any[] = Array.isArray(p.tierDiscounts)
+      ? p.tierDiscounts
+      : (p.tierDiscounts?.tiers && Array.isArray(p.tierDiscounts.tiers) ? p.tierDiscounts.tiers : []);
+    const isTierActive = p.tierDiscounts
+      ? (Array.isArray(p.tierDiscounts) ? p.tierDiscounts.length > 0 : p.tierDiscounts.enabled === true && (p.tierDiscounts.status === "ACTIVE" || p.tierDiscounts.status === "APPROVED" || (!p.tierDiscounts.status && rawTiers.length > 0)))
+      : false;
+    const tierAppr = p.tierDiscounts?.approvalStatus || (isTierActive ? "APPROVED" : (p.tierDiscounts?.status === "REJECTED" ? "REJECTED" : "NONE"));
+    setEditEnableTierDiscount(isTierActive || tierAppr === "PENDING_APPROVAL" || tierAppr === "PENDING_UPDATE");
+    setEditTierDiscounts(rawTiers.length > 0 ? rawTiers : [{ minQuantity: 5, discountType: "PERCENTAGE", discountValue: 10 }]);
+    setEditTierApprovalStatus(tierAppr);
+    setEditTierRejectionReason(p.tierDiscounts?.rejectionReason || "");
+    setInitialTierConfig({ active: isTierActive, config: p.tierDiscounts });
 
+    // Parse Individual Discount
+    const isIndivActive = !!(p.individualDiscount && p.individualDiscount.enabled === true && (p.individualDiscount.status === "ACTIVE" || p.individualDiscount.status === "APPROVED"));
+    const indivAppr = p.individualDiscount?.approvalStatus || (isIndivActive ? "APPROVED" : (p.individualDiscount?.status === "REJECTED" ? "REJECTED" : "NONE"));
+    setEditEnableIndividualDiscount(isIndivActive || indivAppr === "PENDING_APPROVAL" || indivAppr === "PENDING_UPDATE");
     if (p.individualDiscount) {
-      setEditEnableIndividualDiscount(true);
       setEditIndivDiscountType(p.individualDiscount.discountType || "PERCENTAGE");
       setEditIndivDiscountValue(p.individualDiscount.discountValue?.toString() || "");
       setEditIndivStartDate(p.individualDiscount.startDate || "");
       setEditIndivEndDate(p.individualDiscount.endDate || "");
       setEditIndivStatus(p.individualDiscount.status || "PENDING");
+      setEditIndivApprovalStatus(indivAppr);
+      setEditIndivRejectionReason(p.individualDiscount.rejectionReason || "");
     } else {
-      setEditEnableIndividualDiscount(false);
       setEditIndivDiscountType("PERCENTAGE");
       setEditIndivDiscountValue("");
       setEditIndivStartDate("");
       setEditIndivEndDate("");
       setEditIndivStatus("PENDING");
+      setEditIndivApprovalStatus("NONE");
+      setEditIndivRejectionReason("");
     }
+    setInitialIndivConfig({ active: isIndivActive, config: p.individualDiscount });
 
-    if (p.buyXGetYOffer && p.buyXGetYOffer.enabled) {
-      setEditBuyXGetYEnabled(true);
-      setEditBuyXBuyQty(p.buyXGetYOffer.buyQuantity?.toString() || "2");
-      setEditBuyXGetQty(p.buyXGetYOffer.getQuantity?.toString() || "1");
-      setEditBuyXMaxFree(p.buyXGetYOffer.maxFreeQuantity?.toString() || "");
+    // Parse Buy X Get Y Offer
+    const isBxgyActive = !!(p.buyXGetYOffer && p.buyXGetYOffer.enabled === true && (p.buyXGetYOffer.status === "ACTIVE" || p.buyXGetYOffer.status === "APPROVED" || (!p.buyXGetYOffer.status && Number(p.buyXGetYOffer.buyQuantity || p.buyXGetYOffer.buyQty) > 0)));
+    const bxgyAppr = p.buyXGetYOffer?.approvalStatus || (isBxgyActive ? "APPROVED" : (p.buyXGetYOffer?.status === "REJECTED" ? "REJECTED" : "NONE"));
+    setEditBuyXGetYEnabled(isBxgyActive || bxgyAppr === "PENDING_APPROVAL" || bxgyAppr === "PENDING_UPDATE");
+    if (p.buyXGetYOffer) {
+      setEditBuyXBuyQty(p.buyXGetYOffer.buyQuantity?.toString() || p.buyXGetYOffer.buyQty?.toString() || "2");
+      setEditBuyXGetQty(p.buyXGetYOffer.getQuantity?.toString() || p.buyXGetYOffer.getQty?.toString() || "1");
+      setEditBuyXMaxFree(p.buyXGetYOffer.maxFreeQuantity?.toString() || p.buyXGetYOffer.maxFree?.toString() || "");
       setEditBuyXStartDate(p.buyXGetYOffer.startDate || "");
       setEditBuyXEndDate(p.buyXGetYOffer.endDate || "");
+      setEditBuyXApprovalStatus(bxgyAppr);
+      setEditBuyXRejectionReason(p.buyXGetYOffer.rejectionReason || "");
     } else {
-      setEditBuyXGetYEnabled(false);
       setEditBuyXBuyQty("2");
       setEditBuyXGetQty("1");
       setEditBuyXMaxFree("");
       setEditBuyXStartDate("");
       setEditBuyXEndDate("");
+      setEditBuyXApprovalStatus("NONE");
+      setEditBuyXRejectionReason("");
     }
+    setInitialBuyXConfig({ active: isBxgyActive, config: p.buyXGetYOffer });
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
 
-    const tierDiscountsPayload = editEnableTierDiscount && editTierDiscounts.length > 0 ? editTierDiscounts : null;
-    const individualDiscountPayload = editEnableIndividualDiscount && Number(editIndivDiscountValue) > 0 ? {
-      discountType: editIndivDiscountType,
-      discountValue: Number(editIndivDiscountValue),
-      startDate: editIndivStartDate || null,
-      endDate: editIndivEndDate || null,
-      status: editIndivStatus === "APPROVED" ? ("APPROVED" as const) : ("PENDING" as const),
-    } : null;
-    const buyXGetYPayload = editBuyXGetYEnabled ? {
-      enabled: true,
-      buyQuantity: Number(editBuyXBuyQty) || 2,
-      getQuantity: Number(editBuyXGetQty) || 1,
-      maxFreeQuantity: editBuyXMaxFree ? Number(editBuyXMaxFree) : null,
-      startDate: editBuyXStartDate || null,
-      endDate: editBuyXEndDate || null,
-    } : null;
+    const sellerId = profile?.id || editingProduct.sellerId;
+    let anyPromoSubmitted = false;
 
+    // 1. Process Individual Discount Workflow
+    const indivVal = Number(editIndivDiscountValue);
+    if (initialIndivConfig.active && !editEnableIndividualDiscount) {
+      // Seller requesting DEACTIVATION
+      if (editIndivApprovalStatus === "PENDING_DEACTIVATION") {
+        toast.info("Individual discount deactivation is already pending Super Admin approval.");
+      } else {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "INDIVIDUAL",
+          requestedAction: "DEACTIVATE",
+          proposedConfig: {},
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Individual discount deactivation submitted for Super Admin review.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit deactivation request.");
+        }
+      }
+    } else if (!initialIndivConfig.active && editEnableIndividualDiscount && indivVal > 0) {
+      // Seller requesting ACTIVATION
+      if (editIndivApprovalStatus === "PENDING_APPROVAL") {
+        toast.info("Individual discount activation is already pending Super Admin approval.");
+      } else {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "INDIVIDUAL",
+          requestedAction: "ACTIVATE",
+          proposedConfig: {
+            discountType: editIndivDiscountType,
+            discountValue: indivVal,
+            startDate: editIndivStartDate || null,
+            endDate: editIndivEndDate || null,
+          },
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Individual discount submitted for Super Admin approval.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit activation request.");
+        }
+      }
+    } else if (initialIndivConfig.active && editEnableIndividualDiscount && indivVal > 0) {
+      // Check if config updated
+      const orig = initialIndivConfig.config || {};
+      const changed = orig.discountType !== editIndivDiscountType || Number(orig.discountValue) !== indivVal || (orig.startDate || "") !== (editIndivStartDate || "") || (orig.endDate || "") !== (editIndivEndDate || "");
+      if (changed) {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "INDIVIDUAL",
+          requestedAction: "UPDATE",
+          proposedConfig: {
+            discountType: editIndivDiscountType,
+            discountValue: indivVal,
+            startDate: editIndivStartDate || null,
+            endDate: editIndivEndDate || null,
+          },
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Individual discount update submitted for Super Admin approval.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit update request.");
+        }
+      }
+    }
+
+    // 2. Process Tier Discounts Workflow
+    if (initialTierConfig.active && !editEnableTierDiscount) {
+      // Seller requesting DEACTIVATION
+      if (editTierApprovalStatus === "PENDING_DEACTIVATION") {
+        toast.info("Tier discount deactivation is already pending Super Admin approval.");
+      } else {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "TIER",
+          requestedAction: "DEACTIVATE",
+          proposedConfig: {},
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Tier discount deactivation submitted for Super Admin review.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit tier deactivation request.");
+        }
+      }
+    } else if (!initialTierConfig.active && editEnableTierDiscount && editTierDiscounts.length > 0) {
+      // Seller requesting ACTIVATION
+      if (editTierApprovalStatus === "PENDING_APPROVAL") {
+        toast.info("Tier discount activation is already pending Super Admin approval.");
+      } else {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "TIER",
+          requestedAction: "ACTIVATE",
+          proposedConfig: {
+            tiers: editTierDiscounts.map(t => ({ minQuantity: Number(t.minQuantity), discountType: t.discountType, discountValue: Number(t.discountValue) })),
+          },
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Tier discount submitted for Super Admin approval.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit tier activation request.");
+        }
+      }
+    } else if (initialTierConfig.active && editEnableTierDiscount && editTierDiscounts.length > 0) {
+      // Check if tiers changed
+      const origTiers = initialTierConfig.config?.tiers || (Array.isArray(initialTierConfig.config) ? initialTierConfig.config : []);
+      const changed = JSON.stringify(origTiers) !== JSON.stringify(editTierDiscounts);
+      if (changed) {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "TIER",
+          requestedAction: "UPDATE",
+          proposedConfig: {
+            tiers: editTierDiscounts.map(t => ({ minQuantity: Number(t.minQuantity), discountType: t.discountType, discountValue: Number(t.discountValue) })),
+          },
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Tier discount update submitted for Super Admin approval.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit tier update request.");
+        }
+      }
+    }
+
+    // 3. Process Buy X Get Y Offer Workflow
+    const bxBuy = Number(editBuyXBuyQty);
+    const bxGet = Number(editBuyXGetQty);
+    if (initialBuyXConfig.active && !editBuyXGetYEnabled) {
+      // Seller requesting DEACTIVATION
+      if (editBuyXApprovalStatus === "PENDING_DEACTIVATION") {
+        toast.info("Buy X Get Y deactivation is already pending Super Admin approval.");
+      } else {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "BUY_X_GET_Y",
+          requestedAction: "DEACTIVATE",
+          proposedConfig: {},
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Buy X Get Y deactivation submitted for Super Admin review.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit BXGY deactivation request.");
+        }
+      }
+    } else if (!initialBuyXConfig.active && editBuyXGetYEnabled && bxBuy >= 1 && bxGet >= 1) {
+      // Seller requesting ACTIVATION
+      if (editBuyXApprovalStatus === "PENDING_APPROVAL") {
+        toast.info("Buy X Get Y activation is already pending Super Admin approval.");
+      } else {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "BUY_X_GET_Y",
+          requestedAction: "ACTIVATE",
+          proposedConfig: {
+            buyQuantity: bxBuy,
+            getQuantity: bxGet,
+            maxFreeQuantity: editBuyXMaxFree ? Number(editBuyXMaxFree) : null,
+            startDate: editBuyXStartDate || null,
+            endDate: editBuyXEndDate || null,
+          },
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Buy X Get Y offer submitted for Super Admin approval.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit BXGY activation request.");
+        }
+      }
+    } else if (initialBuyXConfig.active && editBuyXGetYEnabled && bxBuy >= 1 && bxGet >= 1) {
+      // Check if config changed
+      const orig = initialBuyXConfig.config || {};
+      const changed = Number(orig.buyQuantity ?? orig.buyQty) !== bxBuy || Number(orig.getQuantity ?? orig.getQty) !== bxGet || Number(orig.maxFreeQuantity ?? orig.maxFree ?? 0) !== Number(editBuyXMaxFree || 0) || (orig.startDate || "") !== (editBuyXStartDate || "") || (orig.endDate || "") !== (editBuyXEndDate || "");
+      if (changed) {
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "BUY_X_GET_Y",
+          requestedAction: "UPDATE",
+          proposedConfig: {
+            buyQuantity: bxBuy,
+            getQuantity: bxGet,
+            maxFreeQuantity: editBuyXMaxFree ? Number(editBuyXMaxFree) : null,
+            startDate: editBuyXStartDate || null,
+            endDate: editBuyXEndDate || null,
+          },
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Buy X Get Y update submitted for Super Admin approval.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit BXGY update request.");
+        }
+      }
+    }
+
+    // Save non-promotional product fields
     const validHighlights = editHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
     const validSpecs = editTechSpecs
       .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
       .filter((s) => s.length > 0);
+    const isAlreadyApproved = editingProduct.isApproved && editingProduct.status === "APPROVED";
 
     await updateProduct(editingProduct.id, {
       name: editName,
@@ -815,14 +1058,14 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
       originalPrice: editOriginalPrice ? Number(editOriginalPrice) : undefined,
       bulkPriceSlabs: editSlabs.length > 0 ? editSlabs : undefined,
-      tierDiscounts: tierDiscountsPayload,
-      individualDiscount: individualDiscountPayload,
-      buyXGetYOffer: buyXGetYPayload,
       highlights: validHighlights,
       technicalSpecs: validSpecs,
-      reapprovalRequired: true,
+      reapprovalRequired: !isAlreadyApproved,
     });
-    toast.info("Product updated and submitted for Super Admin re-approval.");
+
+    if (!anyPromoSubmitted) {
+      toast.success("Product details saved successfully.");
+    }
     setEditingProduct(null);
     reload();
   };
@@ -1223,11 +1466,39 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                 <div className="bg-[#f8faf8] p-3.5 rounded-xl border border-[#e2ece4] space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#1f3a2e] flex items-center gap-1.5">
-                        <span>🏷️</span>
-                        <span>Individual Product Discount</span>
-                      </span>
-                      <p className="text-[10px] text-muted-foreground">Normal discount on single product without quantity restrictions. Requires Admin Approval.</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#1f3a2e] flex items-center gap-1.5">
+                          <span>🏷️</span>
+                          <span>Individual Product Discount</span>
+                        </span>
+                        {editIndivApprovalStatus === "PENDING_DEACTIVATION" ? (
+                          <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                            Deactivation Pending Super Admin Approval
+                          </Badge>
+                        ) : editIndivApprovalStatus === "PENDING_APPROVAL" ? (
+                          <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                            Pending Super Admin Approval
+                          </Badge>
+                        ) : editIndivApprovalStatus === "PENDING_UPDATE" ? (
+                          <Badge className="text-[9px] font-bold bg-sky-100 text-sky-900 border-sky-300">
+                            Update Pending Super Admin Approval
+                          </Badge>
+                        ) : initialIndivConfig.active ? (
+                          <Badge className="text-[9px] font-bold bg-emerald-100 text-emerald-800 border-emerald-300">
+                            Approved & Active
+                          </Badge>
+                        ) : editIndivApprovalStatus === "REJECTED" ? (
+                          <Badge className="text-[9px] font-bold bg-rose-100 text-rose-800 border-rose-300">
+                            Rejected
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Normal discount on single product without quantity restrictions. Requires Admin Approval.</p>
+                      {editIndivRejectionReason && editIndivApprovalStatus === "REJECTED" && (
+                        <p className="text-[10px] text-rose-600 mt-1 font-medium bg-rose-50 p-1.5 rounded-md border border-rose-200">
+                          ⚠️ Super Admin Rejection Reason: {editIndivRejectionReason}
+                        </p>
+                      )}
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -1312,20 +1583,34 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                           }
                         }
 
+                        let badgeText = "Requires Admin Approval";
+                        let badgeStyle = "bg-amber-100 text-amber-800";
+
+                        if (editIndivApprovalStatus === "PENDING_DEACTIVATION") {
+                          badgeText = "Deactivation Pending Super Admin Approval";
+                          badgeStyle = "bg-amber-100 text-amber-900 border border-amber-300";
+                        } else if (editIndivApprovalStatus === "PENDING_APPROVAL") {
+                          badgeText = "Pending Super Admin Approval";
+                          badgeStyle = "bg-amber-100 text-amber-900 border border-amber-300";
+                        } else if (editIndivApprovalStatus === "PENDING_UPDATE") {
+                          badgeText = "Update Pending Super Admin Approval";
+                          badgeStyle = "bg-sky-100 text-sky-900 border border-sky-300";
+                        } else if (initialIndivConfig.active) {
+                          badgeText = "Approved & Active";
+                          badgeStyle = "bg-emerald-100 text-emerald-800";
+                        } else if (editIndivApprovalStatus === "REJECTED") {
+                          badgeText = "Rejected";
+                          badgeStyle = "bg-rose-100 text-rose-800";
+                        }
+
                         return (
                           <div className="p-3 bg-white rounded-xl border border-emerald-200/80 space-y-1.5 shadow-xs">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-bold text-[#1f3a2e] uppercase tracking-wider">
                                 ⚡ Live Discount Preview
                               </span>
-                              <Badge className={`text-[9px] font-extrabold ${
-                                editIndivStatus === "APPROVED" 
-                                  ? "bg-emerald-100 text-emerald-800" 
-                                  : editIndivStatus === "REJECTED" 
-                                  ? "bg-rose-100 text-rose-800" 
-                                  : "bg-amber-100 text-amber-800"
-                              }`}>
-                                {editIndivStatus === "APPROVED" ? "Approved & Active" : editIndivStatus === "REJECTED" ? "Rejected" : "Requires Admin Approval"}
+                              <Badge className={`text-[9px] font-extrabold ${badgeStyle}`}>
+                                {badgeText}
                               </Badge>
                             </div>
 
@@ -1354,8 +1639,36 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                 <div className="bg-[#f8faf8] p-3.5 rounded-xl border border-[#e2ece4] space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#1f3a2e]">Tier Discounts</span>
-                      <p className="text-[10px] text-muted-foreground">Offer volume percentage or fixed discount rates based on order quantity</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#1f3a2e]">Tier Discounts</span>
+                        {editTierApprovalStatus === "PENDING_DEACTIVATION" ? (
+                          <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                            Deactivation Pending Super Admin Approval
+                          </Badge>
+                        ) : editTierApprovalStatus === "PENDING_APPROVAL" ? (
+                          <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                            Pending Super Admin Approval
+                          </Badge>
+                        ) : editTierApprovalStatus === "PENDING_UPDATE" ? (
+                          <Badge className="text-[9px] font-bold bg-sky-100 text-sky-900 border-sky-300">
+                            Update Pending Super Admin Approval
+                          </Badge>
+                        ) : initialTierConfig.active ? (
+                          <Badge className="text-[9px] font-bold bg-emerald-100 text-emerald-800 border-emerald-300">
+                            Approved & Active
+                          </Badge>
+                        ) : editTierApprovalStatus === "REJECTED" ? (
+                          <Badge className="text-[9px] font-bold bg-rose-100 text-rose-800 border-rose-300">
+                            Rejected
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Offer volume percentage or fixed discount rates based on order quantity</p>
+                      {editTierRejectionReason && editTierApprovalStatus === "REJECTED" && (
+                        <p className="text-[10px] text-rose-600 mt-1 font-medium bg-rose-50 p-1.5 rounded-md border border-rose-200">
+                          ⚠️ Super Admin Rejection Reason: {editTierRejectionReason}
+                        </p>
+                      )}
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -1381,7 +1694,7 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditTierDiscounts([...editTierDiscounts, { minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15 }])}
+                          onClick={() => setEditTierDiscounts([...editTierDiscounts, { minQuantity: (editTierDiscounts[editTierDiscounts.length - 1]?.minQuantity || 5) + 5, discountType: "PERCENTAGE", discountValue: (editTierDiscounts[editTierDiscounts.length - 1]?.discountValue || 10) + 5 }])}
                           className="text-[11px] h-6 px-2 text-[#2d4a36] border-[#2d4a36]/30 hover:bg-[#e8f3ec]"
                         >
                           + Add Tier
@@ -1457,8 +1770,36 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                 <div className="bg-[#f8faf8] p-3.5 rounded-xl border border-[#e2ece4] space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#1f3a2e]">Buy X Get Y Free Offer</span>
-                      <p className="text-[10px] text-muted-foreground">Reward customers with free items when purchasing target quantities (e.g. Buy 2, Get 1 Free)</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#1f3a2e]">Buy X Get Y Free Offer</span>
+                        {editBuyXApprovalStatus === "PENDING_DEACTIVATION" ? (
+                          <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                            Deactivation Pending Super Admin Approval
+                          </Badge>
+                        ) : editBuyXApprovalStatus === "PENDING_APPROVAL" ? (
+                          <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                            Pending Super Admin Approval
+                          </Badge>
+                        ) : editBuyXApprovalStatus === "PENDING_UPDATE" ? (
+                          <Badge className="text-[9px] font-bold bg-sky-100 text-sky-900 border-sky-300">
+                            Update Pending Super Admin Approval
+                          </Badge>
+                        ) : initialBuyXConfig.active ? (
+                          <Badge className="text-[9px] font-bold bg-emerald-100 text-emerald-800 border-emerald-300">
+                            Approved & Active
+                          </Badge>
+                        ) : editBuyXApprovalStatus === "REJECTED" ? (
+                          <Badge className="text-[9px] font-bold bg-rose-100 text-rose-800 border-rose-300">
+                            Rejected
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Reward customers with free items when purchasing target quantities (e.g. Buy 2, Get 1 Free)</p>
+                      {editBuyXRejectionReason && editBuyXApprovalStatus === "REJECTED" && (
+                        <p className="text-[10px] text-rose-600 mt-1 font-medium bg-rose-50 p-1.5 rounded-md border border-rose-200">
+                          ⚠️ Super Admin Rejection Reason: {editBuyXRejectionReason}
+                        </p>
+                      )}
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -1578,6 +1919,19 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodHighlights, setProdHighlights] = useState<string[]>([""]);
   const [prodTechSpecs, setProdTechSpecs] = useState<{ label: string; value: string }[]>([{ label: "", value: "" }]);
 
+  // Product Offers & Promotional Rules state
+  const [enableIndivDiscount, setEnableIndivDiscount] = useState(false);
+  const [indivDiscountType, setIndivDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
+  const [indivDiscountValue, setIndivDiscountValue] = useState("");
+
+  const [enableTierDiscount, setEnableTierDiscount] = useState(false);
+  const [tierDiscounts, setTierDiscounts] = useState<TierDiscount[]>([]);
+
+  const [enableBuyXGetY, setEnableBuyXGetY] = useState(false);
+  const [buyXBuyQty, setBuyXBuyQty] = useState("2");
+  const [buyXGetQty, setBuyXGetQty] = useState("1");
+  const [buyXMaxFree, setBuyXMaxFree] = useState("");
+
   // Implementation omitted for brevity to focus on layout, 
   // reusing the same logic from before.
   const processFiles = useCallback((files: FileList | File[]) => {
@@ -1599,15 +1953,46 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !prodName || !prodPrice) return;
+    
+    // Enforce real image upload
+    if (imagePreviews.length === 0) {
+      toast.error("Please upload at least one real product image.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const imageUrls = imagePreviews.length > 0 ? imagePreviews.map((img) => img.dataUrl) : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
+      const imageUrls = imagePreviews.map((img) => img.dataUrl);
       
       // Process seller highlights and technical specs
       const validHighlights = prodHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
       const validSpecs = prodTechSpecs
         .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
         .filter((s) => s.length > 0);
+
+      // Process promotional rules
+      const individualDiscountPayload = enableIndivDiscount && Number(indivDiscountValue) > 0 ? {
+        enabled: true,
+        discountType: indivDiscountType,
+        discountValue: Number(indivDiscountValue),
+        status: "PENDING" as const,
+      } : { enabled: false, discountValue: 0 };
+
+      const tierDiscountsPayload = enableTierDiscount && tierDiscounts.length > 0 ? {
+        enabled: true,
+        tiers: tierDiscounts.map((t) => ({
+          minQuantity: Number(t.minQuantity),
+          discountType: t.discountType,
+          discountValue: Number(t.discountValue),
+        })),
+      } : { enabled: false, tiers: [] };
+
+      const buyXGetYPayload = enableBuyXGetY && Number(buyXBuyQty) >= 1 && Number(buyXGetQty) >= 1 ? {
+        enabled: true,
+        buyQuantity: Number(buyXBuyQty),
+        getQuantity: Number(buyXGetQty),
+        maxFreeQuantity: buyXMaxFree ? Number(buyXMaxFree) : null,
+      } : { enabled: false };
 
       await createProduct({
         name: prodName,
@@ -1623,6 +2008,9 @@ function AddProductForm({ onBack, profile, reload }: any) {
         sellerName: profile?.companyName || "Seller",
         originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
         bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,
+        tierDiscounts: tierDiscountsPayload,
+        individualDiscount: individualDiscountPayload,
+        buyXGetYOffer: buyXGetYPayload,
         highlights: validHighlights.length > 0 ? validHighlights : undefined,
         technicalSpecs: validSpecs.length > 0 ? validSpecs : undefined,
       });
@@ -1813,6 +2201,192 @@ function AddProductForm({ onBack, profile, reload }: any) {
                 </Button>
               </div>
             ))}
+          </div>
+
+          {/* Promotional Rules & Offers Section */}
+          <div className="space-y-4 border-t pt-4">
+            <div>
+              <Label className="font-bold text-sm text-[#2d4a36]">Promotions & Offers (Optional)</Label>
+              <p className="text-[11px] text-muted-foreground">Configure special discounts and Buy X Get Y offers for your listing.</p>
+            </div>
+
+            {/* Individual Product Discount */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="font-semibold text-xs text-foreground">Individual Product Discount</Label>
+                  <p className="text-[10px] text-muted-foreground">Direct discount applied to this item</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enableIndivDiscount}
+                  onChange={(e) => setEnableIndivDiscount(e.target.checked)}
+                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                />
+              </div>
+              {enableIndivDiscount && (
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Discount Type</Label>
+                    <select
+                      value={indivDiscountType}
+                      onChange={(e) => setIndivDiscountType(e.target.value as any)}
+                      className="w-full text-xs h-8 rounded-md border border-input bg-white px-2"
+                    >
+                      <option value="PERCENTAGE">Percentage (%) Off</option>
+                      <option value="FIXED">Flat Amount (₹) Off</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Discount Value {indivDiscountType === "PERCENTAGE" ? "(%)" : "(₹)"}</Label>
+                    <Input
+                      type="number"
+                      placeholder={indivDiscountType === "PERCENTAGE" ? "e.g. 15" : "e.g. 50"}
+                      value={indivDiscountValue}
+                      onChange={(e) => setIndivDiscountValue(e.target.value)}
+                      className="text-xs h-8 bg-white"
+                      min="1"
+                      max={indivDiscountType === "PERCENTAGE" ? "100" : undefined}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tier / Volume Discounts */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="font-semibold text-xs text-foreground">Tier / Volume Discounts</Label>
+                  <p className="text-[10px] text-muted-foreground">Reward bulk buyers with quantity-based discounts</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enableTierDiscount}
+                  onChange={(e) => setEnableTierDiscount(e.target.checked)}
+                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                />
+              </div>
+              {enableTierDiscount && (
+                <div className="space-y-2 pt-2">
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTierDiscounts([...tierDiscounts, { minQuantity: 3, discountType: "PERCENTAGE", discountValue: 10 }])}
+                      className="text-xs h-7"
+                    >
+                      + Add Discount Tier
+                    </Button>
+                  </div>
+                  {tierDiscounts.map((tier, idx) => (
+                    <div key={idx} className="flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-100">
+                      <span className="text-xs font-medium">Buy ≥</span>
+                      <Input
+                        type="number"
+                        min="2"
+                        value={tier.minQuantity}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          const updated = [...tierDiscounts];
+                          updated[idx].minQuantity = val;
+                          setTierDiscounts(updated);
+                        }}
+                        className="w-16 text-xs h-8"
+                      />
+                      <span className="text-xs font-medium">units, get</span>
+                      <select
+                        value={tier.discountType}
+                        onChange={(e) => {
+                          const updated = [...tierDiscounts];
+                          updated[idx].discountType = e.target.value as any;
+                          setTierDiscounts(updated);
+                        }}
+                        className="text-xs h-8 rounded border border-input bg-white px-2"
+                      >
+                        <option value="PERCENTAGE">% Off</option>
+                        <option value="FIXED">₹ Off</option>
+                      </select>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={tier.discountValue}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          const updated = [...tierDiscounts];
+                          updated[idx].discountValue = val;
+                          setTierDiscounts(updated);
+                        }}
+                        className="w-16 text-xs h-8"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTierDiscounts(tierDiscounts.filter((_, i) => i !== idx))}
+                        className="text-rose-500 hover:text-rose-600 text-xs h-8 px-2 ml-auto"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Buy X Get Y (BXGY) Free Offer */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="font-semibold text-xs text-foreground">Buy X Get Y Free Offer (BOGO / BXGY)</Label>
+                  <p className="text-[10px] text-muted-foreground">Automatically award free items when buyers purchase qualifying quantities</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enableBuyXGetY}
+                  onChange={(e) => setEnableBuyXGetY(e.target.checked)}
+                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                />
+              </div>
+              {enableBuyXGetY && (
+                <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Buy Quantity (X)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 2"
+                      value={buyXBuyQty}
+                      onChange={(e) => setBuyXBuyQty(e.target.value)}
+                      className="text-xs h-8 bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Get Free (Y)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 1"
+                      value={buyXGetQty}
+                      onChange={(e) => setBuyXGetQty(e.target.value)}
+                      className="text-xs h-8 bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Max Free Cap (Optional)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 5"
+                      value={buyXMaxFree}
+                      onChange={(e) => setBuyXMaxFree(e.target.value)}
+                      className="text-xs h-8 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="space-y-2">

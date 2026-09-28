@@ -122,8 +122,8 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         sessionStorage.setItem(sessionKey, "true");
         setActiveOfferPopup({
           productName: product.name,
-          buyQuantity: product.buyXGetYOffer.buyQuantity,
-          getQuantity: product.buyXGetYOffer.getQuantity,
+          buyQuantity: Number(product.buyXGetYOffer.buyQuantity || 2),
+          getQuantity: Number(product.buyXGetYOffer.getQuantity || 1),
           maxFreeQuantity: product.buyXGetYOffer.maxFreeQuantity,
         });
       }
