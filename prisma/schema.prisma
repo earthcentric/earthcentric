@@ -180,6 +180,10 @@ model Product {
   tierDiscounts        Json?    // [{minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15}]
   individualDiscount   Json?    // {enabled: true, discountType: "PERCENTAGE", discountValue: 10, startDate: "2026-07-01", endDate: "2026-12-31", status: "APPROVED"}
   buyXGetYOffer        Json?    // {enabled: true, buyQuantity: 2, getQuantity: 1, maxFreeQuantity: 5, startDate: "2026-07-01", endDate: "2026-12-31"}
+  bulkOrderQuantity    Int?     // Seller-defined default bulk order quantity (e.g. 100 units)
+  bulkOrderPrice       Float?   // Seller-defined total price for the default bulk quantity (e.g. ₹100 for 100 units)
+  highlights           String[] // Key product selling points set by seller
+  technicalSpecs       String[] // Technical specifications set by seller
   materialUsed         String?
   deliveryTime         String?
   returnEligibility    String?
@@ -402,17 +406,20 @@ model Enquiry {
   product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
   buyerId      String?
   buyer        User?     @relation(fields: [buyerId], references: [id], onDelete: SetNull)
-  quantity     Int
-  targetPrice  Float?
-  location     String
-  expectedDate DateTime?
-  name         String
-  email        String
-  phone        String
-  message      String?
-  status       String    @default("NEW") // NEW, VIEWED, RESPONDED, CLOSED, CANCELLED
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  quantity                  Int
+  targetPrice               Float?   // Legacy field – now auto-calculated from seller's wholesale config
+  calculatedWholesaleAmount Float?   // System-calculated total: (customerQty / sellerBulkQty) * sellerBulkPrice
+  bulkOrderQuantitySnapshot Int?     // Snapshot of seller's bulk order quantity at time of enquiry
+  bulkOrderPriceSnapshot    Float?   // Snapshot of seller's bulk order price at time of enquiry
+  location                  String
+  expectedDate              DateTime?
+  name                      String
+  email                     String
+  phone                     String
+  message                   String?
+  status                    String    @default("NEW") // NEW, VIEWED, RESPONDED, CLOSED, CANCELLED
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 }
 
 model Complaint {

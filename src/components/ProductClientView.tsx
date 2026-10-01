@@ -25,6 +25,7 @@ import {
   Plus,
   Leaf,
   ChevronRight,
+  ArrowLeft,
   Sparkles,
   MessageSquare,
   Loader2,
@@ -47,10 +48,24 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const [showStickyBar, setShowStickyBar] = useState(false);
   const [isEligibleToReview, setIsEligibleToReview] = useState(false);
 
+  // Wholesale Bulk Configuration
+  const baseBulkQty = (product.bulkOrderQuantity && product.bulkOrderQuantity > 0)
+    ? product.bulkOrderQuantity
+    : (product.moq && product.moq > 1 ? product.moq : null);
+
+  const baseBulkPrice = (product.bulkOrderPrice && product.bulkOrderPrice > 0)
+    ? product.bulkOrderPrice
+    : (product.wholesalePrice && baseBulkQty ? product.wholesalePrice * baseBulkQty : null);
+
+  const isWholesaleConfigured = Boolean(
+    (product.bulkOrderQuantity && product.bulkOrderQuantity > 0 && product.bulkOrderPrice && product.bulkOrderPrice > 0) ||
+    (product.wholesalePrice && product.wholesalePrice > 0) ||
+    (baseBulkQty && baseBulkPrice)
+  );
+
   // Bulk Enquiry form state
   const [showEnquiryModal, setShowEnquiryModal] = useState(false);
-  const [enquiryQty, setEnquiryQty] = useState(100);
-  const [enquiryPrice, setEnquiryPrice] = useState("");
+  const [enquiryQty, setEnquiryQty] = useState<number | string>(() => (baseBulkQty ? baseBulkQty : 100));
   const [enquiryLocation, setEnquiryLocation] = useState("");
   const [enquiryDate, setEnquiryDate] = useState("");
   const [enquiryName, setEnquiryName] = useState("");
@@ -60,11 +75,37 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const [enquiryPending, setEnquiryPending] = useState(false);
   const [enquirySubmitted, setEnquirySubmitted] = useState(false);
 
+  // Sync default wholesale qty when modal opens or product changes
+  useEffect(() => {
+    if (baseBulkQty) {
+      setEnquiryQty(baseBulkQty);
+    }
+  }, [baseBulkQty, product.bulkOrderQuantity]);
+
+  const numQty = typeof enquiryQty === "number" ? enquiryQty : Number(enquiryQty);
+  const isWholeNumber = Number.isInteger(numQty) && numQty > 0;
+  const isBelowMin = isWholesaleConfigured && baseBulkQty ? numQty < baseBulkQty : false;
+
+  let qtyValidationMsg = "";
+  if (!enquiryQty || isNaN(numQty) || numQty <= 0) {
+    qtyValidationMsg = "Quantity must be greater than zero.";
+  } else if (!Number.isInteger(numQty)) {
+    qtyValidationMsg = "Quantity must be a positive whole number.";
+  } else if (isBelowMin) {
+    qtyValidationMsg = `Minimum bulk order quantity is ${baseBulkQty} units.`;
+  }
+
+  const unitBulkRate = isWholesaleConfigured && baseBulkQty && baseBulkPrice ? baseBulkPrice / baseBulkQty : 0;
+  const calculatedWholesaleAmount = isWholesaleConfigured && isWholeNumber && !isBelowMin
+    ? Number(((numQty / baseBulkQty!) * baseBulkPrice!).toFixed(2))
+    : 0;
+
   // Sync user for enquiry
   useEffect(() => {
     if (user) {
-      setEnquiryName(user.name || "");
-      setEnquiryEmail(user.email || "");
+      if (user.name) setEnquiryName(user.name);
+      if (user.email) setEnquiryEmail(user.email);
+      if (user.phone) setEnquiryPhone(user.phone);
     }
   }, [user]);
 
@@ -299,18 +340,29 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           </div>
         )}
 
-        {/* Breadcrumb */}
-        <nav className="flex items-center space-x-2 text-xs text-slate-400">
-          <Link href="/marketplace" className="hover:text-[#0F6E56] transition-colors">
-            Marketplace
+        {/* Top Navigation & Breadcrumb */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
+          <Link
+            href="/marketplace"
+            className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-[#0F6E56] hover:text-[#0c3c26] bg-[#0F6E56]/10 hover:bg-[#0F6E56]/15 px-3.5 py-1.5 rounded-full transition-all duration-200 group border border-[#0F6E56]/20 shadow-xs"
+          >
+            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
+            <span>Back to Marketplace</span>
           </Link>
-          <ChevronRight className="h-3 w-3" />
-          <Link href={`/marketplace?category=${encodeURIComponent(product.category)}`} className="hover:text-[#0F6E56] transition-colors">
-            {product.category}
-          </Link>
-          <ChevronRight className="h-3 w-3" />
-          <span className="text-slate-700 font-semibold truncate max-w-[200px]">{product.name}</span>
-        </nav>
+
+          {/* Breadcrumb */}
+          <nav className="flex items-center space-x-2 text-xs text-slate-400">
+            <Link href="/marketplace" className="hover:text-[#0F6E56] transition-colors">
+              Marketplace
+            </Link>
+            <ChevronRight className="h-3 w-3" />
+            <Link href={`/marketplace?category=${encodeURIComponent(product.category)}`} className="hover:text-[#0F6E56] transition-colors">
+              {product.category}
+            </Link>
+            <ChevronRight className="h-3 w-3" />
+            <span className="text-slate-700 font-semibold truncate max-w-[200px]">{product.name}</span>
+          </nav>
+        </div>
 
         {/* ========== MAIN LAYOUT ========== */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-start">
@@ -671,16 +723,30 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               )}
 
               {/* B2B Pricing */}
-              {(product.wholesalePrice || product.moq) && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col space-y-1">
-                  <span className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1">Wholesale / B2B Pricing</span>
-                  <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-amber-900">₹{product.wholesalePrice || Math.round(product.price * 0.8)}</span>
-                    <span className="text-sm text-amber-700 font-semibold">/ unit</span>
+              {(isWholesaleConfigured || product.wholesalePrice || product.moq) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col space-y-1.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">📦 Wholesale / B2B Pricing</span>
+                    {baseBulkQty && baseBulkPrice && (
+                      <span className="text-[11px] font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-full border border-amber-200">
+                        Bulk Pack: ₹{Number(baseBulkPrice).toLocaleString()} / {baseBulkQty} units
+                      </span>
+                    )}
                   </div>
-                  <span className="text-sm text-amber-700 font-medium">
-                    Minimum Order Quantity (MOQ): <strong>{product.moq || 100} units</strong>
-                  </span>
+                  <div className="flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-amber-900">
+                      ₹{baseBulkPrice && baseBulkQty ? (baseBulkPrice / baseBulkQty).toFixed(2).replace(/\.00$/, "") : (product.wholesalePrice ? Number(product.wholesalePrice).toFixed(2).replace(/\.00$/, "") : Math.round(product.price * 0.8))}
+                    </span>
+                    <span className="text-sm text-amber-700 font-semibold">/ unit in bulk</span>
+                  </div>
+                  <div className="text-xs text-amber-800 font-medium flex items-center justify-between pt-0.5">
+                    <span>Minimum Bulk Order Quantity: <strong>{baseBulkQty || product.moq || 100} units</strong></span>
+                    {product.price > 0 && baseBulkPrice && baseBulkQty && (
+                      <span className="text-emerald-700 font-bold text-[11px]">
+                        Save {Math.max(0, Math.round(((product.price - (baseBulkPrice / baseBulkQty)) / product.price) * 100))}% vs retail
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1044,7 +1110,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     Custom Quote Sent! 🎉
                   </h3>
                   <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">
-                    Your wholesale bulk quote request for <strong>{enquiryQty} units</strong> of <strong>{product.name}</strong> has been transmitted directly to the seller.
+                    Your wholesale bulk quote request for <strong>{numQty} units</strong> (Calculated Total: <strong>₹{calculatedWholesaleAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong>) of <strong>{product.name}</strong> has been transmitted directly to the seller.
                   </p>
                 </div>
 
@@ -1064,8 +1130,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     onClick={() => {
                       setShowEnquiryModal(false);
                       setEnquirySubmitted(false);
-                      setEnquiryQty(100);
-                      setEnquiryPrice("");
+                      setEnquiryQty(baseBulkQty || 100);
                       setEnquiryLocation("");
                       setEnquiryDate("");
                       setEnquiryPhone("");
@@ -1091,10 +1156,29 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   </p>
                 </div>
 
+            {!isWholesaleConfigured ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-center space-y-2 my-3">
+                <span className="text-amber-800 font-bold text-sm block">
+                  Wholesale pricing is not configured for this product.
+                </span>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  The seller has not set default bulk order quantity and bulk pricing yet. Wholesale enquiries are temporarily unavailable for this product.
+                </p>
+              </div>
+            ) : (
             <form onSubmit={async (e) => {
               e.preventDefault();
-              if (!enquiryQty || !enquiryLocation || !enquiryName || !enquiryEmail || !enquiryPhone) {
+              if (qtyValidationMsg) {
+                toast.error(qtyValidationMsg);
+                return;
+              }
+              const cleanPhone = enquiryPhone.replace(/\D/g, "").slice(0, 10);
+              if (!enquiryLocation || !enquiryName || !enquiryEmail || !cleanPhone) {
                 toast.error("Please fill in all required fields.");
+                return;
+              }
+              if (cleanPhone.length !== 10) {
+                toast.error("Please enter a valid 10-digit mobile number.");
                 return;
               }
 
@@ -1102,13 +1186,15 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               const res = await createEnquiry({
                 productId: product.id,
                 buyerId: user?.id,
-                quantity: enquiryQty,
-                targetPrice: enquiryPrice ? Number(enquiryPrice) : undefined,
+                quantity: numQty,
+                calculatedWholesaleAmount: calculatedWholesaleAmount,
+                bulkOrderQuantitySnapshot: baseBulkQty || undefined,
+                bulkOrderPriceSnapshot: baseBulkPrice || undefined,
                 location: enquiryLocation,
                 expectedDate: enquiryDate ? new Date(enquiryDate) : undefined,
                 name: enquiryName,
                 email: enquiryEmail,
-                phone: enquiryPhone,
+                phone: cleanPhone,
                 message: enquiryMessage,
               });
 
@@ -1122,26 +1208,41 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
             }} className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Quantity Required (Units) *</span>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Quantity Required (Units) *</span>
                   <Input
                     type="number"
-                    min="10"
-                    placeholder="e.g. 500"
+                    min={baseBulkQty || 1}
+                    step="1"
+                    placeholder={`Min ${baseBulkQty || 100}`}
                     value={enquiryQty}
-                    onChange={(e) => setEnquiryQty(Number(e.target.value))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEnquiryQty(val === "" ? "" : Number(val));
+                    }}
                     required
-                    className="text-xs bg-slate-50 border-slate-200"
+                    className={`text-xs bg-slate-50 border ${qtyValidationMsg ? "border-rose-400 focus:ring-rose-400" : "border-slate-200"}`}
                   />
+                  {qtyValidationMsg ? (
+                    <p className="text-[10px] text-rose-600 font-semibold">{qtyValidationMsg}</p>
+                  ) : (
+                    <p className="text-[10px] text-slate-400">Min. {baseBulkQty} units required</p>
+                  )}
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Target Price (Per Unit ₹)</span>
-                  <Input
-                    type="number"
-                    placeholder="e.g. 150"
-                    value={enquiryPrice}
-                    onChange={(e) => setEnquiryPrice(e.target.value)}
-                    className="text-xs bg-slate-50 border-slate-200"
-                  />
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Wholesale Price (Calculated)</span>
+                  <div className="h-9 px-3 bg-emerald-50/90 border border-emerald-200 rounded-md flex items-center justify-between">
+                    <span className="text-sm font-black text-[#0c3c26]">
+                      {calculatedWholesaleAmount > 0
+                        ? `₹${calculatedWholesaleAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+                        : "—"}
+                    </span>
+                    <span className="text-[10px] text-emerald-800 font-bold">
+                      ₹{unitBulkRate.toFixed(2)}/unit
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Base: {baseBulkQty} units = ₹{baseBulkPrice}
+                  </p>
                 </div>
               </div>
 
@@ -1309,14 +1410,26 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     />
                   </div>
                   <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Mobile Number *</span>
-                    <Input
-                      placeholder="e.g. +91 98230 45678"
-                      value={enquiryPhone}
-                      onChange={(e) => setEnquiryPhone(e.target.value)}
-                      required
-                      className="text-xs bg-slate-50 border-slate-200"
-                    />
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Mobile Number *</span>
+                      <span className="text-[10px] font-mono text-slate-400 font-semibold">{enquiryPhone.length}/10</span>
+                    </div>
+                    <div className="relative flex items-center">
+                      <div className="absolute left-2.5 flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300/40 px-1.5 py-0.5 rounded pointer-events-none select-none z-10">
+                        <span>+91</span>
+                      </div>
+                      <Input
+                        placeholder="9876543210"
+                        value={enquiryPhone}
+                        onChange={(e) => setEnquiryPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                        required
+                        type="tel"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={10}
+                        className="text-xs bg-slate-50 border-slate-200 pl-14 font-mono tracking-wider font-semibold"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1333,8 +1446,8 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
               <button suppressHydrationWarning
                 type="submit"
-                disabled={enquiryPending}
-                className="w-full h-11 bg-[#0F6E56] hover:bg-[#0c5a46] disabled:bg-slate-300 text-white font-bold text-xs rounded-xl transition-all cursor-pointer border-none flex items-center justify-center space-x-2 shadow-md"
+                disabled={enquiryPending || !isWholesaleConfigured || Boolean(qtyValidationMsg)}
+                className="w-full h-11 bg-[#0F6E56] hover:bg-[#0c5a46] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl transition-all cursor-pointer border-none flex items-center justify-center space-x-2 shadow-md"
               >
                 {enquiryPending ? (
                   <>
@@ -1349,6 +1462,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 )}
               </button>
             </form>
+            )}
           </>
         )}
       </div>

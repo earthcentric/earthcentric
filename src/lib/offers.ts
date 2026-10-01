@@ -25,7 +25,12 @@ export function isBuyXGetYActive(offer?: any | null): boolean {
     const start = new Date(offer.startDate);
     if (!isNaN(start.getTime())) {
       start.setHours(0, 0, 0, 0);
-      if (now < start) return false;
+      if (offer.approvedAt) {
+        const approved = new Date(offer.approvedAt);
+        if (now < start && start > approved) return false;
+      } else if (now < start) {
+        return false;
+      }
     }
   }
   
@@ -33,7 +38,16 @@ export function isBuyXGetYActive(offer?: any | null): boolean {
     const end = new Date(offer.endDate);
     if (!isNaN(end.getTime())) {
       end.setHours(23, 59, 59, 999);
-      if (now > end) return false;
+      if (offer.approvedAt) {
+        const approved = new Date(offer.approvedAt);
+        if (!isNaN(approved.getTime()) && end <= approved) {
+          // Stale requested date prior to approval
+        } else if (now > end) {
+          return false;
+        }
+      } else if (now > end) {
+        return false;
+      }
     }
   }
   
@@ -112,7 +126,12 @@ export function isIndividualDiscountActive(discount?: any | null): boolean {
     const start = new Date(discount.startDate);
     if (!isNaN(start.getTime())) {
       start.setHours(0, 0, 0, 0);
-      if (now < start) return false;
+      if (discount.approvedAt) {
+        const approved = new Date(discount.approvedAt);
+        if (now < start && start > approved) return false;
+      } else if (now < start) {
+        return false;
+      }
     }
   }
 
@@ -120,7 +139,17 @@ export function isIndividualDiscountActive(discount?: any | null): boolean {
     const end = new Date(discount.endDate);
     if (!isNaN(end.getTime())) {
       end.setHours(23, 59, 59, 999);
-      if (now > end) return false;
+      // If approved by admin after the requested end date, do not expire based on stale date
+      if (discount.approvedAt) {
+        const approved = new Date(discount.approvedAt);
+        if (!isNaN(approved.getTime()) && end <= approved) {
+          // Stale requested end date prior to approval, discount remains valid
+        } else if (now > end) {
+          return false;
+        }
+      } else if (now > end) {
+        return false;
+      }
     }
   }
 
@@ -200,6 +229,8 @@ export function getEffectiveUnitPrice(
       indivPct = basePrice > 0 ? Math.round((fixedVal / basePrice) * 100) : 0;
     }
 
+    indivPrice = Math.round(indivPrice * 100) / 100;
+
     if (indivPrice < bestUnitPrice) {
       bestUnitPrice = indivPrice;
       appliedType = "INDIVIDUAL";
@@ -225,6 +256,8 @@ export function getEffectiveUnitPrice(
         tierPrice = Math.max(0, basePrice - fixedVal);
         tierPct = basePrice > 0 ? Math.round((fixedVal / basePrice) * 100) : 0;
       }
+
+      tierPrice = Math.round(tierPrice * 100) / 100;
 
       if (tierPrice < bestUnitPrice) {
         bestUnitPrice = tierPrice;
@@ -253,20 +286,23 @@ export function getEffectiveUnitPrice(
     }
   }
 
-  // If no Individual or Tier discount is active, do not report a promotion discount percentage
+  // Price calculations:
+  // When an individual or tier promotion discount is applied, it was calculated off `basePrice`.
+  // Therefore, the strikethrough original price MUST be `basePrice` so the calculation
+  // (e.g. ₹259 - 20% = ₹207.2) is 100% proper and matches the seller portal preview!
   let displayOriginalPrice = basePrice;
   if (appliedType === "NONE") {
+    // When no discount is applied, show product.originalPrice (MRP) if greater than selling price
     if (product.originalPrice && Number(product.originalPrice) > basePrice) {
       displayOriginalPrice = Number(product.originalPrice);
     }
     discountPercentage = 0;
   } else {
-    // When a seller discount IS applied (INDIVIDUAL or TIER):
-    // Reference original price is basePrice (or product.originalPrice if defined)
-    displayOriginalPrice = product.originalPrice && Number(product.originalPrice) > basePrice ? Number(product.originalPrice) : basePrice;
+    // Seller promotional discount is active! Reference price is basePrice
+    displayOriginalPrice = basePrice;
   }
 
-  const discountAmountPerItem = Math.max(0, displayOriginalPrice - bestUnitPrice);
+  const discountAmountPerItem = Math.max(0, Math.round((displayOriginalPrice - bestUnitPrice) * 100) / 100);
 
   return {
     unitPrice: bestUnitPrice,

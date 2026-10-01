@@ -133,6 +133,133 @@ function validateDiscountConfig(
 }
 
 /**
+ * Closes and turns off a discount immediately on the product.
+ * Automatically removes the discount from the marketplace and sends a notification
+ * to the Super Admin that the discount has been closed for this product and brand.
+ */
+export async function closeDiscountImmediately(params: {
+  productId: string;
+  sellerId: string;
+  discountType: DiscountTypeEnum;
+  closedBy?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { productId, sellerId, discountType, closedBy } = params;
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+    let product: any = null;
+    let sellerName = "Seller";
+
+    if (!isMock) {
+      product = await db.product.findUnique({
+        where: { id: productId },
+        include: { seller: true },
+      });
+      if (!product) {
+        return { success: false, error: "Product not found." };
+      }
+      if (product.sellerId !== sellerId) {
+        return { success: false, error: "Unauthorized: You do not own this product." };
+      }
+      sellerName = product.seller?.companyName || "Seller";
+
+      const now = new Date();
+      const updatePayload: any = {};
+
+      if (discountType === "INDIVIDUAL") {
+        const existing = (product.individualDiscount as any) || {};
+        updatePayload.individualDiscount = {
+          ...existing,
+          enabled: false,
+          status: "INACTIVE",
+          approvalStatus: "NONE",
+          pendingRequestId: null,
+          pendingConfig: null,
+          rejectionReason: null,
+          closedAt: now.toISOString(),
+          closedBy: closedBy || sellerId,
+        };
+      } else if (discountType === "TIER") {
+        const existing = (product.tierDiscounts as any) || {};
+        updatePayload.tierDiscounts = {
+          ...existing,
+          enabled: false,
+          status: "INACTIVE",
+          approvalStatus: "NONE",
+          pendingRequestId: null,
+          pendingConfig: null,
+          rejectionReason: null,
+          closedAt: now.toISOString(),
+          closedBy: closedBy || sellerId,
+        };
+      } else if (discountType === "BUY_X_GET_Y") {
+        const existing = (product.buyXGetYOffer as any) || {};
+        updatePayload.buyXGetYOffer = {
+          ...existing,
+          enabled: false,
+          status: "INACTIVE",
+          approvalStatus: "NONE",
+          pendingRequestId: null,
+          pendingConfig: null,
+          rejectionReason: null,
+          closedAt: now.toISOString(),
+          closedBy: closedBy || sellerId,
+        };
+      }
+
+      await db.product.update({
+        where: { id: productId },
+        data: updatePayload,
+      });
+
+      // Close any pending approval requests for this product & discountType
+      await (db as any).discountApprovalRequest.updateMany({
+        where: {
+          productId,
+          discountType,
+          status: "PENDING",
+        },
+        data: {
+          status: "REJECTED",
+          rejectionReason: `Closed directly by seller (${sellerName})`,
+          reviewedAt: now,
+        },
+      });
+    } else {
+      sellerName = "Seller";
+    }
+
+    const productName = product?.name?.trim() || "Product";
+    const discountTypeLabel =
+      discountType === "INDIVIDUAL"
+        ? "individual product discount"
+        : discountType === "TIER"
+        ? "tier discounts"
+        : "Buy X Get Y offer";
+
+    // Notify Super Admin that the discount has been closed of this product from this particular brand
+    await createAdminNotification(
+      `Discount Closed: ${productName}`,
+      `The ${discountTypeLabel} has been closed for "${productName}" from brand "${sellerName}".`,
+      "/admin/dashboard?tab=promotions"
+    ).catch(() => {});
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+      revalidatePath("/seller/dashboard");
+      revalidatePath("/admin/dashboard");
+    } catch {}
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("closeDiscountImmediately error:", error);
+    return { success: false, error: error.message || "Failed to close discount." };
+  }
+}
+
+/**
  * 1. SELLER CREATES AN APPROVAL REQUEST
  * Supports: ACTIVATE, DEACTIVATE, UPDATE for INDIVIDUAL, TIER, and BUY_X_GET_Y
  */
@@ -146,6 +273,17 @@ export async function requestDiscountApproval(params: {
 }): Promise<{ success: boolean; error?: string; requestId?: string }> {
   try {
     const { productId, sellerId, discountType, requestedAction, proposedConfig, requestedBy } = params;
+
+    // Direct deactivation path: immediately close discount and notify Super Admin
+    if (requestedAction === "DEACTIVATE") {
+      const closeRes = await closeDiscountImmediately({
+        productId,
+        sellerId,
+        discountType,
+        closedBy: requestedBy,
+      });
+      return closeRes;
+    }
 
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
@@ -170,11 +308,9 @@ export async function requestDiscountApproval(params: {
     const price = product ? Number(product.price) : 259;
 
     // Validate if action is ACTIVATE or UPDATE
-    if (requestedAction !== "DEACTIVATE") {
-      const valRes = validateDiscountConfig(discountType, proposedConfig, price);
-      if (!valRes.valid) {
-        return { success: false, error: valRes.error };
-      }
+    const valRes = validateDiscountConfig(discountType, proposedConfig, price);
+    if (!valRes.valid) {
+      return { success: false, error: valRes.error };
     }
 
     // Check for existing pending request for this product & discountType to prevent duplicates
@@ -215,7 +351,7 @@ export async function requestDiscountApproval(params: {
 
     // Determine target approval status label
     let targetApprovalStatus: string = "PENDING_APPROVAL";
-    if (requestedAction === "DEACTIVATE") {
+    if ((requestedAction as string) === "DEACTIVATE") {
       targetApprovalStatus = "PENDING_DEACTIVATION";
     } else if (requestedAction === "UPDATE") {
       targetApprovalStatus = "PENDING_UPDATE";
@@ -323,14 +459,14 @@ export async function requestDiscountApproval(params: {
 
     // 1. Notify Super Admin
     let adminMsg = `New ${discountTypeLabel} requires approval from Seller: ${sellerName}`;
-    if (requestedAction === "DEACTIVATE") {
+    if ((requestedAction as string) === "DEACTIVATE") {
       adminMsg = `Seller ${sellerName} has requested to deactivate ${discountTypeLabel}.`;
     } else if (requestedAction === "UPDATE") {
       adminMsg = `Seller ${sellerName} has requested to update ${discountTypeLabel}.`;
     }
 
     await createAdminNotification(
-      `Discount ${requestedAction === "ACTIVATE" ? "Activation" : requestedAction === "DEACTIVATE" ? "Deactivation" : "Update"} Request`,
+      `Discount ${requestedAction === "ACTIVATE" ? "Activation" : (requestedAction as string) === "DEACTIVATE" ? "Deactivation" : "Update"} Request`,
       adminMsg,
       "/admin/dashboard?tab=promotions"
     ).catch(() => {});
@@ -338,7 +474,7 @@ export async function requestDiscountApproval(params: {
     // 2. Notify Seller
     const sellerUserId = await resolveSellerUserId(sellerId);
     let sellerMsg = "Your discount has been submitted for Super Admin approval.";
-    if (requestedAction === "DEACTIVATE") {
+    if ((requestedAction as string) === "DEACTIVATE") {
       sellerMsg = "Your request to deactivate the discount has been submitted for approval.";
     } else if (requestedAction === "UPDATE") {
       sellerMsg = "Your discount update request has been submitted for approval.";
@@ -431,6 +567,14 @@ export async function approveDiscountRequest(
 
       if (discountType === "INDIVIDUAL") {
         if (requestedAction === "ACTIVATE" || requestedAction === "UPDATE") {
+          let safeEndDate = proposedConfig?.endDate || null;
+          if (safeEndDate) {
+            const parsed = new Date(safeEndDate);
+            if (!isNaN(parsed.getTime())) {
+              parsed.setHours(23, 59, 59, 999);
+              if (parsed < now) safeEndDate = null;
+            }
+          }
           updatePayload.individualDiscount = {
             enabled: true,
             status: "ACTIVE",
@@ -438,7 +582,7 @@ export async function approveDiscountRequest(
             discountType: proposedConfig?.discountType || "PERCENTAGE",
             discountValue: Number(proposedConfig?.discountValue || 0),
             startDate: proposedConfig?.startDate || null,
-            endDate: proposedConfig?.endDate || null,
+            endDate: safeEndDate,
             approvedBy: adminEmail,
             approvedAt: now.toISOString(),
             pendingRequestId: null,
@@ -488,6 +632,14 @@ export async function approveDiscountRequest(
         }
       } else if (discountType === "BUY_X_GET_Y") {
         if (requestedAction === "ACTIVATE" || requestedAction === "UPDATE") {
+          let safeEndDate = proposedConfig?.endDate || null;
+          if (safeEndDate) {
+            const parsed = new Date(safeEndDate);
+            if (!isNaN(parsed.getTime())) {
+              parsed.setHours(23, 59, 59, 999);
+              if (parsed < now) safeEndDate = null;
+            }
+          }
           updatePayload.buyXGetYOffer = {
             enabled: true,
             status: "ACTIVE",
@@ -496,7 +648,7 @@ export async function approveDiscountRequest(
             getQuantity: Number(proposedConfig?.getQuantity ?? 1),
             maxFreeQuantity: proposedConfig?.maxFreeQuantity ? Number(proposedConfig.maxFreeQuantity) : null,
             startDate: proposedConfig?.startDate || null,
-            endDate: proposedConfig?.endDate || null,
+            endDate: safeEndDate,
             approvedBy: adminEmail,
             approvedAt: now.toISOString(),
             pendingRequestId: null,

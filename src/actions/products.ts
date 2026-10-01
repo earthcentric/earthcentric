@@ -81,6 +81,8 @@ export interface ProductItem {
   wholesalePrice?: number;
   originalPrice?: number;
   bulkPriceSlabs?: any;
+  bulkOrderQuantity?: number | null; // Seller wholesale: default bulk quantity
+  bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
   tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
   individualDiscount?: IndividualDiscount | any | null;
   buyXGetYOffer?: BuyXGetYOffer | any | null;
@@ -132,6 +134,8 @@ const MOCK_PRODUCTS: ProductItem[] = [
     description: "Sturdy, leak-proof sugarcane pulp tray. Microwave & freezer safe. Oil and water resistant.",
     price: 249,
     stock: 350,
+    bulkOrderQuantity: 100,
+    bulkOrderPrice: 100,
     sustainabilityScore: 97,
     sustainabilityDetail: "Made from natural sugarcane bagasse. 100% biodegradable and compostable. No plastic or wax lining.",
     images: ["https://images.unsplash.com/photo-1543083503-4c902cff990d?w=600&auto=format&fit=crop&q=80"],
@@ -157,6 +161,8 @@ const MOCK_PRODUCTS: ProductItem[] = [
     description: "Microwave safe, 100% compostable food container. Lock-tab closure design prevents accidental spills.",
     price: 269,
     stock: 400,
+    bulkOrderQuantity: 100,
+    bulkOrderPrice: 250,
     sustainabilityScore: 97,
     sustainabilityDetail: "Renewable agricultural byproduct (sugarcane). Breaks down in 90 days in compost heap.",
     images: ["https://images.unsplash.com/photo-1599839575945-a9e5af0c3fa5?w=600&auto=format&fit=crop&q=80"],
@@ -613,6 +619,8 @@ export async function getSellerInitialProduct(sellerId: string): Promise<Product
       price: dbProd.price,
       ...(dbProd.wholesalePrice ? { wholesalePrice: dbProd.wholesalePrice } : {}),
       ...(dbProd.originalPrice ? { originalPrice: dbProd.originalPrice } : {}),
+      bulkOrderQuantity: (dbProd as any).bulkOrderQuantity ?? null,
+      bulkOrderPrice: (dbProd as any).bulkOrderPrice ?? null,
       stock: dbProd.stock,
       sustainabilityScore: 85,
       sustainabilityDetail: "",
@@ -671,9 +679,15 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
     }
 
     if (filters.category) {
-      whereClause.category = {
-        slug: filters.category,
-      };
+      const catFilter = filters.category;
+      const catSlug = catFilter.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      andConditions.push({
+        OR: [
+          { category: { slug: catSlug } },
+          { category: { name: { equals: catFilter, mode: "insensitive" } } },
+          { category: { name: { contains: catFilter, mode: "insensitive" } } },
+        ],
+      });
     }
 
     if (filters.minSustainabilityScore) {
@@ -693,6 +707,8 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         OR: [
           { name: { contains: filters.search, mode: "insensitive" } },
           { description: { contains: filters.search, mode: "insensitive" } },
+          { category: { name: { contains: filters.search, mode: "insensitive" } } },
+          { sustainabilityDetail: { contains: filters.search, mode: "insensitive" } },
         ]
       });
     }
@@ -707,8 +723,18 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
     if (filters.dealsOnly) {
       andConditions.push({
         OR: [
+          // MRP-based discount: has a higher original price set
           { originalPrice: { not: null } },
-          { NOT: { bulkPriceSlabs: null } }
+          // Bulk slab pricing
+          { NOT: { bulkPriceSlabs: null } },
+          // Wholesale bulk order configured
+          { AND: [{ bulkOrderQuantity: { not: null } }, { bulkOrderPrice: { not: null } }] },
+          // Active individual discount (approved, not null)
+          { individualDiscount: { not: null } },
+          // Tier discounts configured
+          { tierDiscounts: { not: null } },
+          // Buy X Get Y offer configured
+          { buyXGetYOffer: { not: null } },
         ]
       });
     }
@@ -815,8 +841,12 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         certifications: [], // dynamically loaded
         rating,
         reviewsCount: p.reviews.length,
+        moq: p.moq ?? 1,
+        wholesalePrice: p.wholesalePrice ?? (p.bulkOrderPrice && p.bulkOrderQuantity ? p.bulkOrderPrice / p.bulkOrderQuantity : undefined),
         ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
         bulkPriceSlabs: p.bulkPriceSlabs,
+        bulkOrderQuantity: (p as any).bulkOrderQuantity ?? null,
+        bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
         tierDiscounts: (p as any).tierDiscounts || null,
         individualDiscount: (p as any).individualDiscount || null,
         buyXGetYOffer: (p as any).buyXGetYOffer || null,
@@ -836,9 +866,9 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const dyn = dynamicProducts.find((p) => p.id === id);
-      if (dyn) return dyn;
+      if (dyn) return { ...dyn, status: dyn.status || (dyn.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
       const mock = MOCK_PRODUCTS.find((p) => p.id === id);
-      if (mock) return mock;
+      if (mock) return { ...mock, status: mock.status || (mock.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
       return null;
     }
 
@@ -893,6 +923,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       ...(p.wholesalePrice ? { wholesalePrice: p.wholesalePrice } : {}),
       ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
       bulkPriceSlabs: p.bulkPriceSlabs,
+      bulkOrderQuantity: (p as any).bulkOrderQuantity ?? null,
+      bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
@@ -923,6 +955,8 @@ export async function createProduct(data: {
   wholesalePrice?: number;
   originalPrice?: number;
   bulkPriceSlabs?: any;
+  bulkOrderQuantity?: number; // Seller wholesale: default bulk quantity
+  bulkOrderPrice?: number;    // Seller wholesale: total price for that bulk quantity
   tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
   individualDiscount?: IndividualDiscount | any | null;
   buyXGetYOffer?: BuyXGetYOffer | any | null;
@@ -1028,6 +1062,8 @@ export async function createProduct(data: {
         ...(data.wholesalePrice ? { wholesalePrice: Number(data.wholesalePrice) } : {}),
         ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
         bulkPriceSlabs: data.bulkPriceSlabs || null,
+        ...(data.bulkOrderQuantity ? { bulkOrderQuantity: Number(data.bulkOrderQuantity) } : {}),
+        ...(data.bulkOrderPrice ? { bulkOrderPrice: Number(data.bulkOrderPrice) } : {}),
         tierDiscounts: data.tierDiscounts || null,
         individualDiscount: data.individualDiscount || null,
         buyXGetYOffer: data.buyXGetYOffer || null,
@@ -1088,6 +1124,8 @@ export async function createProduct(data: {
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
         bulkPriceSlabs: data.bulkPriceSlabs || null,
+        ...(data.bulkOrderQuantity ? { bulkOrderQuantity: Number(data.bulkOrderQuantity) } : {}),
+        ...(data.bulkOrderPrice ? { bulkOrderPrice: Number(data.bulkOrderPrice) } : {}),
         images: {
           create: uploadedImages,
         },
@@ -1144,6 +1182,8 @@ export async function createProduct(data: {
       ...(p.wholesalePrice ? { wholesalePrice: p.wholesalePrice } : {}),
       ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
       bulkPriceSlabs: p.bulkPriceSlabs,
+      bulkOrderQuantity: (p as any).bulkOrderQuantity ?? null,
+      bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
@@ -1172,6 +1212,8 @@ export async function updateProduct(
     wholesalePrice?: number;
     originalPrice?: number;
     bulkPriceSlabs?: any;
+    bulkOrderQuantity?: number | null; // Seller wholesale: default bulk quantity
+    bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
     tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
     individualDiscount?: IndividualDiscount | any | null;
     buyXGetYOffer?: BuyXGetYOffer | any | null;
@@ -1200,6 +1242,9 @@ export async function updateProduct(
             sustainabilityDetail: data.sustainabilityDetail,
             ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
             bulkPriceSlabs: data.bulkPriceSlabs || null,
+            bulkOrderQuantity: data.bulkOrderQuantity !== undefined ? (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null) : (p as any).bulkOrderQuantity,
+            bulkOrderPrice: data.bulkOrderPrice !== undefined ? (data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null) : (p as any).bulkOrderPrice,
+            wholesalePrice: data.wholesalePrice !== undefined ? (data.wholesalePrice ? Number(data.wholesalePrice) : undefined) : (data.bulkOrderPrice && data.bulkOrderQuantity ? Number(data.bulkOrderPrice) / Number(data.bulkOrderQuantity) : p.wholesalePrice),
             tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
             individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
             buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
@@ -1225,6 +1270,9 @@ export async function updateProduct(
           sustainabilityDetail: data.sustainabilityDetail,
           ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
           bulkPriceSlabs: data.bulkPriceSlabs || null,
+          bulkOrderQuantity: data.bulkOrderQuantity !== undefined ? (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null) : MOCK_PRODUCTS[idx].bulkOrderQuantity,
+          bulkOrderPrice: data.bulkOrderPrice !== undefined ? (data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null) : MOCK_PRODUCTS[idx].bulkOrderPrice,
+          wholesalePrice: data.wholesalePrice !== undefined ? (data.wholesalePrice ? Number(data.wholesalePrice) : undefined) : (data.bulkOrderPrice && data.bulkOrderQuantity ? Number(data.bulkOrderPrice) / Number(data.bulkOrderQuantity) : (MOCK_PRODUCTS[idx].wholesalePrice ?? undefined)),
           tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
           individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
           buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
@@ -1250,9 +1298,15 @@ export async function updateProduct(
     if (data.sustainabilityScore !== undefined) updatePayload.sustainabilityScore = Number(data.sustainabilityScore);
     if (data.sustainabilityDetail !== undefined) updatePayload.sustainabilityDetail = data.sustainabilityDetail;
     if (data.moq !== undefined) updatePayload.moq = Number(data.moq);
-    if (data.wholesalePrice !== undefined) updatePayload.wholesalePrice = data.wholesalePrice ? Number(data.wholesalePrice) : null;
+    if (data.bulkOrderQuantity && data.bulkOrderPrice && Number(data.bulkOrderQuantity) > 0) {
+      updatePayload.wholesalePrice = Number(data.bulkOrderPrice) / Number(data.bulkOrderQuantity);
+    } else if (data.wholesalePrice !== undefined) {
+      updatePayload.wholesalePrice = data.wholesalePrice ? Number(data.wholesalePrice) : null;
+    }
     if (data.originalPrice !== undefined) updatePayload.originalPrice = data.originalPrice ? Number(data.originalPrice) : null;
     if (data.bulkPriceSlabs !== undefined) updatePayload.bulkPriceSlabs = data.bulkPriceSlabs;
+    if (data.bulkOrderQuantity !== undefined) updatePayload.bulkOrderQuantity = data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null;
+    if (data.bulkOrderPrice !== undefined) updatePayload.bulkOrderPrice = data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null;
     if (data.tierDiscounts !== undefined) updatePayload.tierDiscounts = data.tierDiscounts as any;
     if (data.individualDiscount !== undefined) {
       const indiv = data.individualDiscount as any;
@@ -1316,6 +1370,9 @@ export async function updateProduct(
       revalidatePath("/");
       revalidatePath("/marketplace");
       revalidatePath(`/products/${id}`);
+      if (updated.slug) {
+        revalidatePath(`/products/${updated.slug}`);
+      }
       revalidatePath("/seller/dashboard");
     } catch (e) {}
 
@@ -1325,6 +1382,11 @@ export async function updateProduct(
     // Fall back to memory update
     dynamicProducts = dynamicProducts.map((p) => {
       if (p.id === id) {
+        const derivedWholesale = data.wholesalePrice !== undefined
+          ? (data.wholesalePrice ? Number(data.wholesalePrice) : undefined)
+          : (data.bulkOrderPrice && data.bulkOrderQuantity
+            ? Number(data.bulkOrderPrice) / Number(data.bulkOrderQuantity)
+            : p.wholesalePrice);
         return {
           ...p,
           name: data.name,
@@ -1337,15 +1399,25 @@ export async function updateProduct(
           sustainabilityDetail: data.sustainabilityDetail,
           ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
           bulkPriceSlabs: data.bulkPriceSlabs || null,
+          bulkOrderQuantity: data.bulkOrderQuantity !== undefined ? (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null) : (p as any).bulkOrderQuantity,
+          bulkOrderPrice: data.bulkOrderPrice !== undefined ? (data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null) : (p as any).bulkOrderPrice,
+          wholesalePrice: derivedWholesale,
           tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
           individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
           buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
+          highlights: data.highlights !== undefined ? data.highlights : p.highlights,
+          technicalSpecs: data.technicalSpecs !== undefined ? data.technicalSpecs : p.technicalSpecs,
         };
       }
       return p;
     });
     const idx = MOCK_PRODUCTS.findIndex((p) => p.id === id);
     if (idx !== -1) {
+      const mockDerivedWholesale = data.wholesalePrice !== undefined
+        ? (data.wholesalePrice ? Number(data.wholesalePrice) : undefined)
+        : (data.bulkOrderPrice && data.bulkOrderQuantity
+          ? Number(data.bulkOrderPrice) / Number(data.bulkOrderQuantity)
+          : (MOCK_PRODUCTS[idx].wholesalePrice ?? undefined));
       MOCK_PRODUCTS[idx] = {
         ...MOCK_PRODUCTS[idx],
         name: data.name,
@@ -1358,9 +1430,14 @@ export async function updateProduct(
         sustainabilityDetail: data.sustainabilityDetail,
         ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
         bulkPriceSlabs: data.bulkPriceSlabs || null,
+        bulkOrderQuantity: data.bulkOrderQuantity !== undefined ? (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null) : MOCK_PRODUCTS[idx].bulkOrderQuantity,
+        bulkOrderPrice: data.bulkOrderPrice !== undefined ? (data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null) : MOCK_PRODUCTS[idx].bulkOrderPrice,
+        wholesalePrice: mockDerivedWholesale,
         tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
         individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
         buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
+        highlights: data.highlights !== undefined ? data.highlights : MOCK_PRODUCTS[idx].highlights,
+        technicalSpecs: data.technicalSpecs !== undefined ? data.technicalSpecs : MOCK_PRODUCTS[idx].technicalSpecs,
       };
     }
     return true;
@@ -1453,12 +1530,21 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
 
   if (filters.search) {
     const q = filters.search.toLowerCase();
-    list = list.filter((p) => p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
+    list = list.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.description.toLowerCase().includes(q) ||
+      p.category.toLowerCase().includes(q) ||
+      (p.sustainabilityDetail || "").toLowerCase().includes(q)
+    );
   }
 
   if (filters.category && filters.category !== "all") {
-    const catSlug = filters.category.toLowerCase();
-    list = list.filter((p) => p.category.toLowerCase().replace(/[^a-z0-9]+/g, "-") === catSlug);
+    const catFilter = filters.category.toLowerCase();
+    list = list.filter((p) => {
+      const catSlug = p.category.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const catName = p.category.toLowerCase();
+      return catSlug === catFilter || catName === catFilter || catName.includes(catFilter) || catFilter.includes(catName);
+    });
   }
 
   if (filters.minSustainabilityScore) {
@@ -1474,7 +1560,25 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
   }
 
   if (filters.dealsOnly) {
-    list = list.filter((p) => (p.originalPrice && p.originalPrice > p.price) || (p.bulkPriceSlabs && p.bulkPriceSlabs.length > 0));
+    list = list.filter((p) => {
+      // MRP discount
+      if (p.originalPrice && p.originalPrice > p.price) return true;
+      // Bulk slab pricing
+      if (p.bulkPriceSlabs && (p.bulkPriceSlabs as any[]).length > 0) return true;
+      // Wholesale bulk order
+      if (p.bulkOrderQuantity && p.bulkOrderPrice) return true;
+      // Individual discount (any value set)
+      if (p.individualDiscount && (p.individualDiscount as any).discountValue) return true;
+      // Tier discounts
+      const tiers = p.tierDiscounts;
+      if (tiers) {
+        if (Array.isArray(tiers) && tiers.length > 0) return true;
+        if ((tiers as any).tiers && (tiers as any).tiers.length > 0) return true;
+      }
+      // Buy X Get Y
+      if (p.buyXGetYOffer && (p.buyXGetYOffer as any).buyQuantity) return true;
+      return false;
+    });
   }
 
   if (filters.newArrivalsOnly) {

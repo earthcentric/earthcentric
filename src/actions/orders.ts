@@ -65,6 +65,7 @@ let mockOrders: OrderDetail[] = [];
 export async function createOrder(data: {
   userId: string;
   userEmail: string;
+  userPhone?: string;
   address: AddressInput;
   items: OrderItemInput[];
   totalAmount: number;
@@ -124,11 +125,17 @@ export async function createOrder(data: {
 
   // Generate Cashfree Order strictly with server-calculated payable amount
   let paymentOrder: any;
+  const customerPhone = data.userPhone ? data.userPhone.replace(/\D/g, "").slice(-10) : "";
   try {
     paymentOrder = await createCashfreeOrder({
       amount: finalTotalAmount,
       orderId: orderId,
-      customer: { id: data.userId, name: data.userEmail.split("@")[0], email: data.userEmail, phone: "" }
+      customer: {
+        id: data.userId,
+        name: data.userEmail.split("@")[0],
+        email: data.userEmail,
+        phone: customerPhone
+      }
     });
   } catch (err: any) {
     console.warn("Cashfree order initialization warning in createOrder, using fallback:", err?.message || err);
@@ -190,11 +197,14 @@ export async function createOrder(data: {
     try {
       await db.user.upsert({
         where: { id: data.userId },
-        update: {},
+        update: {
+          ...(customerPhone ? { phone: customerPhone } : {}),
+        },
         create: {
           id: data.userId,
           email: data.userEmail || `${data.userId}@earthcentric.com`,
           name: data.userEmail ? data.userEmail.split("@")[0] : "Customer",
+          phone: customerPhone || null,
           role: "BUYER",
         },
       });

@@ -12,7 +12,7 @@ import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPay
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
 import { getUnreadMessageCount } from "@/actions/messages";
-import { requestDiscountApproval } from "@/actions/discounts";
+import { requestDiscountApproval, closeDiscountImmediately } from "@/actions/discounts";
 import * as XLSX from "xlsx";
 import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, MetalButton } from "@/components/ui/shared";
 import { FadeIn } from "@/components/FramerComponents";
@@ -684,6 +684,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editOriginalPrice, setEditOriginalPrice] = useState("");
   const [editDate, setEditDate] = useState("");
   const [editSlabs, setEditSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
+  const [editBulkOrderQuantity, setEditBulkOrderQuantity] = useState("");
+  const [editBulkOrderPrice, setEditBulkOrderPrice] = useState("");
 
   // Edit Product Offers state
   const [editEnableTierDiscount, setEditEnableTierDiscount] = useState(false);
@@ -726,10 +728,14 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     const initialDate = p.productDate ? (typeof p.productDate === 'string' ? p.productDate.split("T")[0] : new Date(p.productDate).toISOString().split("T")[0]) : (p.createdAt ? (typeof p.createdAt === 'string' ? p.createdAt.split("T")[0] : new Date(p.createdAt).toISOString().split("T")[0]) : new Date().toISOString().split("T")[0]);
     setEditDate(initialDate);
     setEditCat(p.category);
+    setEditScore(p.sustainabilityScore !== undefined && p.sustainabilityScore !== null ? p.sustainabilityScore.toString() : "85");
+    setEditDetails(p.sustainabilityDetail || "");
     setEditMoq(p.moq?.toString() || "");
     setEditWholesalePrice(p.wholesalePrice?.toString() || "");
     setEditOriginalPrice(p.originalPrice?.toString() || "");
     setEditSlabs(p.bulkPriceSlabs || []);
+    setEditBulkOrderQuantity(p.bulkOrderQuantity !== undefined && p.bulkOrderQuantity !== null ? p.bulkOrderQuantity.toString() : "");
+    setEditBulkOrderPrice(p.bulkOrderPrice !== undefined && p.bulkOrderPrice !== null ? p.bulkOrderPrice.toString() : "");
 
     // Set highlights
     if (Array.isArray(p.highlights) && p.highlights.length > 0) {
@@ -823,24 +829,18 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     // 1. Process Individual Discount Workflow
     const indivVal = Number(editIndivDiscountValue);
     if (initialIndivConfig.active && !editEnableIndividualDiscount) {
-      // Seller requesting DEACTIVATION
-      if (editIndivApprovalStatus === "PENDING_DEACTIVATION") {
-        toast.info("Individual discount deactivation is already pending Super Admin approval.");
+      // Seller turned OFF the individual discount -> immediately close & notify super admin
+      const res = await closeDiscountImmediately({
+        productId: editingProduct.id,
+        sellerId,
+        discountType: "INDIVIDUAL",
+        closedBy: user?.email || sellerId,
+      });
+      if (res.success) {
+        toast.success("Discount has been closed. Super Admin notified and changes applied to the marketplace.");
+        anyPromoSubmitted = true;
       } else {
-        const res = await requestDiscountApproval({
-          productId: editingProduct.id,
-          sellerId,
-          discountType: "INDIVIDUAL",
-          requestedAction: "DEACTIVATE",
-          proposedConfig: {},
-          requestedBy: user?.email || sellerId,
-        });
-        if (res.success) {
-          toast.success("Individual discount deactivation submitted for Super Admin review.");
-          anyPromoSubmitted = true;
-        } else {
-          toast.error(res.error || "Failed to submit deactivation request.");
-        }
+        toast.error(res.error || "Failed to close discount.");
       }
     } else if (!initialIndivConfig.active && editEnableIndividualDiscount && indivVal > 0) {
       // Seller requesting ACTIVATION
@@ -896,24 +896,18 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
 
     // 2. Process Tier Discounts Workflow
     if (initialTierConfig.active && !editEnableTierDiscount) {
-      // Seller requesting DEACTIVATION
-      if (editTierApprovalStatus === "PENDING_DEACTIVATION") {
-        toast.info("Tier discount deactivation is already pending Super Admin approval.");
+      // Seller turned OFF tier discounts -> immediately close & notify super admin
+      const res = await closeDiscountImmediately({
+        productId: editingProduct.id,
+        sellerId,
+        discountType: "TIER",
+        closedBy: user?.email || sellerId,
+      });
+      if (res.success) {
+        toast.success("Tier discounts closed. Super Admin notified and changes applied to the marketplace.");
+        anyPromoSubmitted = true;
       } else {
-        const res = await requestDiscountApproval({
-          productId: editingProduct.id,
-          sellerId,
-          discountType: "TIER",
-          requestedAction: "DEACTIVATE",
-          proposedConfig: {},
-          requestedBy: user?.email || sellerId,
-        });
-        if (res.success) {
-          toast.success("Tier discount deactivation submitted for Super Admin review.");
-          anyPromoSubmitted = true;
-        } else {
-          toast.error(res.error || "Failed to submit tier deactivation request.");
-        }
+        toast.error(res.error || "Failed to close tier discounts.");
       }
     } else if (!initialTierConfig.active && editEnableTierDiscount && editTierDiscounts.length > 0) {
       // Seller requesting ACTIVATION
@@ -965,24 +959,18 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     const bxBuy = Number(editBuyXBuyQty);
     const bxGet = Number(editBuyXGetQty);
     if (initialBuyXConfig.active && !editBuyXGetYEnabled) {
-      // Seller requesting DEACTIVATION
-      if (editBuyXApprovalStatus === "PENDING_DEACTIVATION") {
-        toast.info("Buy X Get Y deactivation is already pending Super Admin approval.");
+      // Seller turned OFF Buy X Get Y offer -> immediately close & notify super admin
+      const res = await closeDiscountImmediately({
+        productId: editingProduct.id,
+        sellerId,
+        discountType: "BUY_X_GET_Y",
+        closedBy: user?.email || sellerId,
+      });
+      if (res.success) {
+        toast.success("Buy X Get Y offer closed. Super Admin notified and changes applied to the marketplace.");
+        anyPromoSubmitted = true;
       } else {
-        const res = await requestDiscountApproval({
-          productId: editingProduct.id,
-          sellerId,
-          discountType: "BUY_X_GET_Y",
-          requestedAction: "DEACTIVATE",
-          proposedConfig: {},
-          requestedBy: user?.email || sellerId,
-        });
-        if (res.success) {
-          toast.success("Buy X Get Y deactivation submitted for Super Admin review.");
-          anyPromoSubmitted = true;
-        } else {
-          toast.error(res.error || "Failed to submit BXGY deactivation request.");
-        }
+        toast.error(res.error || "Failed to close Buy X Get Y offer.");
       }
     } else if (!initialBuyXConfig.active && editBuyXGetYEnabled && bxBuy >= 1 && bxGet >= 1) {
       // Seller requesting ACTIVATION
@@ -1043,7 +1031,11 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     const validSpecs = editTechSpecs
       .map((s) => (s.label.trim() && s.value.trim() ? `${s.label.trim()}: ${s.value.trim()}` : ""))
       .filter((s) => s.length > 0);
-    const isAlreadyApproved = editingProduct.isApproved && editingProduct.status === "APPROVED";
+    const isAlreadyApproved = Boolean(editingProduct.isApproved || editingProduct.status === "APPROVED");
+
+    const derivedWholesalePrice = editBulkOrderQuantity && editBulkOrderPrice && Number(editBulkOrderQuantity) > 0
+      ? Number(editBulkOrderPrice) / Number(editBulkOrderQuantity)
+      : (editWholesalePrice ? Number(editWholesalePrice) : undefined);
 
     await updateProduct(editingProduct.id, {
       name: editName,
@@ -1055,12 +1047,15 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       sustainabilityScore: Number(editScore) || 85,
       sustainabilityDetail: editDetails,
       moq: editMoq ? Number(editMoq) : undefined,
-      wholesalePrice: editWholesalePrice ? Number(editWholesalePrice) : undefined,
+      wholesalePrice: derivedWholesalePrice,
       originalPrice: editOriginalPrice ? Number(editOriginalPrice) : undefined,
       bulkPriceSlabs: editSlabs.length > 0 ? editSlabs : undefined,
+      bulkOrderQuantity: editBulkOrderQuantity ? Number(editBulkOrderQuantity) : null,
+      bulkOrderPrice: editBulkOrderPrice ? Number(editBulkOrderPrice) : null,
       highlights: validHighlights,
       technicalSpecs: validSpecs,
       reapprovalRequired: !isAlreadyApproved,
+      status: isAlreadyApproved ? "APPROVED" : undefined,
     });
 
     if (!anyPromoSubmitted) {
@@ -1296,8 +1291,55 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                   <Input type="number" placeholder="Optional" value={editMoq} onChange={(e) => setEditMoq(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <Label>Eco Score (1-100)</Label>
+                  <Label>Sustainability Score (1-100)</Label>
                   <Input type="number" required value={editScore} onChange={(e) => setEditScore(e.target.value)} />
+                </div>
+              </div>
+
+              {/* Wholesale / Bulk Order Pricing Configuration */}
+              <div className="p-4 bg-emerald-50/60 border border-emerald-200/70 rounded-xl space-y-3">
+                <div>
+                  <Label className="font-bold text-xs text-[#2d4a36] flex items-center gap-1.5">
+                    📦 Wholesale / Bulk Order Configuration
+                  </Label>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Configure your default bulk quantity and bulk price. Customer wholesale quote calculations are calculated directly from this configuration.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-gray-700">Default Bulk Order Quantity (Units)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 100"
+                      value={editBulkOrderQuantity}
+                      onChange={(e) => setEditBulkOrderQuantity(e.target.value)}
+                      className="bg-white text-xs h-8"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Minimum quantity required for wholesale enquiry</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-gray-700">Default Bulk Order Price (₹ Total)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 100"
+                      value={editBulkOrderPrice}
+                      onChange={(e) => setEditBulkOrderPrice(e.target.value)}
+                      className="bg-white text-xs h-8"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      {editBulkOrderQuantity && editBulkOrderPrice && Number(editBulkOrderQuantity) > 0 ? (
+                        <span className="text-emerald-700 font-semibold">
+                          = ₹{(Number(editBulkOrderPrice) / Number(editBulkOrderQuantity)).toFixed(2)} per unit in bulk
+                        </span>
+                      ) : (
+                        "Total price for the default bulk quantity above"
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
               <div className="space-y-1">
@@ -1471,7 +1513,13 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                           <span>🏷️</span>
                           <span>Individual Product Discount</span>
                         </span>
-                        {editIndivApprovalStatus === "PENDING_DEACTIVATION" ? (
+                        {!editEnableIndividualDiscount ? (
+                          initialIndivConfig.active ? (
+                            <Badge className="text-[9px] font-bold bg-slate-100 text-slate-600 border-slate-300">
+                              Will Be Closed On Save
+                            </Badge>
+                          ) : null
+                        ) : editIndivApprovalStatus === "PENDING_DEACTIVATION" ? (
                           <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
                             Deactivation Pending Super Admin Approval
                           </Badge>
@@ -1586,7 +1634,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                         let badgeText = "Requires Admin Approval";
                         let badgeStyle = "bg-amber-100 text-amber-800";
 
-                        if (editIndivApprovalStatus === "PENDING_DEACTIVATION") {
+                        if (!editEnableIndividualDiscount) {
+                          badgeText = "Discount Closed";
+                          badgeStyle = "bg-slate-100 text-slate-700";
+                        } else if (editIndivApprovalStatus === "PENDING_DEACTIVATION") {
                           badgeText = "Deactivation Pending Super Admin Approval";
                           badgeStyle = "bg-amber-100 text-amber-900 border border-amber-300";
                         } else if (editIndivApprovalStatus === "PENDING_APPROVAL") {
@@ -1911,6 +1962,8 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodOriginalPrice, setProdOriginalPrice] = useState("");
   const [prodDate, setProdDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [prodSlabs, setProdSlabs] = useState<{ min: number; price: number; total?: number }[]>([]);
+  const [prodBulkOrderQuantity, setProdBulkOrderQuantity] = useState("");
+  const [prodBulkOrderPrice, setProdBulkOrderPrice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -1994,6 +2047,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
         maxFreeQuantity: buyXMaxFree ? Number(buyXMaxFree) : null,
       } : { enabled: false };
 
+      const derivedWholesalePrice = prodBulkOrderQuantity && prodBulkOrderPrice && Number(prodBulkOrderQuantity) > 0
+        ? Number(prodBulkOrderPrice) / Number(prodBulkOrderQuantity)
+        : undefined;
+
       await createProduct({
         name: prodName,
         description: prodDesc,
@@ -2006,8 +2063,11 @@ function AddProductForm({ onBack, profile, reload }: any) {
         imageUrls,
         sellerId: user.id,
         sellerName: profile?.companyName || "Seller",
+        wholesalePrice: derivedWholesalePrice,
         originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
         bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,
+        bulkOrderQuantity: prodBulkOrderQuantity ? Number(prodBulkOrderQuantity) : undefined,
+        bulkOrderPrice: prodBulkOrderPrice ? Number(prodBulkOrderPrice) : undefined,
         tierDiscounts: tierDiscountsPayload,
         individualDiscount: individualDiscountPayload,
         buyXGetYOffer: buyXGetYPayload,
@@ -2044,12 +2104,59 @@ function AddProductForm({ onBack, profile, reload }: any) {
             <div className="space-y-1"><Label>Active Sale Price (₹)</Label><Input type="number" required value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
             <div className="space-y-1"><Label>Stock</Label><Input type="number" required value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
           </div>
+
+          {/* Wholesale / Bulk Order Pricing Configuration */}
+          <div className="p-4 bg-emerald-50/60 border border-emerald-200/70 rounded-xl space-y-3">
+            <div>
+              <Label className="font-bold text-sm text-[#2d4a36] flex items-center gap-1.5">
+                📦 Wholesale / Bulk Order Configuration
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Set your default bulk order quantity and total bulk order price. Customers requesting custom quotes will see automatically calculated wholesale prices based on these values.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-gray-700">Default Bulk Order Quantity (Units)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 100"
+                  value={prodBulkOrderQuantity}
+                  onChange={(e) => setProdBulkOrderQuantity(e.target.value)}
+                  className="bg-white"
+                />
+                <p className="text-[10px] text-muted-foreground">Minimum quantity for wholesale quote requests</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-gray-700">Default Bulk Order Price (₹ Total)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 100"
+                  value={prodBulkOrderPrice}
+                  onChange={(e) => setProdBulkOrderPrice(e.target.value)}
+                  className="bg-white"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  {prodBulkOrderQuantity && prodBulkOrderPrice && Number(prodBulkOrderQuantity) > 0 ? (
+                    <span className="text-emerald-700 font-semibold">
+                      = ₹{(Number(prodBulkOrderPrice) / Number(prodBulkOrderQuantity)).toFixed(2)} per unit in bulk
+                    </span>
+                  ) : (
+                    "Total price for the default bulk quantity above"
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
           <div className="space-y-1">
             <Label>Product Date</Label>
             <Input type="date" required value={prodDate} onChange={(e) => setProdDate(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1"><Label>Eco Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Sustainability Score (1-100)</Label><Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} /></div>
             <div className="space-y-1"><Label>Sustainability Details</Label><Input value={prodDetails} onChange={(e) => setProdDetails(e.target.value)} /></div>
           </div>
 
@@ -3631,6 +3738,7 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
               <TableHead className="text-xs">PRODUCT</TableHead>
               <TableHead className="text-xs">QTY</TableHead>
               <TableHead className="text-xs">TARGET PRICE</TableHead>
+              <TableHead className="text-xs">EXPECTED DELIVERY</TableHead>
               <TableHead className="text-xs">LOCATION</TableHead>
               <TableHead className="text-xs">STATUS</TableHead>
               <TableHead className="text-xs text-right pr-4">SELLER RESPONSE OPTIONS</TableHead>
@@ -3638,9 +3746,9 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">Loading enquiries...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-xs py-6">Loading enquiries...</TableCell></TableRow>
             ) : enquiries.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-xs py-6">No bulk quote requests received yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-xs py-6">No bulk quote requests received yet.</TableCell></TableRow>
             ) : (
               enquiries.map((enq) => {
                 const upperStatus = enq.status.toUpperCase();
@@ -3661,6 +3769,19 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
                     <TableCell className="text-xs font-bold">{enq.quantity} units</TableCell>
                     <TableCell className="text-xs font-bold text-emerald-700">
                       {enq.targetPrice ? `₹${enq.targetPrice}` : "N/A"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {enq.expectedDate ? (
+                        <div className="flex flex-col">
+                          <span className="font-bold text-[#2d4a36] flex items-center gap-1 whitespace-nowrap">
+                            <span>📅</span>
+                            <span>{new Date(enq.expectedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">Buyer's Req. Date</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px]">Flexible / Not set</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-slate-600 max-w-[150px] truncate">{enq.location}</TableCell>
                     <TableCell className="text-xs">
@@ -3709,7 +3830,7 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
                         variant="outline"
                         onClick={() => {
                           setExtendingEnquiry(enq);
-                          const defaultDate = new Date();
+                          const defaultDate = enq.expectedDate ? new Date(enq.expectedDate) : new Date();
                           defaultDate.setDate(defaultDate.getDate() + 7);
                           setProposedDate(defaultDate.toISOString().split("T")[0]);
                         }}
@@ -3745,6 +3866,15 @@ function EnquiriesView({ sellerId }: { sellerId: string }) {
             <p className="text-xs text-slate-600">
               Specify proposed new delivery date and a note for buyer <strong>{extendingEnquiry.name}</strong> regarding <strong>{extendingEnquiry.productName}</strong>.
             </p>
+
+            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl space-y-1">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-amber-900 font-medium">Buyer's Expected Delivery Date:</span>
+                <span className="font-bold text-[#2d4a36]">
+                  {extendingEnquiry.expectedDate ? new Date(extendingEnquiry.expectedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }) : "Flexible / Not specified"}
+                </span>
+              </div>
+            </div>
 
             <div className="space-y-3 text-xs">
               <div className="space-y-1">

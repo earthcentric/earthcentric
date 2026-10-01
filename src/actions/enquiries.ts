@@ -10,6 +10,9 @@ export interface EnquiryData {
   productSlug: string;
   quantity: number;
   targetPrice?: number | null;
+  calculatedWholesaleAmount?: number | null;
+  bulkOrderQuantitySnapshot?: number | null;
+  bulkOrderPriceSnapshot?: number | null;
   location: string;
   expectedDate?: Date | null;
   name: string;
@@ -28,6 +31,9 @@ export async function createEnquiry(data: {
   buyerId?: string;
   quantity: number;
   targetPrice?: number;
+  calculatedWholesaleAmount?: number;
+  bulkOrderQuantitySnapshot?: number;
+  bulkOrderPriceSnapshot?: number;
   location: string;
   expectedDate?: Date;
   name: string;
@@ -59,14 +65,17 @@ export async function createEnquiry(data: {
           productId: data.productId,
           buyerId: data.buyerId || null,
           quantity: Number(data.quantity),
-          targetPrice: data.targetPrice ? Number(data.targetPrice) : null,
+          targetPrice: data.targetPrice ? Number(data.targetPrice) : (data.calculatedWholesaleAmount ? Number(data.calculatedWholesaleAmount) : null),
+          calculatedWholesaleAmount: data.calculatedWholesaleAmount ? Number(data.calculatedWholesaleAmount) : null,
+          bulkOrderQuantitySnapshot: data.bulkOrderQuantitySnapshot ? Number(data.bulkOrderQuantitySnapshot) : null,
+          bulkOrderPriceSnapshot: data.bulkOrderPriceSnapshot ? Number(data.bulkOrderPriceSnapshot) : null,
           location: data.location,
           expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
           name: data.name,
           email: data.email,
           phone: data.phone,
           message: data.message || null,
-        },
+        } as any,
       });
     } else {
       const newEnq: EnquiryData = {
@@ -75,7 +84,10 @@ export async function createEnquiry(data: {
         productName: "Eco Organic Product",
         productSlug: data.productId,
         quantity: Number(data.quantity),
-        targetPrice: data.targetPrice ? Number(data.targetPrice) : null,
+        targetPrice: data.targetPrice ? Number(data.targetPrice) : (data.calculatedWholesaleAmount ? Number(data.calculatedWholesaleAmount) : null),
+        calculatedWholesaleAmount: data.calculatedWholesaleAmount ? Number(data.calculatedWholesaleAmount) : null,
+        bulkOrderQuantitySnapshot: data.bulkOrderQuantitySnapshot ? Number(data.bulkOrderQuantitySnapshot) : null,
+        bulkOrderPriceSnapshot: data.bulkOrderPriceSnapshot ? Number(data.bulkOrderPriceSnapshot) : null,
         location: data.location,
         expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
         name: data.name,
@@ -160,6 +172,9 @@ export async function getSellerEnquiries(sellerId: string): Promise<EnquiryData[
       productSlug: e.product.slug,
       quantity: e.quantity,
       targetPrice: e.targetPrice,
+      calculatedWholesaleAmount: (e as any).calculatedWholesaleAmount || e.targetPrice,
+      bulkOrderQuantitySnapshot: (e as any).bulkOrderQuantitySnapshot,
+      bulkOrderPriceSnapshot: (e as any).bulkOrderPriceSnapshot,
       location: e.location,
       expectedDate: e.expectedDate,
       name: e.name,

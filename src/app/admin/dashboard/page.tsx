@@ -1127,7 +1127,7 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
                     <div className="flex items-center space-x-1 mb-1">
                       <Leaf className="h-3 w-3 text-emerald-600 shrink-0" />
                       <span className="text-[10px] font-bold text-emerald-800">
-                        Score: {p.sustainabilityScore ?? 85}/100
+                        Sustainability: {p.sustainabilityScore ?? 85}/100
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground line-clamp-2" title={p.sustainabilityDetail || p.claims}>

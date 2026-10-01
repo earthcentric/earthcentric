@@ -28,6 +28,7 @@ interface AuthContextType {
   logout: () => void;
   switchRole: (role: Role) => void | Promise<void>;
   updateSellerStatus: (status: "PENDING" | "APPROVED" | "REJECTED", badges?: string[]) => void;
+  updateUser: (data: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -270,6 +271,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await setSellerSessionCookie(user.id, updatedUser.role, status).catch(console.error);
   };
 
+  const updateUser = (data: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return null;
+      const updated = { ...prev, ...data };
+      try {
+        localStorage.setItem("earthcentric_user", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -280,6 +292,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         logout,
         switchRole,
         updateSellerStatus,
+        updateUser,
       }}
     >
       {children}

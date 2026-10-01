@@ -9,10 +9,9 @@ import { getAllBrands } from "@/actions/sellers";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useWishlist } from "@/context/WishlistContext";
-import { Button, Card, Badge, Input } from "@/components/ui/shared";
+import { Button, Card, Badge } from "@/components/ui/shared";
 import { FadeInStagger, FadeInStaggerItem, ScaleHover } from "@/components/FramerComponents";
 import {
-  Search,
   SlidersHorizontal,
   Star,
   ChevronDown,
@@ -720,20 +719,6 @@ export default function MarketplaceClient() {
                     >
                       Clear all
                     </button>
-                  </div>
-
-                  {/* Sidebar Search */}
-                  <div className="space-y-2">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Search Products</span>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                      <Input
-                        placeholder="Type keywords..."
-                        className="pl-9 text-xs border-slate-200 focus:ring-[#0F6E56] rounded-xl"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                    </div>
                   </div>
 
                   {/* Category Filter - live from DB */}

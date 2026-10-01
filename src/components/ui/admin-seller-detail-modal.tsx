@@ -485,7 +485,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                               <p className="font-semibold">{displayInitProd.category}</p>
                             </div>
                             <div>
-                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Eco Score</span>
+                              <span className="text-[10px] text-muted-foreground uppercase block mb-0.5">Sustainability Score</span>
                               <Badge variant="primary" className="text-[10px] bg-primary/10 text-primary border-none">
                               </Badge>
                             </div>

@@ -173,7 +173,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
       </button>
 
       {isOpen && (
-        <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:mt-2 w-[calc(100vw-24px)] sm:w-96 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl z-50 text-left">
+        <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:mt-2 w-[calc(100vw-24px)] sm:w-96 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl z-50 text-left flex flex-col" style={{maxHeight: "min(90vh, 560px)"}} >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2 px-1">
             <div className="flex items-center space-x-2">
@@ -213,7 +213,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
           </div>
 
           {/* List */}
-          <div className="max-h-80 overflow-y-auto space-y-1.5 pr-0.5">
+          <div className="flex-1 overflow-y-auto space-y-1.5 pr-0.5 min-h-0">
             {filteredNotifs.length === 0 ? (
               <div className="py-8 text-center text-slate-400 space-y-1">
                 <Bell className="h-8 w-8 mx-auto text-slate-200" />
@@ -248,7 +248,7 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
                         <p className="text-xs font-bold text-slate-800 truncate">{n.title}</p>
                         <span className="text-[9px] text-slate-400 shrink-0">{formatTimeAgo(n.createdAt)}</span>
                       </div>
-                      <p className="text-[11px] text-slate-600 line-clamp-2 mt-0.5 leading-snug">{n.message}</p>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-snug break-words whitespace-pre-line">{n.message}</p>
                     </div>
                     {!n.isRead && (
                       <span className="h-2 w-2 rounded-full bg-[#0F6E56] shrink-0 mt-1" />
@@ -555,11 +555,11 @@ export default function Navbar() {
               {isCategoriesOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsCategoriesOpen(false)} />
-                  <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                  <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50">
                     <div className="p-3 border-b border-slate-100">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sustainable Categories</p>
                     </div>
-                    <div className="max-h-80 overflow-y-auto py-1">
+                    <div className="max-h-80 overflow-y-auto overscroll-contain py-1 rounded-b-2xl">
                       <Link
                         href="/marketplace"
                         onClick={() => setIsCategoriesOpen(false)}

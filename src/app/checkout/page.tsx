@@ -9,16 +9,20 @@ import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/
 import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
 import { getCashfreeAppId } from "@/actions/credentials";
 import { load } from '@cashfreepayments/cashfree-js';
-import { getUserAddresses, addUserAddress, AddressData } from "@/actions/profile";
-import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star } from "lucide-react";
+import { getUserAddresses, addUserAddress, AddressData, getBuyerProfile, updateBuyerProfile } from "@/actions/profile";
+import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star, Phone } from "lucide-react";
 import Link from "next/link";
 import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 
 export default function CheckoutPage() {
   const { cart, cartTotal, clearCart } = useCart();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Contact details
+  const [contactPhone, setContactPhone] = useState(user?.phone || "");
+  const [savePhoneToProfile, setSavePhoneToProfile] = useState(true);
 
   // Saved addresses
   const [savedAddresses, setSavedAddresses] = useState<AddressData[]>([]);
@@ -41,6 +45,16 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     if (user) {
+      if (user.phone && !contactPhone) {
+        setContactPhone(user.phone);
+      } else if (user.id && !contactPhone) {
+        getBuyerProfile(user.id, user.email).then((p) => {
+          if (p?.phone) {
+            setContactPhone(p.phone);
+            updateUser({ phone: p.phone });
+          }
+        });
+      }
       getUserAddresses(user.id).then((addrs) => {
         setSavedAddresses(addrs);
         const def = addrs.find((a) => a.isDefault) || addrs[0];
@@ -54,6 +68,12 @@ export default function CheckoutPage() {
     }
   }, [user]);
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Strictly numeric digits, maximum 10 digits
+    const cleanDigits = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setContactPhone(cleanDigits);
+  };
+
   const handleSaveNewAddress = async () => {
     if (!street || !city || !state || !postalCode || !country) {
       alert("Please fill in all address fields.");
@@ -64,9 +84,13 @@ export default function CheckoutPage() {
     const res = await addUserAddress(user.id, { street, city, state, postalCode, country });
     setSavingAddress(false);
     if (res.success && res.address) {
-      setSavedAddresses((prev) => [...prev, res.address!]);
+      // Re-fetch full address list to ensure UI is always in sync with DB
+      const refreshed = await getUserAddresses(user.id);
+      setSavedAddresses(refreshed);
       setSelectedAddressId(res.address.id!);
       setShowNewAddressForm(false);
+      // Clear the form fields
+      setStreet(""); setCity(""); setState(""); setPostalCode(""); setCountry("India");
     }
   };
 
@@ -89,6 +113,12 @@ export default function CheckoutPage() {
     }
     if (cart.length === 0) return;
 
+    const digitsPhone = contactPhone.replace(/\D/g, "").slice(0, 10);
+    if (!digitsPhone || digitsPhone.length !== 10) {
+      alert("Please provide a valid 10-digit mobile number for order delivery & verification.");
+      return;
+    }
+
     const address = getSelectedAddress();
     if (!address) {
       alert("Please select or add a delivery address.");
@@ -106,10 +136,11 @@ export default function CheckoutPage() {
         sellerId: item.sellerId,
       }));
 
-      // Call server action to create Order & Razorpay ID
+      // Call server action to create Order & Cashfree ID
       const res = await createOrder({
         userId: user.id,
         userEmail: user.email,
+        userPhone: digitsPhone,
         address,
         items,
         totalAmount: cartTotal,
@@ -118,6 +149,16 @@ export default function CheckoutPage() {
       if (!res.success || !res.order) {
         alert((res as any)?.error || "Failed to initialize order payment. Try again.");
         return;
+      }
+
+      // Sync phone to profile if user opted in or if user had no phone registered
+      if (savePhoneToProfile || !user.phone) {
+        updateBuyerProfile(user.id, {
+          name: user.name || "",
+          phone: digitsPhone,
+          email: user.email,
+        }).catch(console.error);
+        updateUser({ phone: digitsPhone });
       }
 
       setActiveOrderId(res.order.id);
@@ -220,8 +261,71 @@ export default function CheckoutPage() {
       <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-primary">Secure Checkout</h1>
 
       <form onSubmit={handleCheckoutSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Delivery Address */}
-        <div className="lg:col-span-7">
+        {/* Left Column: Contact Details & Delivery Address */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Contact Details Card */}
+          <Card className="border-border/40 p-6 space-y-4 bg-card shadow-xs">
+            <div className="flex items-center justify-between border-b border-border/20 pb-3">
+              <h3 className="font-bold text-sm text-primary uppercase tracking-wider flex items-center space-x-2">
+                <Phone className="h-4 w-4" />
+                <span>Contact & Delivery Mobile</span>
+              </h3>
+              <span className="text-[11px] font-mono text-muted-foreground font-semibold">
+                {contactPhone.length}/10 digits
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs font-semibold text-foreground mb-1.5 flex items-center gap-1.5">
+                  Mobile Number for Order & Delivery <span className="text-red-500">*</span>
+                </Label>
+                <div className="relative flex items-center">
+                  <div className="absolute left-3 flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-2.5 py-1.5 rounded-lg pointer-events-none select-none z-10">
+                    <span className="text-sm">🇮🇳</span>
+                    <span className="tracking-tight">+91</span>
+                  </div>
+                  <Input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={10}
+                    value={contactPhone}
+                    onChange={handlePhoneChange}
+                    placeholder="9876543210"
+                    className="pl-20 font-mono tracking-widest text-sm font-semibold"
+                    required
+                  />
+                </div>
+                {contactPhone.length > 0 && contactPhone.length < 10 && (
+                  <p className="text-[11px] text-amber-600 mt-1.5 font-semibold flex items-center gap-1">
+                    <span>⚠️</span> Please enter a valid 10-digit number ({10 - contactPhone.length} more needed).
+                  </p>
+                )}
+                {contactPhone.length === 10 && (
+                  <p className="text-[11px] text-emerald-600 mt-1.5 font-semibold flex items-center gap-1">
+                    <span>✅</span> Valid 10-digit phone number. Pre-filled from your profile.
+                  </p>
+                )}
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Defaulted from your account profile. You can edit this number anytime for this order.
+                </p>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={savePhoneToProfile}
+                  onChange={(e) => setSavePhoneToProfile(e.target.checked)}
+                  className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Update this mobile number in my profile for future checkouts
+                </span>
+              </label>
+            </div>
+          </Card>
+
           <Card className="border-border/40 p-6 space-y-5 bg-card">
             <h3 className="font-bold text-sm text-primary uppercase tracking-wider flex items-center space-x-2 border-b border-border/20 pb-3">
               <CreditCard className="h-4 w-4" />

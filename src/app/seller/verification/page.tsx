@@ -83,8 +83,8 @@ export default function VerificationPage() {
             setGstNumber(p.gstNumber || "");
             setPanNumber(p.panNumber || "");
             setDeclaredRevenue(p.declaredRevenue || "");
-            setOwnerName(p.ownerName || "");
-            setPhone(p.phone || "");
+            setOwnerName(p.ownerName || user.name || "");
+            setPhone(p.phone || user.phone || "");
             setCompanyAddress(p.companyAddress || "");
             setFactoryAddress(p.factoryAddress || "");
             setPickupAddress(p.pickupAddress || "");
@@ -424,13 +424,26 @@ export default function VerificationPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Contact Phone Number</Label>
-                  <Input
-                    placeholder="e.g. +91 98765 43210"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    required
-                  />
+                  <div className="flex justify-between items-center">
+                    <Label>Contact Phone Number *</Label>
+                    <span className="text-[10px] font-mono text-muted-foreground font-semibold">{phone.length}/10</span>
+                  </div>
+                  <div className="relative flex items-center">
+                    <div className="absolute left-2.5 flex items-center gap-1 text-[11px] font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded pointer-events-none select-none z-10">
+                      <span>+91</span>
+                    </div>
+                    <Input
+                      placeholder="9876543210"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                      required
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={10}
+                      className="pl-14 font-mono tracking-wider font-semibold"
+                    />
+                  </div>
                 </div>
               </div>
 

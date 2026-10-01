@@ -18,9 +18,9 @@ const QA_DATABASE: QA[] = [
     answer: "Our seller verification and registration process is currently undergoing a complete update to enhance vendor onboarding standards. Please check back soon or contact support for seller inquiries."
   },
   {
-    keywords: ["eco", "score", "ecoscore", "sustainability", "rating", "points", "impact"],
-    question: "What is the Eco Score and how is it calculated?",
-    answer: "The Eco Score is a metric from 1 to 100 assigned to listings based on their carbon footprint, organic/biobased materials, zero-plastic packaging, and circularity. A score of 98 or above awards the product an 'EarthCentric Verified' badge, ensuring maximum eco-friendliness."
+    keywords: ["sustainability", "rating", "points", "impact", "verified", "earthcentric", "badge"],
+    question: "How does EarthCentric verify product sustainability?",
+    answer: "EarthCentric verifies each listing through third-party documentation review covering carbon footprint, organic/biobased materials, zero-plastic packaging, and circularity. Products that meet the highest standards earn an 'EarthCentric Verified' badge."
   },
   {
     keywords: ["shipping", "offset", "carbon", "delivery", "emissions", "neutral", "green", "transport"],
@@ -45,7 +45,7 @@ const QA_DATABASE: QA[] = [
   {
     keywords: ["badge", "badges", "verified", "sustainable", "premium", "quality"],
     question: "What do the seller quality badges mean?",
-    answer: "Quality badges indicate audited seller status: \n- **Verified Business**: Active legal registration verified. \n- **Verified Sustainable Manufacturer**: Eco-friendly factory practices verified. \n- **Premium Verified**: Outstanding seller rating with average 98+ Eco Scores."
+    answer: "Quality badges indicate audited seller status: \n- **Verified Business**: Active legal registration verified. \n- **Verified Sustainable Manufacturer**: Eco-friendly factory practices verified. \n- **Premium Verified**: Outstanding seller rating with consistently top sustainability standards."
   },
   {
     keywords: ["password", "reset", "change", "resetting", "forgot"],
@@ -137,7 +137,7 @@ export default function ChatbotWidget() {
       .filter((w) => w.length > 2);
 
     if (cleanTokens.length === 0) {
-      return "I'm here to help! Could you ask a question using complete keywords like 'seller', 'eco score', 'packaging', or 'shipping'?";
+      return "I'm here to help! Could you ask a question using complete keywords like 'seller', 'sustainability', 'packaging', or 'shipping'?";
     }
 
     // Check Greetings
@@ -177,12 +177,12 @@ export default function ChatbotWidget() {
     }
 
     // Fallback response with topic guidance
-    return "I couldn't find a direct match for that query. I can answer questions about:\n\n• **Seller Account**: Registration, Auditing & Approvals\n• **Eco-Ratings**: How the Eco Score is evaluated\n• **Offsets**: Carbon-neutral shipping\n• **Transactions**: Payments via Cashfree, Wishlists & Payouts\n\nTry rephrasing your question or click one of the quick suggestions below!";
+    return "I couldn't find a direct match for that query. I can answer questions about:\n\n• **Seller Account**: Registration, Auditing & Approvals\n• **Sustainability**: How products are verified\n• **Offsets**: Carbon-neutral shipping\n• **Transactions**: Payments via Cashfree, Wishlists & Payouts\n\nTry rephrasing your question or click one of the quick suggestions below!";
   };
 
   const sampleQuestions = [
     "How to become a seller?",
-    "What is the Eco Score?",
+    "How are products verified?",
     "How does shipping offset work?",
     "How are disputes resolved?",
     "What packaging is accepted?"

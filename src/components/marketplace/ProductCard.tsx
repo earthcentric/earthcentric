@@ -31,7 +31,9 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
   // Compute pricing details
   const effective = getEffectiveUnitPrice(product, 1);
   const discountPercent = effective.discountPercentage;
-  const hasBulkDeal = product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0;
+  const hasSlabDeal = product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0;
+  const hasWholesaleBulk = Boolean(product.bulkOrderQuantity && product.bulkOrderQuantity > 0 && product.bulkOrderPrice && product.bulkOrderPrice > 0);
+  const hasBulkDeal = hasSlabDeal || hasWholesaleBulk;
 
   // Determine status badge class and label
   const badgeType = product.badgeType || (product.rating >= 4.7 ? "verified" : product.reviewsCount > 20 ? "bestseller" : "eco");
@@ -189,6 +191,19 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
             }
             return null;
           })()}
+
+          {/* Wholesale Bulk Order Highlight */}
+          {hasWholesaleBulk && product.bulkOrderQuantity && product.bulkOrderPrice && (
+            <div className="bg-amber-50/90 text-amber-900 text-[10px] font-bold rounded-lg px-2 py-1 border border-amber-200/80 flex items-center justify-between select-none">
+              <span className="flex items-center gap-1">
+                <span>📦</span>
+                <span>Bulk: {product.bulkOrderQuantity} @ ₹{(product.bulkOrderPrice / product.bulkOrderQuantity).toFixed(2).replace(/\.00$/, "")}/ea</span>
+              </span>
+              <span className="bg-amber-600 text-white text-[9px] font-extrabold px-1.5 py-0.2 rounded font-mono">
+                ₹{Number(product.bulkOrderPrice).toLocaleString()} total
+              </span>
+            </div>
+          )}
 
           {/* Description */}
           <p className="text-[11px] text-slate-400 font-medium line-clamp-1">

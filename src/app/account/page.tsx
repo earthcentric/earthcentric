@@ -108,20 +108,23 @@ function ProfileTab({
   userId,
   userEmail,
   userName,
+  userPhone,
   initialData,
-  onNameUpdate,
+  onProfileUpdate,
   isOnboarding = false,
 }: {
   userId: string;
   userEmail?: string;
   userName?: string;
+  userPhone?: string | null;
   initialData: BuyerProfileData | null;
-  onNameUpdate: (name: string) => void;
+  onProfileUpdate?: (data: { name: string; phone: string }) => void;
   isOnboarding?: boolean;
 }) {
   const router = useRouter();
+  const { updateUser } = useAuth();
   const [name, setName] = useState(initialData?.name || userName || "");
-  const [phone, setPhone] = useState(initialData?.phone ?? "");
+  const [phone, setPhone] = useState(initialData?.phone || userPhone || "");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(initialData?.image ?? "");
@@ -135,8 +138,10 @@ function ProfileTab({
       if (initialData.name) setName(initialData.name);
       if (initialData.phone) setPhone(initialData.phone);
       if (initialData.image) setAvatarUrl(initialData.image);
+    } else if (userPhone && !phone) {
+      setPhone(userPhone);
     }
-  }, [initialData]);
+  }, [initialData, userPhone]);
 
   useEffect(() => {
     if (showSuccessModal) {
@@ -147,25 +152,37 @@ function ProfileTab({
     }
   }, [showSuccessModal, router]);
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Strictly allow only numeric digits (0-9) and restrict to maximum 10 digits
+    const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setPhone(digitsOnly);
+  };
+
   const handleSave = async () => {
     if (!name.trim()) { toast.error("Full Name is mandatory."); return; }
-    if (isOnboarding && !phone.trim()) {
+    const cleanPhone = phone.replace(/\D/g, "").slice(0, 10);
+    if (isOnboarding && !cleanPhone) {
       toast.error("Phone Number is mandatory to complete your profile registration.");
       return;
     }
+    if (cleanPhone && cleanPhone.length !== 10) {
+      toast.error("Please enter a valid 10-digit mobile number.");
+      return;
+    }
     setIsSaving(true);
-    const res = await updateBuyerProfile(userId, { name: name.trim(), phone: phone.trim(), email: displayEmail });
+    const res = await updateBuyerProfile(userId, { name: name.trim(), phone: cleanPhone, email: displayEmail });
     setIsSaving(false);
     if (res.success) {
       toast.success("Profile updated successfully!");
-      onNameUpdate(name.trim());
+      onProfileUpdate?.({ name: name.trim(), phone: cleanPhone });
+      updateUser({ name: name.trim(), phone: cleanPhone });
       localStorage.setItem("earthcentric_profile_done_" + userId, "true");
       // Update localStorage cache
       const cached = localStorage.getItem("earthcentric_user");
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          localStorage.setItem("earthcentric_user", JSON.stringify({ ...parsed, name: name.trim(), phone: phone.trim(), isNewUser: false }));
+          localStorage.setItem("earthcentric_user", JSON.stringify({ ...parsed, name: name.trim(), phone: cleanPhone, isNewUser: false }));
         } catch {}
       }
       if (isOnboarding || !initialData?.phone) {
@@ -304,11 +321,43 @@ function ProfileTab({
         </div>
 
         <div>
-          <label className="flex items-center gap-1.5 text-xs font-semibold text-[#2D5A40] mb-1.5">
-            <Phone className="h-3.5 w-3.5" /> Phone Number {isOnboarding && <span className="text-red-500">* (Mandatory)</span>}
-          </label>
-          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" type="tel" />
-          {isOnboarding && <p className="text-[10px] text-amber-700 mt-1 font-semibold">Please enter your valid phone number to complete onboarding.</p>}
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-[#2D5A40]">
+              <Phone className="h-3.5 w-3.5" /> Phone Number {isOnboarding && <span className="text-red-500">* (Mandatory)</span>}
+            </label>
+            <span className="text-[11px] font-mono font-bold text-[#5A7A5A]">
+              {phone.length}/10 digits
+            </span>
+          </div>
+          <div className="relative flex items-center">
+            <div className="absolute left-3 flex items-center gap-1.5 text-xs font-bold text-[#1F3A2E] bg-emerald-100/80 border border-emerald-300/50 px-2.5 py-1.5 rounded-lg pointer-events-none select-none z-10 shadow-xs">
+              <span className="text-sm">🇮🇳</span>
+              <span className="tracking-tight">+91</span>
+            </div>
+            <input
+              className={cn(inputClass, "pl-20 font-mono tracking-widest text-sm font-semibold text-[#1F3A2E]")}
+              value={phone}
+              onChange={handlePhoneChange}
+              placeholder="9876543210"
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={10}
+            />
+          </div>
+          {phone.length > 0 && phone.length < 10 && (
+            <p className="text-[11px] text-amber-700 mt-1 font-semibold flex items-center gap-1">
+              <span>⚠️</span> Enter a valid 10-digit number ({10 - phone.length} more digit{10 - phone.length === 1 ? "" : "s"} required).
+            </p>
+          )}
+          {phone.length === 10 && (
+            <p className="text-[11px] text-emerald-700 mt-1 font-semibold flex items-center gap-1">
+              <span>✅</span> Valid 10-digit mobile number ready to save.
+            </p>
+          )}
+          {isOnboarding && (
+            <p className="text-[10px] text-amber-700 mt-1 font-semibold">Please enter your valid phone number to complete onboarding.</p>
+          )}
         </div>
       </div>
 
@@ -341,11 +390,10 @@ function AddressesTab({ userId }: { userId: string }) {
     setIsSaving(true);
     const res = await addUserAddress(userId, data);
     setIsSaving(false);
-    if (res.success && res.address) {
-      setAddresses((prev) => {
-        const withoutDefault = prev.map((a) => ({ ...a, isDefault: false }));
-        return res.address!.isDefault ? [res.address!, ...withoutDefault] : [...prev, res.address!];
-      });
+    if (res.success) {
+      // Re-fetch full list from DB to ensure UI is always in sync
+      const refreshed = await getUserAddresses(userId);
+      setAddresses(refreshed);
       setShowAddForm(false);
       toast.success("Address added!");
     } else {
@@ -358,7 +406,8 @@ function AddressesTab({ userId }: { userId: string }) {
     const res = await updateUserAddress(id, userId, data);
     setIsSaving(false);
     if (res.success) {
-      setAddresses((prev) => prev.map((a) => a.id === id ? { ...a, ...data } : a));
+      const refreshed = await getUserAddresses(userId);
+      setAddresses(refreshed);
       setEditId(null);
       toast.success("Address updated!");
     } else {
@@ -370,13 +419,8 @@ function AddressesTab({ userId }: { userId: string }) {
     if (!confirm("Delete this address?")) return;
     const res = await deleteUserAddress(id, userId);
     if (res.success) {
-      setAddresses((prev) => {
-        const remaining = prev.filter((a) => a.id !== id);
-        if (remaining.length > 0 && !remaining.some((a) => a.isDefault)) {
-          remaining[0] = { ...remaining[0], isDefault: true };
-        }
-        return remaining;
-      });
+      const refreshed = await getUserAddresses(userId);
+      setAddresses(refreshed);
       toast.success("Address deleted.");
     } else {
       toast.error(res.error || "Failed to delete.");
@@ -1495,8 +1539,11 @@ function AccountPageContent() {
                   userId={user.id}
                   userEmail={user.email}
                   userName={user.name}
+                  userPhone={user.phone}
                   initialData={profile}
-                  onNameUpdate={(name) => setProfile((p) => p ? { ...p, name } : p)}
+                  onProfileUpdate={(updated) => {
+                    setProfile((p) => p ? { ...p, ...updated } : p);
+                  }}
                   isOnboarding={searchParams?.get("onboarding") === "true"}
                 />
               )

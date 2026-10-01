@@ -73,44 +73,58 @@ export async function getBuyerProfile(userId: string, email?: string): Promise<B
 export async function updateBuyerProfile(
   userId: string,
   data: { name: string; phone?: string; email?: string }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; phone?: string | null; error?: string }> {
   try {
-    if (data.email) {
+    const rawDigits = data.phone ? data.phone.replace(/\D/g, "") : "";
+    const cleanPhone = rawDigits.length >= 10 ? rawDigits.slice(-10) : (rawDigits.length > 0 ? rawDigits : null);
+
+    let updated = false;
+
+    // 1. First attempt direct update by userId (Primary Key)
+    try {
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          name: data.name.trim(),
+          phone: cleanPhone,
+        },
+      });
+      updated = true;
+    } catch (updateErr) {
+      console.warn("Direct update by userId failed, falling back to email upsert:", updateErr);
+    }
+
+    // 2. If not updated by userId, upsert by email
+    if (!updated && data.email) {
       await db.user.upsert({
         where: { email: data.email.toLowerCase() },
         update: {
           name: data.name.trim(),
-          phone: data.phone?.trim() || null,
+          phone: cleanPhone,
         },
         create: {
           id: userId,
           name: data.name.trim(),
           email: data.email.toLowerCase(),
-          phone: data.phone?.trim() || null,
+          phone: cleanPhone,
           role: "BUYER",
-        },
-      });
-    } else {
-      await db.user.update({
-        where: { id: userId },
-        data: {
-          name: data.name.trim(),
-          phone: data.phone?.trim() || null,
         },
       });
     }
 
+    // 3. Keep seller record synced if this user is a seller
     try {
       await db.seller.updateMany({
         where: { userId },
         data: {
           ownerName: data.name.trim(),
           founderName: data.name.trim(),
+          ...(cleanPhone ? { phone: cleanPhone } : {}),
         }
       });
     } catch {}
 
-    return { success: true };
+    return { success: true, phone: cleanPhone };
   } catch (e) {
     console.error("updateBuyerProfile failed:", e);
     return { success: false, error: "Failed to update profile. Please try again." };
@@ -122,7 +136,11 @@ export async function updateBuyerProfile(
 export async function getUserAddresses(userId: string): Promise<AddressData[]> {
   try {
     const addresses = await db.address.findMany({
-      where: { userId },
+      where: {
+        userId,
+        // Exclude archived clones created to preserve order FK references after address deletion
+        NOT: { street: { startsWith: "[Deleted]" } },
+      },
       orderBy: [{ isDefault: "desc" }, { id: "asc" }],
     });
     return addresses.map((a: any) => ({
@@ -218,18 +236,47 @@ export async function deleteUserAddress(
     const existing = await db.address.findFirst({ where: { id: addressId, userId } });
     if (!existing) return { success: false, error: "Address not found." };
 
+    // Check if any orders reference this address
+    const linkedOrderCount = await db.order.count({ where: { addressId } });
+
+    if (linkedOrderCount > 0) {
+      // Create an archived clone of this address to absorb the FK references from orders
+      // so historical order data is preserved while the user can freely delete their address
+      const archivedClone = await db.address.create({
+        data: {
+          userId,
+          street: `[Deleted] ${existing.street}`,
+          city: existing.city,
+          state: existing.state,
+          postalCode: existing.postalCode,
+          country: existing.country,
+          isDefault: false,
+        },
+      });
+
+      // Re-point all linked orders to the archived clone
+      await db.order.updateMany({
+        where: { addressId },
+        data: { addressId: archivedClone.id },
+      });
+    }
+
+    // Now safe to delete the original address
     await db.address.delete({ where: { id: addressId } });
 
     // If we deleted the default, promote the next address
     if (existing.isDefault) {
-      const next = await db.address.findFirst({ where: { userId }, orderBy: { id: "asc" } });
+      const next = await db.address.findFirst({
+        where: { userId, street: { not: { startsWith: "[Deleted]" } } },
+        orderBy: { id: "asc" },
+      });
       if (next) await db.address.update({ where: { id: next.id }, data: { isDefault: true } });
     }
 
     return { success: true };
   } catch (e) {
     console.error("deleteUserAddress failed:", e);
-    return { success: false, error: "Failed to delete address." };
+    return { success: false, error: "Failed to delete address. Please try again." };
   }
 }
 

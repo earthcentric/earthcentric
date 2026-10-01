@@ -1077,6 +1077,14 @@ export async function getAllBrands() {
     }
 
     const sellers = await db.seller.findMany({
+      where: {
+        products: {
+          some: {
+            isApproved: true,
+            status: "APPROVED"
+          }
+        }
+      },
       select: {
         id: true,
         companyName: true,
