@@ -1,19 +1,34 @@
 import { BuyXGetYOffer, IndividualDiscount, TierDiscount } from "@/actions/products";
 
 /**
+ * Safely parse date strings in ISO format (YYYY-MM-DD) or DD-MM-YYYY / DD/MM/YYYY
+ */
+export function parseDateSafely(dateStr: string | null | undefined): Date | null {
+  if (!dateStr || typeof dateStr !== "string" || dateStr.trim() === "") return null;
+  const clean = dateStr.trim();
+  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const d = new Date(year, month, day);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const parsed = new Date(clean);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
  * Checks if a Buy X Get Y offer is currently active based on enabled flag, status, and dates
  */
 export function isBuyXGetYActive(offer?: any | null): boolean {
   if (!offer) return false;
-  // If explicitly disabled or pending initial approval, not active
+  // If explicitly disabled or status is INACTIVE/DISABLED, not active
   if (offer.enabled === false) return false;
+  if (offer.status === "INACTIVE" || offer.status === "DISABLED") return false;
+  // If initial approval is pending or rejected on inactive offer, not active
   if (offer.approvalStatus === "PENDING_APPROVAL") return false;
-  if (offer.status && offer.status !== "ACTIVE" && offer.status !== "APPROVED") {
-    // If it is in deactivation approval, it stays active until super admin approves deactivation
-    if (offer.approvalStatus !== "PENDING_DEACTIVATION") {
-      return false;
-    }
-  }
+  if (offer.approvalStatus === "REJECTED" && offer.status !== "ACTIVE") return false;
 
   const buyQty = Number(offer.buyQuantity ?? offer.buyQty ?? 0);
   const getQty = Number(offer.getQuantity ?? offer.getQty ?? 0);
@@ -21,33 +36,19 @@ export function isBuyXGetYActive(offer?: any | null): boolean {
   
   const now = new Date();
   
-  if (offer.startDate && typeof offer.startDate === "string" && offer.startDate.trim() !== "") {
-    const start = new Date(offer.startDate);
-    if (!isNaN(start.getTime())) {
+  if (offer.startDate) {
+    const start = parseDateSafely(offer.startDate);
+    if (start) {
       start.setHours(0, 0, 0, 0);
-      if (offer.approvedAt) {
-        const approved = new Date(offer.approvedAt);
-        if (now < start && start > approved) return false;
-      } else if (now < start) {
-        return false;
-      }
+      if (now < start) return false;
     }
   }
   
-  if (offer.endDate && typeof offer.endDate === "string" && offer.endDate.trim() !== "") {
-    const end = new Date(offer.endDate);
-    if (!isNaN(end.getTime())) {
+  if (offer.endDate) {
+    const end = parseDateSafely(offer.endDate);
+    if (end) {
       end.setHours(23, 59, 59, 999);
-      if (offer.approvedAt) {
-        const approved = new Date(offer.approvedAt);
-        if (!isNaN(approved.getTime()) && end <= approved) {
-          // Stale requested date prior to approval
-        } else if (now > end) {
-          return false;
-        }
-      } else if (now > end) {
-        return false;
-      }
+      if (now > end) return false;
     }
   }
   
@@ -108,48 +109,31 @@ export function calculateBXGYOffer(
  */
 export function isIndividualDiscountActive(discount?: any | null): boolean {
   if (!discount) return false;
-  // If explicitly disabled or pending initial approval, not active
+  // If explicitly disabled or status is INACTIVE/DISABLED, not active
   if (discount.enabled === false) return false;
+  if (discount.status === "INACTIVE" || discount.status === "DISABLED") return false;
+  // If initial approval is pending or rejected on inactive offer, not active
   if (discount.approvalStatus === "PENDING_APPROVAL") return false;
-  if (discount.status && discount.status !== "ACTIVE" && discount.status !== "APPROVED") {
-    // If pending deactivation approval, it stays active for buyers
-    if (discount.approvalStatus !== "PENDING_DEACTIVATION") {
-      return false;
-    }
-  }
+  if (discount.approvalStatus === "REJECTED" && discount.status !== "ACTIVE") return false;
+
   const val = Number(discount.discountValue ?? 0);
   if (val <= 0) return false;
 
   const now = new Date();
 
-  if (discount.startDate && typeof discount.startDate === "string" && discount.startDate.trim() !== "") {
-    const start = new Date(discount.startDate);
-    if (!isNaN(start.getTime())) {
+  if (discount.startDate) {
+    const start = parseDateSafely(discount.startDate);
+    if (start) {
       start.setHours(0, 0, 0, 0);
-      if (discount.approvedAt) {
-        const approved = new Date(discount.approvedAt);
-        if (now < start && start > approved) return false;
-      } else if (now < start) {
-        return false;
-      }
+      if (now < start) return false;
     }
   }
 
-  if (discount.endDate && typeof discount.endDate === "string" && discount.endDate.trim() !== "") {
-    const end = new Date(discount.endDate);
-    if (!isNaN(end.getTime())) {
+  if (discount.endDate) {
+    const end = parseDateSafely(discount.endDate);
+    if (end) {
       end.setHours(23, 59, 59, 999);
-      // If approved by admin after the requested end date, do not expire based on stale date
-      if (discount.approvedAt) {
-        const approved = new Date(discount.approvedAt);
-        if (!isNaN(approved.getTime()) && end <= approved) {
-          // Stale requested end date prior to approval, discount remains valid
-        } else if (now > end) {
-          return false;
-        }
-      } else if (now > end) {
-        return false;
-      }
+      if (now > end) return false;
     }
   }
 
@@ -163,13 +147,10 @@ export function isTierDiscountActive(tierDiscounts?: any | null): boolean {
   if (!tierDiscounts) return false;
   if (Array.isArray(tierDiscounts)) return tierDiscounts.length > 0;
   if (tierDiscounts.enabled === false) return false;
+  if (tierDiscounts.status === "INACTIVE" || tierDiscounts.status === "DISABLED") return false;
   if (tierDiscounts.approvalStatus === "PENDING_APPROVAL") return false;
-  if (tierDiscounts.status && tierDiscounts.status !== "ACTIVE" && tierDiscounts.status !== "APPROVED") {
-    // If pending deactivation approval, it stays active for buyers
-    if (tierDiscounts.approvalStatus !== "PENDING_DEACTIVATION") {
-      return false;
-    }
-  }
+  if (tierDiscounts.approvalStatus === "REJECTED" && tierDiscounts.status !== "ACTIVE") return false;
+  
   const tiers = Array.isArray(tierDiscounts.tiers) ? tierDiscounts.tiers : [];
   return tiers.length > 0;
 }
@@ -178,11 +159,9 @@ export function isTierDiscountActive(tierDiscounts?: any | null): boolean {
  * Extracts the list of active tiers from a product's tierDiscounts field.
  */
 export function getProductTiers(tierDiscounts?: any | null): TierDiscount[] {
-  if (!tierDiscounts) return [];
+  if (!isTierDiscountActive(tierDiscounts)) return [];
   if (Array.isArray(tierDiscounts)) return tierDiscounts;
-  if (tierDiscounts.enabled === false) return [];
-  if (tierDiscounts.approvalStatus === "PENDING_APPROVAL") return [];
-  return Array.isArray(tierDiscounts.tiers) ? tierDiscounts.tiers : [];
+  return Array.isArray(tierDiscounts?.tiers) ? tierDiscounts.tiers : [];
 }
 
 /**

@@ -64,8 +64,19 @@ async function resolveSellerUserId(sellerId: string): Promise<string | null> {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return sellerId;
     }
-    const seller = await db.seller.findUnique({
+    const user = await db.user.findUnique({
       where: { id: sellerId },
+      select: { id: true },
+    });
+    if (user) return user.id;
+
+    const seller = await db.seller.findFirst({
+      where: {
+        OR: [
+          { id: sellerId },
+          { userId: sellerId },
+        ],
+      },
       select: { userId: true },
     });
     return seller?.userId || sellerId;
@@ -274,17 +285,6 @@ export async function requestDiscountApproval(params: {
   try {
     const { productId, sellerId, discountType, requestedAction, proposedConfig, requestedBy } = params;
 
-    // Direct deactivation path: immediately close discount and notify Super Admin
-    if (requestedAction === "DEACTIVATE") {
-      const closeRes = await closeDiscountImmediately({
-        productId,
-        sellerId,
-        discountType,
-        closedBy: requestedBy,
-      });
-      return closeRes;
-    }
-
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     // Fetch product to verify ownership and existing state
@@ -307,13 +307,15 @@ export async function requestDiscountApproval(params: {
 
     const price = product ? Number(product.price) : 259;
 
-    // Validate if action is ACTIVATE or UPDATE
-    const valRes = validateDiscountConfig(discountType, proposedConfig, price);
-    if (!valRes.valid) {
-      return { success: false, error: valRes.error };
+    // Validate configuration only if action is ACTIVATE or UPDATE
+    if (requestedAction === "ACTIVATE" || requestedAction === "UPDATE") {
+      const valRes = validateDiscountConfig(discountType, proposedConfig, price);
+      if (!valRes.valid) {
+        return { success: false, error: valRes.error };
+      }
     }
 
-    // Check for existing pending request for this product & discountType to prevent duplicates
+    // Check for existing pending request for this product & discountType to prevent duplicates (Requirement 17)
     if (!isMock) {
       const existingPending = await (db as any).discountApprovalRequest.findFirst({
         where: {
@@ -351,7 +353,7 @@ export async function requestDiscountApproval(params: {
 
     // Determine target approval status label
     let targetApprovalStatus: string = "PENDING_APPROVAL";
-    if ((requestedAction as string) === "DEACTIVATE") {
+    if (requestedAction === "DEACTIVATE") {
       targetApprovalStatus = "PENDING_DEACTIVATION";
     } else if (requestedAction === "UPDATE") {
       targetApprovalStatus = "PENDING_UPDATE";
@@ -381,49 +383,119 @@ export async function requestDiscountApproval(params: {
 
       if (discountType === "INDIVIDUAL") {
         const existingIndiv = (product.individualDiscount as any) || {};
-        updatePayload.individualDiscount = {
-          ...existingIndiv,
-          approvalStatus: targetApprovalStatus,
-          pendingRequestId: createdRequestId,
-          pendingConfig: proposedConfig,
-          rejectionReason: null,
-          // If activating from scratch, preserve enabled: false, status: INACTIVE
-          enabled: requestedAction === "ACTIVATE" ? false : existingIndiv.enabled ?? false,
-          status: requestedAction === "ACTIVATE" ? "INACTIVE" : existingIndiv.status || "INACTIVE",
-          // Keep submitted values in the draft config so seller can preview
-          discountType: proposedConfig?.discountType || existingIndiv.discountType || "PERCENTAGE",
-          discountValue: proposedConfig?.discountValue !== undefined ? Number(proposedConfig.discountValue) : existingIndiv.discountValue,
-          startDate: proposedConfig?.startDate ?? existingIndiv.startDate ?? null,
-          endDate: proposedConfig?.endDate ?? existingIndiv.endDate ?? null,
-        };
+        if (requestedAction === "DEACTIVATE") {
+          // Keep current live discount ACTIVE for buyers until admin approves
+          updatePayload.individualDiscount = {
+            ...existingIndiv,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            rejectionReason: null,
+            enabled: true,
+            status: "ACTIVE",
+          };
+        } else if (requestedAction === "UPDATE") {
+          // Keep current live discount active with old config, store proposed in pendingConfig
+          updatePayload.individualDiscount = {
+            ...existingIndiv,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            pendingConfig: proposedConfig,
+            rejectionReason: null,
+            enabled: true,
+            status: "ACTIVE",
+          };
+        } else {
+          // ACTIVATION: Keep discount OFF/INACTIVE for buyers until admin approves
+          updatePayload.individualDiscount = {
+            ...existingIndiv,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            pendingConfig: proposedConfig,
+            rejectionReason: null,
+            enabled: false,
+            status: "INACTIVE",
+            discountType: proposedConfig?.discountType || existingIndiv.discountType || "PERCENTAGE",
+            discountValue: proposedConfig?.discountValue !== undefined ? Number(proposedConfig.discountValue) : existingIndiv.discountValue,
+            startDate: proposedConfig?.startDate ?? existingIndiv.startDate ?? null,
+            endDate: proposedConfig?.endDate ?? existingIndiv.endDate ?? null,
+          };
+        }
       } else if (discountType === "TIER") {
         const existingTier = (product.tierDiscounts as any) || {};
-        updatePayload.tierDiscounts = {
-          ...existingTier,
-          approvalStatus: targetApprovalStatus,
-          pendingRequestId: createdRequestId,
-          pendingConfig: proposedConfig,
-          rejectionReason: null,
-          enabled: requestedAction === "ACTIVATE" ? false : existingTier.enabled ?? false,
-          status: requestedAction === "ACTIVATE" ? "INACTIVE" : existingTier.status || "INACTIVE",
-          tiers: proposedConfig?.tiers || existingTier.tiers || [],
-        };
+        if (requestedAction === "DEACTIVATE") {
+          // Keep current tier discounts ACTIVE for buyers
+          updatePayload.tierDiscounts = {
+            ...existingTier,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            rejectionReason: null,
+            enabled: true,
+            status: "ACTIVE",
+          };
+        } else if (requestedAction === "UPDATE") {
+          // Keep current live tiers active, store proposed in pendingConfig
+          updatePayload.tierDiscounts = {
+            ...existingTier,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            pendingConfig: proposedConfig,
+            rejectionReason: null,
+            enabled: true,
+            status: "ACTIVE",
+          };
+        } else {
+          // ACTIVATION: Keep tier discounts OFF/INACTIVE for buyers
+          updatePayload.tierDiscounts = {
+            ...existingTier,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            pendingConfig: proposedConfig,
+            rejectionReason: null,
+            enabled: false,
+            status: "INACTIVE",
+            tiers: proposedConfig?.tiers || existingTier.tiers || [],
+          };
+        }
       } else if (discountType === "BUY_X_GET_Y") {
         const existingBxgy = (product.buyXGetYOffer as any) || {};
-        updatePayload.buyXGetYOffer = {
-          ...existingBxgy,
-          approvalStatus: targetApprovalStatus,
-          pendingRequestId: createdRequestId,
-          pendingConfig: proposedConfig,
-          rejectionReason: null,
-          enabled: requestedAction === "ACTIVATE" ? false : existingBxgy.enabled ?? false,
-          status: requestedAction === "ACTIVATE" ? "INACTIVE" : existingBxgy.status || "INACTIVE",
-          buyQuantity: proposedConfig?.buyQuantity ?? existingBxgy.buyQuantity ?? 2,
-          getQuantity: proposedConfig?.getQuantity ?? existingBxgy.getQuantity ?? 1,
-          maxFreeQuantity: proposedConfig?.maxFreeQuantity ?? existingBxgy.maxFreeQuantity ?? null,
-          startDate: proposedConfig?.startDate ?? existingBxgy.startDate ?? null,
-          endDate: proposedConfig?.endDate ?? existingBxgy.endDate ?? null,
-        };
+        if (requestedAction === "DEACTIVATE") {
+          // Keep current Buy X Get Y offer ACTIVE for buyers
+          updatePayload.buyXGetYOffer = {
+            ...existingBxgy,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            rejectionReason: null,
+            enabled: true,
+            status: "ACTIVE",
+          };
+        } else if (requestedAction === "UPDATE") {
+          // Keep current live offer active, store proposed in pendingConfig
+          updatePayload.buyXGetYOffer = {
+            ...existingBxgy,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            pendingConfig: proposedConfig,
+            rejectionReason: null,
+            enabled: true,
+            status: "ACTIVE",
+          };
+        } else {
+          // ACTIVATION: Keep Buy X Get Y offer OFF/INACTIVE for buyers
+          updatePayload.buyXGetYOffer = {
+            ...existingBxgy,
+            approvalStatus: targetApprovalStatus,
+            pendingRequestId: createdRequestId,
+            pendingConfig: proposedConfig,
+            rejectionReason: null,
+            enabled: false,
+            status: "INACTIVE",
+            buyQuantity: proposedConfig?.buyQuantity ?? existingBxgy.buyQuantity ?? 2,
+            getQuantity: proposedConfig?.getQuantity ?? existingBxgy.getQuantity ?? 1,
+            maxFreeQuantity: proposedConfig?.maxFreeQuantity ?? existingBxgy.maxFreeQuantity ?? null,
+            startDate: proposedConfig?.startDate ?? existingBxgy.startDate ?? null,
+            endDate: proposedConfig?.endDate ?? existingBxgy.endDate ?? null,
+          };
+        }
       }
 
       await db.product.update({
@@ -459,22 +531,22 @@ export async function requestDiscountApproval(params: {
 
     // 1. Notify Super Admin
     let adminMsg = `New ${discountTypeLabel} requires approval from Seller: ${sellerName}`;
-    if ((requestedAction as string) === "DEACTIVATE") {
+    if (requestedAction === "DEACTIVATE") {
       adminMsg = `Seller ${sellerName} has requested to deactivate ${discountTypeLabel}.`;
     } else if (requestedAction === "UPDATE") {
       adminMsg = `Seller ${sellerName} has requested to update ${discountTypeLabel}.`;
     }
 
     await createAdminNotification(
-      `Discount ${requestedAction === "ACTIVATE" ? "Activation" : (requestedAction as string) === "DEACTIVATE" ? "Deactivation" : "Update"} Request`,
+      `Discount ${requestedAction === "ACTIVATE" ? "Activation" : requestedAction === "DEACTIVATE" ? "Deactivation" : "Update"} Request`,
       adminMsg,
-      "/admin/dashboard?tab=promotions"
+      "/admin/dashboard?tab=discounts"
     ).catch(() => {});
 
     // 2. Notify Seller
     const sellerUserId = await resolveSellerUserId(sellerId);
     let sellerMsg = "Your discount has been submitted for Super Admin approval.";
-    if ((requestedAction as string) === "DEACTIVATE") {
+    if (requestedAction === "DEACTIVATE") {
       sellerMsg = "Your request to deactivate the discount has been submitted for approval.";
     } else if (requestedAction === "UPDATE") {
       sellerMsg = "Your discount update request has been submitted for approval.";

@@ -249,7 +249,7 @@ export async function getAdminNotifications() {
       });
       pendingDiscounts.forEach((disc: any) => {
         const notifId = `disc-${disc.id}`;
-        const exists = notificationsList.some(n => n.id === notifId || (n.message.includes(disc.product?.name) && n.actionUrl.includes("promotions")));
+        const exists = notificationsList.some(n => n.id === notifId || (n.message.includes(disc.product?.name) && (n.actionUrl.includes("discounts") || n.actionUrl.includes("promotions"))));
         if (!exists) {
           const typeLabel = disc.discountType === "INDIVIDUAL" ? "Individual Product Discount" : disc.discountType === "TIER" ? "Tier Discounts" : "Buy X Get Y Free Offer";
           const actionLabel = disc.requestedAction === "DEACTIVATE" ? "deactivate" : disc.requestedAction === "UPDATE" ? "update" : "activate";
@@ -257,8 +257,8 @@ export async function getAdminNotifications() {
             id: notifId,
             title: `Discount ${disc.requestedAction === "DEACTIVATE" ? "Deactivation" : "Approval"} Required 🏷️`,
             message: `Seller "${disc.seller?.companyName}" requested to ${actionLabel} ${typeLabel} on "${disc.product?.name}".`,
-            redirectSection: "promotions",
-            actionUrl: "/admin/dashboard?tab=promotions",
+            redirectSection: "discounts",
+            actionUrl: "/admin/dashboard?tab=discounts",
             isRead: false,
             createdAt: disc.requestedAt,
           });

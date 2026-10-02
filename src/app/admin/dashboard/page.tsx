@@ -176,6 +176,16 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      if (tab) {
+        setActiveTab(tab === "promotions" ? "discounts" : tab);
+      }
+    }
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f4f5f3]">
@@ -370,10 +380,14 @@ export default function AdminDashboard() {
                               }
                               setShowNotifDropdown(false);
                               if (n.redirectSection && n.redirectSection.includes("tab=")) {
-                                const tab = n.redirectSection.split("tab=")[1];
+                                let tab = n.redirectSection.split("tab=")[1];
+                                if (tab.includes("&")) tab = tab.split("&")[0];
+                                if (tab === "promotions") tab = "discounts";
                                 setActiveTab(tab);
                               } else {
-                                setActiveTab(n.redirectSection);
+                                let target = n.redirectSection;
+                                if (target === "promotions") target = "discounts";
+                                setActiveTab(target);
                               }
                               loadAdminData();
                             }}
@@ -2399,6 +2413,7 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
   // Rejection modal state
   const [rejectModalItem, setRejectModalItem] = useState<any | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState("");
+  const [detailModalItem, setDetailModalItem] = useState<any | null>(null);
 
   // Catalog promotions state
   const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
@@ -2939,6 +2954,14 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
 
                         {/* 7. Decision Actions */}
                         <TableCell className="py-4 text-right pr-6 space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs px-2.5 h-8 rounded-lg cursor-pointer border-[#2d4a36]/30 text-[#2d4a36] hover:bg-[#e8f3ec]"
+                            onClick={() => setDetailModalItem(item)}
+                          >
+                            Review
+                          </Button>
                           {itemStatus === "PENDING" ? (
                             <>
                               <Button
@@ -3031,6 +3054,261 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
               >
                 {processingId ? "Rejecting..." : "Confirm Rejection"}
               </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Dedicated DISCOUNT APPROVAL REQUEST Detail Modal (Requirement 10) ── */}
+      {detailModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => !processingId && setDetailModalItem(null)} />
+          <Card className="relative w-full max-w-lg bg-white border border-[#e9ece6] rounded-3xl shadow-2xl z-10 p-6 space-y-4 text-left max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-[#e9ece6] pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                  Super Admin Approval Section
+                </span>
+                <h3 className="font-extrabold text-lg text-[#1a3321] mt-1 tracking-tight">
+                  DISCOUNT APPROVAL REQUEST
+                </h3>
+              </div>
+              <button
+                onClick={() => !processingId && setDetailModalItem(null)}
+                className="text-muted-foreground hover:text-[#1a3321] p-1 rounded-full cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Special Notice Banner for Action Types */}
+            {detailModalItem.requestedAction === "DEACTIVATE" ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-1">
+                <p className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <span>⚠️</span>
+                  <span>Notice: Seller Requesting Deactivation</span>
+                </p>
+                <p className="text-[11px] leading-relaxed text-amber-800">
+                  This discount is currently <strong>ACTIVE</strong> and visible to buyers on the marketplace. The seller is requesting to turn it OFF.
+                  <br />• <strong>Approve</strong>: Turns discount OFF, removes from Buyer Portal, and restores original price.
+                  <br />• <strong>Reject</strong>: Discount <strong>REMAINS ACTIVE</strong> for buyers on the marketplace.
+                </p>
+              </div>
+            ) : detailModalItem.requestedAction === "UPDATE" ? (
+              <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-sky-900 text-xs space-y-1">
+                <p className="font-bold flex items-center gap-1.5 text-sky-900">
+                  <span>⚡</span>
+                  <span>Notice: Active Discount Update Request</span>
+                </p>
+                <p className="text-[11px] leading-relaxed text-sky-800">
+                  The seller has requested to update an existing active discount. The current configuration remains live for buyers until you approve the update.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs space-y-1">
+                <p className="font-bold flex items-center gap-1.5 text-emerald-900">
+                  <span>ℹ️</span>
+                  <span>Notice: New Activation Request</span>
+                </p>
+                <p className="text-[11px] leading-relaxed text-emerald-800">
+                  This discount is currently <strong>INACTIVE / OFF</strong> and not visible to buyers. Approving will activate it on the marketplace.
+                </p>
+              </div>
+            )}
+
+            {/* Structured Details Layout Matching Requirement 10 */}
+            <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-200/80 text-xs space-y-2.5">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">Seller:</span>
+                <strong className="text-slate-900 font-bold text-sm">{detailModalItem.sellerName}</strong>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">Discount Type:</span>
+                <span className="font-bold text-slate-800">
+                  {detailModalItem.discountType === "INDIVIDUAL"
+                    ? "Individual Product Discount"
+                    : detailModalItem.discountType === "TIER"
+                    ? "Tier Discounts"
+                    : "Buy X Get Y Free Offer"}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">Product:</span>
+                <span className="text-slate-900 font-bold text-right max-w-[240px] truncate">{detailModalItem.productName}</span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">Current Status:</span>
+                <span className="font-bold">
+                  {detailModalItem.requestedAction === "DEACTIVATE" ? (
+                    <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                      ACTIVE (Currently Live)
+                    </Badge>
+                  ) : detailModalItem.status === "APPROVED" ? (
+                    <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                      APPROVED & ACTIVE
+                    </Badge>
+                  ) : detailModalItem.status === "REJECTED" ? (
+                    <Badge className="bg-rose-100 text-rose-900 border-rose-300 text-[10px]">
+                      REJECTED
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px]">
+                      Pending Approval
+                    </Badge>
+                  )}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">Requested Action:</span>
+                <Badge className={detailModalItem.requestedAction === "ACTIVATE" ? "bg-emerald-100 text-emerald-900 border border-emerald-300 font-extrabold" : detailModalItem.requestedAction === "DEACTIVATE" ? "bg-amber-100 text-amber-900 border border-amber-300 font-extrabold" : "bg-sky-100 text-sky-900 border border-sky-300 font-extrabold"}>
+                  {detailModalItem.requestedAction}
+                </Badge>
+              </div>
+
+              {/* Pricing breakdown for Individual Discounts */}
+              {detailModalItem.discountType === "INDIVIDUAL" && (() => {
+                const cfg = detailModalItem.proposedConfig || detailModalItem.discount || {};
+                const orig = Number(detailModalItem.originalPrice || detailModalItem.productPrice || 259);
+                const val = Number(cfg.discountValue || 0);
+                const discountAmount = cfg.discountType === "PERCENTAGE" ? (orig * val) / 100 : val;
+                const finalPrice = Math.max(0, orig - discountAmount);
+
+                return (
+                  <div className="space-y-2 pt-0.5">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                      <span className="text-muted-foreground font-semibold">Discount:</span>
+                      <strong className="text-slate-900 font-bold">{cfg.discountType === "PERCENTAGE" ? `${val}%` : `₹${val} Flat`}</strong>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                      <span className="text-muted-foreground font-semibold">Original Price:</span>
+                      <span className="font-semibold text-slate-700">₹{orig.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                      <span className="text-muted-foreground font-semibold">Discount Amount:</span>
+                      <span className="font-bold text-amber-700">-₹{discountAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                      <span className="text-muted-foreground font-semibold">Final Price:</span>
+                      <strong className="text-emerald-700 font-extrabold text-sm">₹{finalPrice.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Tier Discounts Breakdown */}
+              {detailModalItem.discountType === "TIER" && (() => {
+                const cfg = detailModalItem.proposedConfig || detailModalItem.discount || {};
+                const tiers = Array.isArray(cfg.tiers) ? cfg.tiers : [];
+                return (
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-muted-foreground font-semibold block">Configured Tiers:</span>
+                    {tiers.map((t: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-200">
+                        <span>Buy <strong>{t.minQuantity}+ units</strong></span>
+                        <strong className="text-emerald-700 font-bold">
+                          {t.discountType === "PERCENTAGE" ? `${t.discountValue}% OFF` : `₹${t.discountValue} OFF`}
+                        </strong>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Buy X Get Y Offer Breakdown */}
+              {detailModalItem.discountType === "BUY_X_GET_Y" && (() => {
+                const cfg = detailModalItem.proposedConfig || detailModalItem.discount || {};
+                return (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                      <span className="text-muted-foreground font-semibold">Offer Rule:</span>
+                      <strong className="text-purple-900 font-bold">
+                        Buy {cfg.buyQuantity ?? cfg.buyQty ?? 2} → Get {cfg.getQuantity ?? cfg.getQty ?? 1} FREE
+                      </strong>
+                    </div>
+                    {(cfg.maxFreeQuantity ?? cfg.maxFree) && (
+                      <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                        <span className="text-muted-foreground font-semibold">Max Free Quantity:</span>
+                        <span className="font-semibold text-slate-700">{cfg.maxFreeQuantity ?? cfg.maxFree} units</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Dates & Timestamp */}
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">Start Date:</span>
+                <span className="text-slate-700 font-medium">
+                  {detailModalItem.proposedConfig?.startDate || "Immediate"}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-muted-foreground font-semibold">End Date:</span>
+                <span className="text-slate-700 font-medium">
+                  {detailModalItem.proposedConfig?.endDate || "Ongoing"}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1">
+                <span className="text-muted-foreground font-semibold">Requested At:</span>
+                <span className="text-slate-700 font-medium">
+                  {detailModalItem.requestedAt
+                    ? new Date(detailModalItem.requestedAt).toLocaleString("en-GB", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "Recently"}
+                </span>
+              </div>
+            </div>
+
+            {/* Decision Buttons */}
+            <div className="flex items-center justify-end space-x-2 pt-3 border-t border-[#e9ece6]">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDetailModalItem(null)}
+                className="text-xs rounded-xl cursor-pointer"
+              >
+                Close
+              </Button>
+              {(detailModalItem.status || detailModalItem.discount?.status) === "PENDING" && (
+                <>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={processingId === (detailModalItem.id || detailModalItem.productId)}
+                    onClick={() => {
+                      const itemToReject = detailModalItem;
+                      setDetailModalItem(null);
+                      openRejectModal(itemToReject);
+                    }}
+                    className="text-xs rounded-xl font-bold cursor-pointer"
+                  >
+                    REJECT
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={processingId === (detailModalItem.id || detailModalItem.productId)}
+                    onClick={async () => {
+                      const itemToApprove = detailModalItem;
+                      setDetailModalItem(null);
+                      await handleApprove(itemToApprove);
+                    }}
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs rounded-xl font-bold px-4 cursor-pointer"
+                  >
+                    APPROVE
+                  </Button>
+                </>
+              )}
             </div>
           </Card>
         </div>

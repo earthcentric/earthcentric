@@ -829,18 +829,24 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     // 1. Process Individual Discount Workflow
     const indivVal = Number(editIndivDiscountValue);
     if (initialIndivConfig.active && !editEnableIndividualDiscount) {
-      // Seller turned OFF the individual discount -> immediately close & notify super admin
-      const res = await closeDiscountImmediately({
-        productId: editingProduct.id,
-        sellerId,
-        discountType: "INDIVIDUAL",
-        closedBy: user?.email || sellerId,
-      });
-      if (res.success) {
-        toast.success("Discount has been closed. Super Admin notified and changes applied to the marketplace.");
-        anyPromoSubmitted = true;
+      // Seller turned OFF the individual discount -> request deactivation approval from Super Admin
+      if (editIndivApprovalStatus === "PENDING_DEACTIVATION") {
+        toast.info("Individual discount deactivation is already pending Super Admin approval.");
       } else {
-        toast.error(res.error || "Failed to close discount.");
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "INDIVIDUAL",
+          requestedAction: "DEACTIVATE",
+          proposedConfig: initialIndivConfig.config || {},
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Discount deactivation request submitted for Super Admin approval. The discount remains active until approved.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit deactivation request.");
+        }
       }
     } else if (!initialIndivConfig.active && editEnableIndividualDiscount && indivVal > 0) {
       // Seller requesting ACTIVATION
@@ -872,42 +878,52 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       const orig = initialIndivConfig.config || {};
       const changed = orig.discountType !== editIndivDiscountType || Number(orig.discountValue) !== indivVal || (orig.startDate || "") !== (editIndivStartDate || "") || (orig.endDate || "") !== (editIndivEndDate || "");
       if (changed) {
-        const res = await requestDiscountApproval({
-          productId: editingProduct.id,
-          sellerId,
-          discountType: "INDIVIDUAL",
-          requestedAction: "UPDATE",
-          proposedConfig: {
-            discountType: editIndivDiscountType,
-            discountValue: indivVal,
-            startDate: editIndivStartDate || null,
-            endDate: editIndivEndDate || null,
-          },
-          requestedBy: user?.email || sellerId,
-        });
-        if (res.success) {
-          toast.success("Individual discount update submitted for Super Admin approval.");
-          anyPromoSubmitted = true;
+        if (editIndivApprovalStatus === "PENDING_UPDATE" || editIndivApprovalStatus === "PENDING_DEACTIVATION") {
+          toast.info("An approval request is already pending for this discount. Please wait for Super Admin review.");
         } else {
-          toast.error(res.error || "Failed to submit update request.");
+          const res = await requestDiscountApproval({
+            productId: editingProduct.id,
+            sellerId,
+            discountType: "INDIVIDUAL",
+            requestedAction: "UPDATE",
+            proposedConfig: {
+              discountType: editIndivDiscountType,
+              discountValue: indivVal,
+              startDate: editIndivStartDate || null,
+              endDate: editIndivEndDate || null,
+            },
+            requestedBy: user?.email || sellerId,
+          });
+          if (res.success) {
+            toast.success("Individual discount update submitted for Super Admin approval.");
+            anyPromoSubmitted = true;
+          } else {
+            toast.error(res.error || "Failed to submit update request.");
+          }
         }
       }
     }
 
     // 2. Process Tier Discounts Workflow
     if (initialTierConfig.active && !editEnableTierDiscount) {
-      // Seller turned OFF tier discounts -> immediately close & notify super admin
-      const res = await closeDiscountImmediately({
-        productId: editingProduct.id,
-        sellerId,
-        discountType: "TIER",
-        closedBy: user?.email || sellerId,
-      });
-      if (res.success) {
-        toast.success("Tier discounts closed. Super Admin notified and changes applied to the marketplace.");
-        anyPromoSubmitted = true;
+      // Seller turned OFF tier discounts -> request deactivation approval from Super Admin
+      if (editTierApprovalStatus === "PENDING_DEACTIVATION") {
+        toast.info("Tier discount deactivation is already pending Super Admin approval.");
       } else {
-        toast.error(res.error || "Failed to close tier discounts.");
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "TIER",
+          requestedAction: "DEACTIVATE",
+          proposedConfig: initialTierConfig.config || {},
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Tier discount deactivation request submitted for Super Admin approval. The tiers remain active until approved.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit tier deactivation request.");
+        }
       }
     } else if (!initialTierConfig.active && editEnableTierDiscount && editTierDiscounts.length > 0) {
       // Seller requesting ACTIVATION
@@ -936,21 +952,25 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       const origTiers = initialTierConfig.config?.tiers || (Array.isArray(initialTierConfig.config) ? initialTierConfig.config : []);
       const changed = JSON.stringify(origTiers) !== JSON.stringify(editTierDiscounts);
       if (changed) {
-        const res = await requestDiscountApproval({
-          productId: editingProduct.id,
-          sellerId,
-          discountType: "TIER",
-          requestedAction: "UPDATE",
-          proposedConfig: {
-            tiers: editTierDiscounts.map(t => ({ minQuantity: Number(t.minQuantity), discountType: t.discountType, discountValue: Number(t.discountValue) })),
-          },
-          requestedBy: user?.email || sellerId,
-        });
-        if (res.success) {
-          toast.success("Tier discount update submitted for Super Admin approval.");
-          anyPromoSubmitted = true;
+        if (editTierApprovalStatus === "PENDING_UPDATE" || editTierApprovalStatus === "PENDING_DEACTIVATION") {
+          toast.info("An approval request is already pending for this discount. Please wait for Super Admin review.");
         } else {
-          toast.error(res.error || "Failed to submit tier update request.");
+          const res = await requestDiscountApproval({
+            productId: editingProduct.id,
+            sellerId,
+            discountType: "TIER",
+            requestedAction: "UPDATE",
+            proposedConfig: {
+              tiers: editTierDiscounts.map(t => ({ minQuantity: Number(t.minQuantity), discountType: t.discountType, discountValue: Number(t.discountValue) })),
+            },
+            requestedBy: user?.email || sellerId,
+          });
+          if (res.success) {
+            toast.success("Tier discount update submitted for Super Admin approval.");
+            anyPromoSubmitted = true;
+          } else {
+            toast.error(res.error || "Failed to submit tier update request.");
+          }
         }
       }
     }
@@ -959,18 +979,24 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     const bxBuy = Number(editBuyXBuyQty);
     const bxGet = Number(editBuyXGetQty);
     if (initialBuyXConfig.active && !editBuyXGetYEnabled) {
-      // Seller turned OFF Buy X Get Y offer -> immediately close & notify super admin
-      const res = await closeDiscountImmediately({
-        productId: editingProduct.id,
-        sellerId,
-        discountType: "BUY_X_GET_Y",
-        closedBy: user?.email || sellerId,
-      });
-      if (res.success) {
-        toast.success("Buy X Get Y offer closed. Super Admin notified and changes applied to the marketplace.");
-        anyPromoSubmitted = true;
+      // Seller turned OFF Buy X Get Y offer -> request deactivation approval from Super Admin
+      if (editBuyXApprovalStatus === "PENDING_DEACTIVATION") {
+        toast.info("Buy X Get Y deactivation is already pending Super Admin approval.");
       } else {
-        toast.error(res.error || "Failed to close Buy X Get Y offer.");
+        const res = await requestDiscountApproval({
+          productId: editingProduct.id,
+          sellerId,
+          discountType: "BUY_X_GET_Y",
+          requestedAction: "DEACTIVATE",
+          proposedConfig: initialBuyXConfig.config || {},
+          requestedBy: user?.email || sellerId,
+        });
+        if (res.success) {
+          toast.success("Buy X Get Y deactivation request submitted for Super Admin approval. The offer remains active until approved.");
+          anyPromoSubmitted = true;
+        } else {
+          toast.error(res.error || "Failed to submit Buy X Get Y deactivation request.");
+        }
       }
     } else if (!initialBuyXConfig.active && editBuyXGetYEnabled && bxBuy >= 1 && bxGet >= 1) {
       // Seller requesting ACTIVATION
@@ -1003,25 +1029,29 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       const orig = initialBuyXConfig.config || {};
       const changed = Number(orig.buyQuantity ?? orig.buyQty) !== bxBuy || Number(orig.getQuantity ?? orig.getQty) !== bxGet || Number(orig.maxFreeQuantity ?? orig.maxFree ?? 0) !== Number(editBuyXMaxFree || 0) || (orig.startDate || "") !== (editBuyXStartDate || "") || (orig.endDate || "") !== (editBuyXEndDate || "");
       if (changed) {
-        const res = await requestDiscountApproval({
-          productId: editingProduct.id,
-          sellerId,
-          discountType: "BUY_X_GET_Y",
-          requestedAction: "UPDATE",
-          proposedConfig: {
-            buyQuantity: bxBuy,
-            getQuantity: bxGet,
-            maxFreeQuantity: editBuyXMaxFree ? Number(editBuyXMaxFree) : null,
-            startDate: editBuyXStartDate || null,
-            endDate: editBuyXEndDate || null,
-          },
-          requestedBy: user?.email || sellerId,
-        });
-        if (res.success) {
-          toast.success("Buy X Get Y update submitted for Super Admin approval.");
-          anyPromoSubmitted = true;
+        if (editBuyXApprovalStatus === "PENDING_UPDATE" || editBuyXApprovalStatus === "PENDING_DEACTIVATION") {
+          toast.info("An approval request is already pending for this discount. Please wait for Super Admin review.");
         } else {
-          toast.error(res.error || "Failed to submit BXGY update request.");
+          const res = await requestDiscountApproval({
+            productId: editingProduct.id,
+            sellerId,
+            discountType: "BUY_X_GET_Y",
+            requestedAction: "UPDATE",
+            proposedConfig: {
+              buyQuantity: bxBuy,
+              getQuantity: bxGet,
+              maxFreeQuantity: editBuyXMaxFree ? Number(editBuyXMaxFree) : null,
+              startDate: editBuyXStartDate || null,
+              endDate: editBuyXEndDate || null,
+            },
+            requestedBy: user?.email || sellerId,
+          });
+          if (res.success) {
+            toast.success("Buy X Get Y update submitted for Super Admin approval.");
+            anyPromoSubmitted = true;
+          } else {
+            toast.error(res.error || "Failed to submit BXGY update request.");
+          }
         }
       }
     }
@@ -1515,8 +1545,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                         </span>
                         {!editEnableIndividualDiscount ? (
                           initialIndivConfig.active ? (
-                            <Badge className="text-[9px] font-bold bg-slate-100 text-slate-600 border-slate-300">
-                              Will Be Closed On Save
+                            <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                              Will Request Deactivation On Save
                             </Badge>
                           ) : null
                         ) : editIndivApprovalStatus === "PENDING_DEACTIVATION" ? (
@@ -1692,7 +1722,13 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-[#1f3a2e]">Tier Discounts</span>
-                        {editTierApprovalStatus === "PENDING_DEACTIVATION" ? (
+                        {!editEnableTierDiscount ? (
+                          initialTierConfig.active ? (
+                            <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                              Will Request Deactivation On Save
+                            </Badge>
+                          ) : null
+                        ) : editTierApprovalStatus === "PENDING_DEACTIVATION" ? (
                           <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
                             Deactivation Pending Super Admin Approval
                           </Badge>
@@ -1823,7 +1859,13 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-[#1f3a2e]">Buy X Get Y Free Offer</span>
-                        {editBuyXApprovalStatus === "PENDING_DEACTIVATION" ? (
+                        {!editBuyXGetYEnabled ? (
+                          initialBuyXConfig.active ? (
+                            <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
+                              Will Request Deactivation On Save
+                            </Badge>
+                          ) : null
+                        ) : editBuyXApprovalStatus === "PENDING_DEACTIVATION" ? (
                           <Badge className="text-[9px] font-bold bg-amber-100 text-amber-900 border-amber-300">
                             Deactivation Pending Super Admin Approval
                           </Badge>
