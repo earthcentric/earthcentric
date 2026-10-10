@@ -3,6 +3,8 @@
 import db from "@/lib/db";
 import { sendWelcomeEmail } from "@/lib/email";
 import { uploadImage, deleteImage, getPublicIdFromDb } from "@/lib/cloudinary";
+import { isConfiguredSellerEmail, isSuperAdminEmail } from "@/lib/account-roles";
+import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 
@@ -175,37 +177,58 @@ export async function logoutUser() {
 
 export async function syncUserInDb(userData: {
   id: string;
-  name: string;
   email: string;
-  role: string;
 }) {
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    return {
+      success: false as const,
+      error: "The account database is unavailable or configured for mock mode.",
+    };
+  }
+
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      // Send welcome email even in mock mode
-      await sendWelcomeEmail(userData.email, userData.name).catch((err) =>
-        console.error("Failed to send welcome email:", err)
-      );
-      return null;
+    const identity = await getVerifiedClerkIdentity();
+    if (
+      !identity ||
+      identity.id !== userData.id ||
+      identity.email !== userData.email.trim().toLowerCase()
+    ) {
+      return {
+        success: false as const,
+        error: "Your signed-in Clerk account could not be verified. Sign out and sign in again.",
+      };
     }
 
+    const normalizedEmail = identity.email;
+
     const existingUser = await db.user.findUnique({
-      where: { email: userData.email.toLowerCase() },
+      where: { email: normalizedEmail },
+      include: { seller: true },
     });
 
-    const isEmailAdmin = userData.email.toLowerCase().includes("admin") || userData.email.toLowerCase() === "rkearthcentric@gmail.com";
-    const targetRole = isEmailAdmin ? "ADMIN" : (existingUser ? existingUser.role : (userData.role as any));
+    const isSuperAdmin = isSuperAdminEmail(normalizedEmail);
+    const isConfiguredSeller = isConfiguredSellerEmail(normalizedEmail);
+    const targetRole = isSuperAdmin
+      ? "ADMIN"
+      : existingUser?.role === "ADMIN"
+        ? "ADMIN"
+        : existingUser?.seller
+          ? "SELLER"
+          : isConfiguredSeller
+            ? "SELLER"
+            : existingUser?.role || "BUYER";
 
     // Upsert the User record in database
     const user = await db.user.upsert({
-      where: { email: userData.email.toLowerCase() },
+      where: { email: normalizedEmail },
       update: {
-        name: userData.name,
+        name: identity.name,
         role: targetRole,
       },
       create: {
-        id: userData.id,
-        name: userData.name,
-        email: userData.email.toLowerCase(),
+        id: identity.id,
+        name: identity.name,
+        email: normalizedEmail,
         role: targetRole,
       },
       include: {
@@ -215,7 +238,7 @@ export async function syncUserInDb(userData: {
 
     // Send welcome email only for new users
     if (!existingUser) {
-      await sendWelcomeEmail(user.email, user.name || userData.name).catch((err) =>
+      await sendWelcomeEmail(user.email, user.name || identity.name).catch((err) =>
         console.error("Failed to send welcome email:", err)
       );
     }
@@ -239,15 +262,44 @@ export async function syncUserInDb(userData: {
       sellerStatus: user.seller?.verificationStatus
     }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
 
-    return finalUser;
+    return { success: true as const, user: finalUser };
   } catch (error) {
     console.error("Failed to sync user in database:", error);
-    return null;
+    const prismaCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? error.code
+        : undefined;
+    if (prismaCode === "P2021" || prismaCode === "P2022") {
+      return {
+        success: false as const,
+        error:
+          "The production database schema is out of date. Back up the database, review the Prisma schema changes, then apply them before signing in.",
+      };
+    }
+    return {
+      success: false as const,
+      error: "Your account could not be loaded from the database. Check the production database connection and try again.",
+    };
   }
 }
 
 export async function setSellerSessionCookie(userId: string, role: string = "SELLER", sellerStatus: string = "APPROVED") {
   try {
+    if (process.env.NODE_ENV === "production") {
+      const identity = await getVerifiedClerkIdentity();
+      if (!identity) return { success: false };
+
+      const user = await db.user.findUnique({
+        where: { email: identity.email },
+        include: { seller: true },
+      });
+      if (!user || user.role !== "SELLER" || !user.seller || user.id !== userId) {
+        return { success: false };
+      }
+      role = user.role;
+      sellerStatus = user.seller.verificationStatus;
+    }
+
     const cookieStore = await cookies();
     cookieStore.set('earthcentric_session', JSON.stringify({
       id: userId,
@@ -263,6 +315,19 @@ export async function setSellerSessionCookie(userId: string, role: string = "SEL
 
 export async function setAdminSessionCookie(userId: string = "admin-1") {
   try {
+    if (process.env.NODE_ENV === "production") {
+      const identity = await getVerifiedClerkIdentity();
+      if (!identity) return { success: false };
+
+      const user = await db.user.findUnique({
+        where: { email: identity.email },
+        select: { id: true, role: true },
+      });
+      if (!user || user.id !== userId || user.role !== "ADMIN") {
+        return { success: false };
+      }
+    }
+
     const cookieStore = await cookies();
     cookieStore.set('earthcentric_session', JSON.stringify({
       id: userId,

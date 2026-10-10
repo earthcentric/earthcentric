@@ -66,97 +66,99 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const { user: clerkUser, isLoaded: clerkLoaded, isSignedIn } = useUser();
   const { signOut } = useClerkAuth();
 
-  // 1. Sync Clerk session state to AuthContext and database/cookies
+  // Keep Clerk identity, the database profile, and the role session in sync.
   useEffect(() => {
     if (!clerkLoaded) return;
 
-    if (isSignedIn && clerkUser) {
-      const email = clerkUser.primaryEmailAddress?.emailAddress;
-      if (email && (!user || user.email !== email)) {
-        const isAdminEmail = email.toLowerCase().includes("admin") || email.toLowerCase() === "rkearthcentric@gmail.com";
-        syncUserInDb({
-          id: clerkUser.id,
-          name: clerkUser.fullName || clerkUser.username || "Conscious Buyer",
-          email: email,
-          role: isAdminEmail ? "ADMIN" : "BUYER",
-        }).then((synced) => {
-          const finalUser: User = synced || {
-            id: clerkUser.id,
-            name: clerkUser.fullName || clerkUser.username || "Conscious Buyer",
-            email: email,
-            role: isAdminEmail ? "ADMIN" : "BUYER",
-            phone: null,
-            isNewUser: true,
-          };
-          if (finalUser.role === "ADMIN") {
-            setAdminSessionCookie(finalUser.id).catch(console.error);
-          }
-          setUser(finalUser);
-          localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
-          setIsLoading(false);
+    let cancelled = false;
 
-          const isProfileDone = localStorage.getItem("earthcentric_profile_done_" + finalUser.id) === "true";
-          if (finalUser.isNewUser && !isProfileDone) {
-            if (window.location.pathname !== "/account") {
-              router.push("/account?tab=profile&onboarding=true");
-            }
-          }
-        }).catch((err) => {
-          console.error("Error syncing Clerk user:", err);
-          setIsLoading(false);
-        });
+    const syncClerkSession = async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+
+      if (!isSignedIn || !clerkUser) {
+        setUser(null);
+        setIsLoading(false);
+        localStorage.removeItem("earthcentric_user");
+        logoutUser().catch(console.error);
+        return;
       }
-    } else if (!isSignedIn && user) {
-      // If user is not logged in via Clerk but local user exists, clean up
-      setUser(null);
-      localStorage.removeItem("earthcentric_user");
-      logoutUser().catch(console.error);
-    }
-  }, [isSignedIn, clerkUser, clerkLoaded]);
 
-  // 2. Initial background sync when already logged in
-  useEffect(() => {
-    const cachedUser = localStorage.getItem("earthcentric_user");
-    let current: User | null = null;
-    if (cachedUser) {
+      const email = clerkUser.primaryEmailAddress?.emailAddress?.trim().toLowerCase();
+      if (!email) {
+        setUser(null);
+        setIsLoading(false);
+        toast.error("Your Clerk account needs a verified primary email address.");
+        return;
+      }
+
+      setIsLoading(true);
       try {
-        current = JSON.parse(cachedUser);
-      } catch (e) {
-        current = null;
-      }
-    }
-
-    // Only use cached user if it matches the current Clerk email (if signed in)
-    if (isSignedIn && clerkUser) {
-      const email = clerkUser.primaryEmailAddress?.emailAddress;
-      if (current && current.email !== email) {
-        current = null;
-      }
-    } else if (!isSignedIn) {
-      current = null;
-    }
-
-    setUser(current);
-    setIsLoading(false);
-
-    if (current) {
-      // Sync in background to update status/badges from database
-      syncUserInDb({
-        id: current.id,
-        name: current.name,
-        email: current.email,
-        role: current.role,
-      }).then((synced) => {
-        if (synced) {
-          setUser(synced);
-          localStorage.setItem("earthcentric_user", JSON.stringify(synced));
+        const syncResult = await syncUserInDb({
+          id: clerkUser.id,
+          email,
+        });
+        if (cancelled) return;
+        if (!syncResult.success) {
+          setUser(null);
+          setIsLoading(false);
+          localStorage.removeItem("earthcentric_user");
+          toast.error(syncResult.error);
+          return;
         }
-      }).catch((err) => console.error("Error background syncing user:", err));
-    } else {
-      // Ensure server session is cleared if local state is empty
-      logoutUser().catch(console.error);
-    }
-  }, [isSignedIn, clerkUser]);
+
+        const finalUser: User = syncResult.user;
+
+        setUser(finalUser);
+        localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
+        setIsLoading(false);
+
+        const currentPath = window.location.pathname;
+        const isAuthLanding =
+          currentPath === "/" ||
+          currentPath.startsWith("/auth/") ||
+          currentPath.startsWith("/sign-in") ||
+          currentPath.startsWith("/sign-up");
+
+        if (finalUser.role === "ADMIN" && isAuthLanding) {
+          router.replace("/admin/dashboard");
+        } else if (finalUser.role === "SELLER" && isAuthLanding) {
+          router.replace(
+            finalUser.sellerStatus === "APPROVED"
+              ? "/seller/dashboard"
+              : "/seller/verification"
+          );
+        } else if (
+          finalUser.role === "BUYER" &&
+          finalUser.isNewUser &&
+          isAuthLanding
+        ) {
+          const isProfileDone =
+            localStorage.getItem(`earthcentric_profile_done_${finalUser.id}`) === "true";
+          if (!isProfileDone) {
+            router.replace("/account?tab=profile&onboarding=true");
+          }
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Error syncing Clerk user:", err);
+        setUser(null);
+        setIsLoading(false);
+        localStorage.removeItem("earthcentric_user");
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "We couldn't load your account. Please try again or contact support."
+        );
+      }
+    };
+
+    void syncClerkSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, clerkUser, clerkLoaded, router]);
 
   const login = async (email: string, password?: string) => {
     setIsLoading(true);
@@ -226,6 +228,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const switchRole = async (role: Role) => {
+    if (process.env.NODE_ENV === "production") {
+      toast.error("Demo role switching is disabled in production.");
+      return;
+    }
+
     setIsLoading(true);
     const updated = { ...DEMO_USERS[role] };
 
@@ -236,14 +243,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     // Sync with DB
-    const synced = await syncUserInDb({
+    const syncResult = await syncUserInDb({
       id: updated.id,
-      name: updated.name,
       email: updated.email,
-      role: updated.role,
     });
 
-    const finalUser = synced || updated;
+    const finalUser = syncResult.success ? syncResult.user : updated;
     setUser(finalUser);
     localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
     setIsLoading(false);

@@ -1,6 +1,7 @@
 import db from "@/lib/db";
 import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
+import { isSuperAdminEmail } from "@/lib/account-roles";
 
 export interface AdminAuthResult {
   authorized: boolean;
@@ -30,10 +31,7 @@ export async function verifyAdminAuth(): Promise<AdminAuthResult> {
           });
 
           if (user) {
-            const isAdmin = 
-              user.role === "ADMIN" || 
-              user.email.toLowerCase().includes("admin") || 
-              user.email.toLowerCase() === "rkearthcentric@gmail.com";
+            const isAdmin = user.role === "ADMIN" || isSuperAdminEmail(user.email);
 
             if (isAdmin) {
               return { authorized: true, email: user.email, userId: user.id };
@@ -55,10 +53,7 @@ export async function verifyAdminAuth(): Promise<AdminAuthResult> {
         });
 
         if (user) {
-          const isAdmin = 
-            user.role === "ADMIN" || 
-            user.email.toLowerCase().includes("admin") || 
-            user.email.toLowerCase() === "rkearthcentric@gmail.com";
+          const isAdmin = user.role === "ADMIN" || isSuperAdminEmail(user.email);
 
           if (isAdmin) {
             return { authorized: true, email: user.email, userId: user.id };
@@ -93,7 +88,7 @@ export async function verifySellerAuth(sellerId?: string): Promise<{ authorized:
         });
 
         if (user) {
-          if (user.role === "ADMIN" || user.email.toLowerCase().includes("admin") || user.email.toLowerCase() === "rkearthcentric@gmail.com") {
+          if (user.role === "ADMIN" || isSuperAdminEmail(user.email)) {
             return { authorized: true, userId: user.id, sellerId: user.seller?.id };
           }
           if (user.role === "SELLER") {
@@ -113,7 +108,7 @@ export async function verifySellerAuth(sellerId?: string): Promise<{ authorized:
       });
 
       if (user) {
-        if (user.role === "ADMIN" || user.email.toLowerCase().includes("admin") || user.email.toLowerCase() === "rkearthcentric@gmail.com") {
+        if (user.role === "ADMIN" || isSuperAdminEmail(user.email)) {
           return { authorized: true, userId: user.id, sellerId: user.seller?.id };
         }
         if (user.role === "SELLER") {
