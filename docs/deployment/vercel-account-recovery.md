@@ -15,7 +15,6 @@ Set these in Vercel under **Project → Settings → Environment Variables**, wi
 | `NEXTAUTH_URL` | Keep equal to the canonical deployed origin; the app also uses it for absolute URLs. |
 | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` | Production Cashfree credentials. Keep the secret server-only. |
 | `CASHFREE_ENVIRONMENT` | `PRODUCTION` for live payments. |
-| `NEXT_PUBLIC_CASHFREE_ENVIRONMENT` | `PRODUCTION` so the browser SDK uses the matching Cashfree environment. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Matching Clerk **production** instance keys. |
 
 Configure the Cashfree webhook to the stable URL:
@@ -23,6 +22,10 @@ Configure the Cashfree webhook to the stable URL:
 `https://earthcentric-2ug9.vercel.app/api/webhooks/cashfree`
 
 If the existing Vercel URL cannot be changed in Cashfree, retain it as the canonical Vercel domain. A Vercel deployment can change behind the same project domain; the URL only needs updating in Cashfree if the public origin itself changes. Verify Cashfree's registered return/notification URLs in the Cashfree dashboard.
+
+The app returns the selected server Cashfree mode with the new payment session so the browser SDK uses the same `SANDBOX` or `PRODUCTION` environment. This avoids relying on a separately configured public environment variable.
+
+For a Cashfree error saying `payment_session_id is not present or invalid`, check the latest Vercel **Function Logs** for the sanitized Cashfree API error. Confirm `CASHFREE_APP_ID` and `CASHFREE_SECRET_KEY` are a matching pair for the selected `CASHFREE_ENVIRONMENT`, and that the variables are set in the Production scope. Redeploy after changing them. A Cashfree API failure is now returned as an initialization error instead of being replaced with a fake session ID.
 
 ## Role behavior
 

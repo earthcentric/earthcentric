@@ -121,10 +121,12 @@ export async function createOrder(data: {
   }
 
   const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : data.totalAmount;
-  const amountInPaise = Math.round(finalTotalAmount * 100);
+  if (!Number.isFinite(finalTotalAmount) || finalTotalAmount <= 0) {
+    return { success: false, error: "The order total is invalid. Please refresh your cart and try again." };
+  }
 
   // Generate Cashfree Order strictly with server-calculated payable amount
-  let paymentOrder: any;
+  let paymentOrder: Awaited<ReturnType<typeof createCashfreeOrder>>;
   const customerPhone = data.userPhone ? data.userPhone.replace(/\D/g, "").slice(-10) : "";
   try {
     paymentOrder = await createCashfreeOrder({
@@ -137,11 +139,14 @@ export async function createOrder(data: {
         phone: customerPhone
       }
     });
-  } catch (err: any) {
-    console.warn("Cashfree order initialization warning in createOrder, using fallback:", err?.message || err);
-    paymentOrder = {
-      order_id: `sandbox_${orderId}`,
-      payment_session_id: `session_sandbox_${orderId}`,
+  } catch (error) {
+    console.error("Cashfree order initialization failed; see sanitized Cashfree provider log.");
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Cashfree could not initialize payment. Please try again.",
     };
   }
 
@@ -177,8 +182,8 @@ export async function createOrder(data: {
             image: item.image,
           })),
           paymentStatus: "PENDING",
-          cashfreeOrderId: (paymentOrder.order_id as string),
-          cashfreePaymentSessionId: (paymentOrder.payment_session_id as string),
+          cashfreeOrderId: paymentOrder.order_id,
+          cashfreePaymentSessionId: paymentOrder.payment_session_id,
           timeline: [
             {
               status: "PLACED",
@@ -190,7 +195,13 @@ export async function createOrder(data: {
         mockOrders.push(newOrder);
         newOrders.push(newOrder);
       });
-      return { success: true, order: newOrders[0], cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
+      return {
+        success: true,
+        order: newOrders[0],
+        cashfreeOrderId: paymentOrder.order_id,
+        paymentSessionId: paymentOrder.payment_session_id,
+        paymentMode: paymentOrder.mode,
+      };
     }
 
     // Ensure user exists in database before creating address
@@ -239,7 +250,7 @@ export async function createOrder(data: {
           totalAmount: orderAmount,
           status: "PLACED",
           sellerId: sId,
-          paymentGroupId: (paymentOrder.order_id as string), // Grouping multiple orders under one payment
+          paymentGroupId: paymentOrder.order_id, // Grouping multiple orders under one payment
           items: {
             create: items.map((item) => ({
               productId: item.productId,
@@ -249,7 +260,7 @@ export async function createOrder(data: {
           },
           payment: {
             create: {
-              cashfreeOrderId: (paymentOrder.order_id as string),
+              cashfreeOrderId: paymentOrder.order_id,
               amount: orderAmount,
               status: "PENDING",
             },
@@ -292,8 +303,8 @@ export async function createOrder(data: {
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: "PENDING",
-      cashfreeOrderId: (paymentOrder.order_id as string),
-      cashfreePaymentSessionId: (paymentOrder.payment_session_id as string),
+      cashfreeOrderId: paymentOrder.order_id,
+      cashfreePaymentSessionId: paymentOrder.payment_session_id,
       timeline: firstOrder.timeline.map((t) => ({
         status: t.status,
         description: t.description,
@@ -301,36 +312,19 @@ export async function createOrder(data: {
       })),
     };
 
-    return { success: true, order: formattedOrder, cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
-  } catch (error) {
-    console.error("Database order creation failed, resolving via mock sandbox:", error);
-    const newOrder: OrderDetail = {
-      id: orderId,
-      userId: data.userId,
-      totalAmount: data.totalAmount,
-      status: "PLACED",
-      createdAt: new Date(),
-      address: data.address,
-      items: data.items.map((item) => ({
-        productId: item.productId,
-        name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        image: item.image,
-      })),
-      paymentStatus: "PENDING",
-      cashfreeOrderId: (paymentOrder.order_id as string),
-      cashfreePaymentSessionId: (paymentOrder.payment_session_id as string),
-      timeline: [
-        {
-          status: "PLACED",
-          description: "Order placed. Awaiting payment authorization.",
-          createdAt: new Date(),
-        },
-      ],
+    return {
+      success: true,
+      order: formattedOrder,
+      cashfreeOrderId: paymentOrder.order_id,
+      paymentSessionId: paymentOrder.payment_session_id,
+      paymentMode: paymentOrder.mode,
     };
-    mockOrders.push(newOrder);
-    return { success: true, order: newOrder, cashfreeOrderId: (paymentOrder.order_id as string), paymentSessionId: (paymentOrder.payment_session_id as string) };
+  } catch (error) {
+    console.error("Order persistence failed after Cashfree order initialization:", error);
+    return {
+      success: false,
+      error: "The order could not be saved. Payment has not been started; please try again.",
+    };
   }
 }
 
@@ -1106,4 +1100,3 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
     return { success: false, error: "Error retrieving order details." };
   }
 }
-

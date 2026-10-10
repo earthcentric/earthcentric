@@ -7,7 +7,6 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
-import { getCashfreeAppId } from "@/actions/credentials";
 import { load } from '@cashfreepayments/cashfree-js';
 import { getUserAddresses, addUserAddress, AddressData, getBuyerProfile, updateBuyerProfile } from "@/actions/profile";
 import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star, Phone } from "lucide-react";
@@ -164,31 +163,42 @@ export default function CheckoutPage() {
       setActiveOrderId(res.order.id);
       setActiveCashfreeOrderId(res.cashfreeOrderId);
 
-      if (res.cashfreeOrderId.startsWith("order_mock_")) {
+      if (res.paymentMode === "MOCK") {
         setShowMockGateway(true);
       } else {
-        await openRealCashfreeSDK(res.order.id, res.paymentSessionId);
+        await openRealCashfreeSDK(res.order.id, res.paymentSessionId, res.paymentMode);
       }
     });
   };
 
-  const openRealCashfreeSDK = async (orderId: string, paymentSessionId: string) => {
-    const cashfree = await load({
-      mode: process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT === "PRODUCTION" ? "production" : "sandbox"
-    });
+  const openRealCashfreeSDK = async (
+    orderId: string,
+    paymentSessionId: string,
+    paymentMode: "SANDBOX" | "PRODUCTION"
+  ) => {
+    if (!paymentSessionId.trim()) {
+      console.error("Cashfree returned an invalid payment session.");
+      alert("Cashfree did not return a valid payment session. Please try again or contact support.");
+      return;
+    }
 
-    let checkoutOptions = {
-      paymentSessionId: paymentSessionId,
-      redirectTarget: "_modal",
-    };
+    try {
+      const cashfree = await load({
+        mode: paymentMode === "PRODUCTION" ? "production" : "sandbox",
+      });
 
-    cashfree.checkout(checkoutOptions).then(async (result: any) => {
+      const result = await cashfree.checkout({
+        paymentSessionId,
+        redirectTarget: "_modal",
+      });
+
       if (result.error) {
-        console.error("Payment error:", result.error);
-        alert("Payment was cancelled or failed.");
+        console.error("Cashfree checkout error:", result.error);
+        alert("Cashfree could not start checkout. Please verify the payment configuration and try again.");
+        return;
       }
+
       if (result.paymentDetails) {
-        // Call backend to verify payment status
         const success = await confirmOrderPayment(
           orderId,
           "cashfree",
@@ -200,10 +210,17 @@ export default function CheckoutPage() {
           clearCart();
           router.push(`/orders/${orderId}`);
         } else {
-          alert("Payment signature verification failed.");
+          alert("Payment verification is pending or failed. Contact support before retrying payment.");
         }
       }
-    });
+    } catch (error) {
+      console.error("Could not launch Cashfree checkout:", error);
+      alert(
+        error instanceof Error
+          ? `Cashfree checkout failed: ${error.message}`
+          : "Cashfree checkout failed. Please try again."
+      );
+    }
   };
 
   // Mock Gateway Sandbox Handlers
