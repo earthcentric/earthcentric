@@ -973,40 +973,52 @@ export async function createProduct(data: {
   if (data.stock === undefined || isNaN(Number(data.stock)) || Number(data.stock) < 0) {
     throw new Error("Product stock must be a non-negative number.");
   }
-  if (!data.imageUrls || !Array.isArray(data.imageUrls) || data.imageUrls.length === 0) {
-    throw new Error("At least one product image is required.");
-  }
+  const rawImages = (data.imageUrls && Array.isArray(data.imageUrls) && data.imageUrls.length > 0)
+    ? data.imageUrls
+    : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=60"];
   if (!data.categoryName || typeof data.categoryName !== "string" || data.categoryName.trim().length === 0) {
     throw new Error("Category name is required.");
   }
 
-  // Validate promotional rules if provided
-  if (data.individualDiscount && data.individualDiscount.discountValue !== undefined) {
-    const val = Number(data.individualDiscount.discountValue);
-    if (val <= 0) {
-      throw new Error("Individual discount value must be greater than 0.");
-    }
-    if (data.individualDiscount.discountType === "PERCENTAGE" && val > 100) {
-      throw new Error("Individual discount percentage cannot exceed 100%.");
-    }
-    if (data.individualDiscount.discountType === "FIXED" && val >= Number(data.price)) {
-      throw new Error("Fixed discount amount cannot exceed or equal the product price.");
+  // Validate promotional rules ONLY if explicitly enabled
+  if (data.individualDiscount && data.individualDiscount.enabled) {
+    if (data.individualDiscount.discountValue !== undefined && data.individualDiscount.discountValue !== null) {
+      const val = Number(data.individualDiscount.discountValue);
+      if (val <= 0) {
+        throw new Error("Individual discount value must be greater than 0.");
+      }
+      if (data.individualDiscount.discountType === "PERCENTAGE" && val > 100) {
+        throw new Error("Individual discount percentage cannot exceed 100%.");
+      }
+      if (data.individualDiscount.discountType === "FIXED" && val >= Number(data.price)) {
+        throw new Error("Fixed discount amount cannot exceed or equal the product price.");
+      }
     }
   }
 
-  if (data.tierDiscounts && Array.isArray(data.tierDiscounts)) {
-    for (const t of data.tierDiscounts) {
-      if (!t.minQuantity || Number(t.minQuantity) < 2) {
-        throw new Error("Tier minimum quantity must be at least 2.");
-      }
-      if (!t.discountValue || Number(t.discountValue) <= 0) {
-        throw new Error("Tier discount value must be greater than 0.");
-      }
-      if (t.discountType === "PERCENTAGE" && Number(t.discountValue) > 100) {
-        throw new Error("Tier discount percentage cannot exceed 100%.");
-      }
-      if (t.discountType === "FIXED" && Number(t.discountValue) >= Number(data.price)) {
-        throw new Error("Tier fixed discount cannot exceed or equal the product price.");
+  if (data.tierDiscounts) {
+    const isObj = typeof data.tierDiscounts === "object" && !Array.isArray(data.tierDiscounts);
+    const isTierEnabled = isObj
+      ? (data.tierDiscounts as any).enabled !== false
+      : Array.isArray(data.tierDiscounts) && data.tierDiscounts.length > 0;
+    const tiers: any[] = isObj
+      ? ((data.tierDiscounts as any).tiers || [])
+      : (Array.isArray(data.tierDiscounts) ? data.tierDiscounts : []);
+
+    if (isTierEnabled && tiers.length > 0) {
+      for (const t of tiers) {
+        if (!t.minQuantity || Number(t.minQuantity) < 2) {
+          throw new Error("Tier minimum quantity must be at least 2.");
+        }
+        if (!t.discountValue || Number(t.discountValue) <= 0) {
+          throw new Error("Tier discount value must be greater than 0.");
+        }
+        if (t.discountType === "PERCENTAGE" && Number(t.discountValue) > 100) {
+          throw new Error("Tier discount percentage cannot exceed 100%.");
+        }
+        if (t.discountType === "FIXED" && Number(t.discountValue) >= Number(data.price)) {
+          throw new Error("Tier fixed discount cannot exceed or equal the product price.");
+        }
       }
     }
   }
@@ -1023,7 +1035,7 @@ export async function createProduct(data: {
   try {
     // Process/upload all product images to Cloudinary (will return JSON strings)
     const uploadedImages = await Promise.all(
-      data.imageUrls.map(async (url) => {
+      rawImages.map(async (url) => {
         const secureUrl = await uploadImage(url, "product");
         return { url: secureUrl };
       })
@@ -1031,12 +1043,16 @@ export async function createProduct(data: {
 
     const productDateVal = data.productDate ? new Date(data.productDate) : new Date();
 
+    const isIndivEnabled = !!(data.individualDiscount && data.individualDiscount.enabled && Number(data.individualDiscount.discountValue) > 0);
+    const isTierEnabled = !!(data.tierDiscounts && ((data.tierDiscounts as any).enabled !== false && (((data.tierDiscounts as any).tiers && (data.tierDiscounts as any).tiers.length > 0) || (Array.isArray(data.tierDiscounts) && data.tierDiscounts.length > 0))));
+    const isBxgyEnabled = !!(data.buyXGetYOffer && data.buyXGetYOffer.enabled && Number(data.buyXGetYOffer.buyQuantity) >= 1 && Number(data.buyXGetYOffer.getQuantity) >= 1);
+
     const isMockDb = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMockDb) {
       const newProduct: ProductItem = {
         id: `prod-${Math.floor(Math.random() * 10000)}`,
         name: data.name,
-        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
+        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
@@ -1064,9 +1080,9 @@ export async function createProduct(data: {
         bulkPriceSlabs: data.bulkPriceSlabs || null,
         ...(data.bulkOrderQuantity ? { bulkOrderQuantity: Number(data.bulkOrderQuantity) } : {}),
         ...(data.bulkOrderPrice ? { bulkOrderPrice: Number(data.bulkOrderPrice) } : {}),
-        tierDiscounts: data.tierDiscounts || null,
-        individualDiscount: data.individualDiscount || null,
-        buyXGetYOffer: data.buyXGetYOffer || null,
+        tierDiscounts: isTierEnabled ? data.tierDiscounts : null,
+        individualDiscount: isIndivEnabled ? { ...data.individualDiscount, status: "PENDING" } : null,
+        buyXGetYOffer: isBxgyEnabled ? data.buyXGetYOffer : null,
         highlights: data.highlights || [],
         technicalSpecs: data.technicalSpecs || [],
         createdAt: new Date(),
@@ -1076,23 +1092,46 @@ export async function createProduct(data: {
       return newProduct;
     }
 
-    // Find seller by either sellerId or userId to prevent FK mismatches
+    // Find seller by either sellerId, userId, or user email to prevent FK mismatches
     let seller = await db.seller.findUnique({ where: { id: data.sellerId } });
     if (!seller) {
       seller = await db.seller.findUnique({ where: { userId: data.sellerId } });
+    }
+    if (!seller) {
+      const user = await db.user.findFirst({
+        where: {
+          OR: [
+            { id: data.sellerId },
+            { email: data.sellerId }
+          ]
+        },
+        include: { seller: true }
+      });
+      if (user?.seller) {
+        seller = user.seller;
+      }
     }
     if (!seller) {
       throw new Error(`Seller profile not found for ID or User ID: ${data.sellerId}`);
     }
     const resolvedSellerId = seller.id;
 
-    // Handle Category look-up/creation
-    let category = await db.category.findUnique({ where: { name: data.categoryName } });
+    // Handle Category look-up/creation (case-insensitive and slug-safe)
+    const trimmedCatName = data.categoryName.trim();
+    const catSlug = trimmedCatName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    let category = await db.category.findFirst({
+      where: {
+        OR: [
+          { name: { equals: trimmedCatName, mode: "insensitive" } },
+          { slug: catSlug }
+        ]
+      }
+    });
     if (!category) {
       category = await db.category.create({
         data: {
-          name: data.categoryName,
-          slug: data.categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          name: trimmedCatName,
+          slug: catSlug,
         },
       });
     }
@@ -1104,8 +1143,8 @@ export async function createProduct(data: {
 
     const p = (await db.product.create({
       data: {
-        name: data.name,
-        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
+        name: data.name.trim(),
+        slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
         description: data.description,
         price: Number(data.price),
         stock: Number(data.stock),
@@ -1117,9 +1156,11 @@ export async function createProduct(data: {
         status: "PENDING_APPROVAL",
         isApproved: false,
         rejectionReason: null,
-        ...(data.tierDiscounts ? { tierDiscounts: (data.tierDiscounts as any) } : {}),
-        ...(data.individualDiscount ? { individualDiscount: { ...(data.individualDiscount as any), status: "PENDING" } } : {}),
-        ...(data.buyXGetYOffer ? { buyXGetYOffer: (data.buyXGetYOffer as any) } : {}),
+        highlights: data.highlights || [],
+        technicalSpecs: data.technicalSpecs || [],
+        tierDiscounts: isTierEnabled ? (data.tierDiscounts as any) : null,
+        individualDiscount: isIndivEnabled ? { ...(data.individualDiscount as any), status: "PENDING" } : null,
+        buyXGetYOffer: isBxgyEnabled ? (data.buyXGetYOffer as any) : null,
         moq: data.moq ? Number(data.moq) : 1,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
@@ -1136,6 +1177,67 @@ export async function createProduct(data: {
         seller: true,
       },
     })) as any;
+
+    // Register discount approval requests in Super Admin workflow if any promotions were submitted
+    if (isIndivEnabled) {
+      try {
+        await (db as any).discountApprovalRequest.create({
+          data: {
+            sellerId: resolvedSellerId,
+            productId: p.id,
+            discountType: "INDIVIDUAL",
+            requestedAction: "ACTIVATE",
+            status: "PENDING",
+            proposedConfig: data.individualDiscount,
+            currentConfig: null,
+            requestedBy: data.sellerName || resolvedSellerId,
+            requestedAt: new Date(),
+          },
+        });
+      } catch (err) {
+        console.warn("Could not create discountApprovalRequest for INDIVIDUAL:", err);
+      }
+    }
+
+    if (isTierEnabled) {
+      try {
+        await (db as any).discountApprovalRequest.create({
+          data: {
+            sellerId: resolvedSellerId,
+            productId: p.id,
+            discountType: "TIER",
+            requestedAction: "ACTIVATE",
+            status: "PENDING",
+            proposedConfig: data.tierDiscounts,
+            currentConfig: null,
+            requestedBy: data.sellerName || resolvedSellerId,
+            requestedAt: new Date(),
+          },
+        });
+      } catch (err) {
+        console.warn("Could not create discountApprovalRequest for TIER:", err);
+      }
+    }
+
+    if (isBxgyEnabled) {
+      try {
+        await (db as any).discountApprovalRequest.create({
+          data: {
+            sellerId: resolvedSellerId,
+            productId: p.id,
+            discountType: "BUY_X_GET_Y",
+            requestedAction: "ACTIVATE",
+            status: "PENDING",
+            proposedConfig: data.buyXGetYOffer,
+            currentConfig: null,
+            requestedBy: data.sellerName || resolvedSellerId,
+            requestedAt: new Date(),
+          },
+        });
+      } catch (err) {
+        console.warn("Could not create discountApprovalRequest for BUY_X_GET_Y:", err);
+      }
+    }
 
     await createAdminNotification(
       "Product Approval Required",

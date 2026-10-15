@@ -2049,15 +2049,13 @@ function AddProductForm({ onBack, profile, reload }: any) {
     e.preventDefault();
     if (!user || !prodName || !prodPrice) return;
     
-    // Enforce real image upload
-    if (imagePreviews.length === 0) {
-      toast.error("Please upload at least one real product image.");
-      return;
-    }
-
     setIsSubmitting(true);
     try {
-      const imageUrls = imagePreviews.map((img) => img.dataUrl);
+      // Use uploaded previews or default eco image fallback
+      let imageUrls = imagePreviews.map((img) => img.dataUrl);
+      if (imageUrls.length === 0) {
+        imageUrls = ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&auto=format&fit=crop&q=80"];
+      }
       
       // Process seller highlights and technical specs
       const validHighlights = prodHighlights.map((h) => h.trim()).filter((h) => h.length > 0);
@@ -2093,6 +2091,9 @@ function AddProductForm({ onBack, profile, reload }: any) {
         ? Number(prodBulkOrderPrice) / Number(prodBulkOrderQuantity)
         : undefined;
 
+      const targetSellerId = profile?.id || user.sellerId || user.id;
+      const targetSellerName = profile?.companyName || user.name || "Seller";
+
       await createProduct({
         name: prodName,
         description: prodDesc,
@@ -2103,8 +2104,8 @@ function AddProductForm({ onBack, profile, reload }: any) {
         sustainabilityScore: Number(prodScore) || 85,
         sustainabilityDetail: prodDetails || "",
         imageUrls,
-        sellerId: user.id,
-        sellerName: profile?.companyName || "Seller",
+        sellerId: targetSellerId,
+        sellerName: targetSellerName,
         wholesalePrice: derivedWholesalePrice,
         originalPrice: prodOriginalPrice ? Number(prodOriginalPrice) : undefined,
         bulkPriceSlabs: prodSlabs.length > 0 ? prodSlabs : undefined,

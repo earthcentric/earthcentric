@@ -67,9 +67,16 @@ export async function uploadImage(fileBase64: string, folderOrType: string = "pr
   const folder = getFolderFromType(folderOrType);
   const isDoc = isDocFolder(folder);
   
+  // If already a JSON response from Cloudinary / previous upload
+  if (fileBase64.startsWith("{\"url\":") || fileBase64.startsWith("{\"secure_url\":")) {
+    return fileBase64;
+  }
+
   // Extract mimetype and raw base64 data
   let mimeType = "";
   let base64Data = fileBase64;
+  const isRemoteUrl = fileBase64.startsWith("http://") || fileBase64.startsWith("https://");
+
   if (fileBase64.startsWith("data:")) {
     const match = fileBase64.match(/^data:([^;]+);base64,/);
     if (match) {
@@ -78,18 +85,18 @@ export async function uploadImage(fileBase64: string, folderOrType: string = "pr
     }
   }
 
-  // File size validation (Base64 character length is roughly 4/3 of actual size)
+  // File size validation (Base64 character length is roughly 4/3 of actual size) - only for base64 data
   const approxSizeInBytes = (base64Data.length * 3) / 4;
   const sizeLimitMb = isDoc ? 10 : 5;
   const sizeLimitBytes = sizeLimitMb * 1024 * 1024;
   
-  if (approxSizeInBytes > sizeLimitBytes) {
+  if (!isRemoteUrl && approxSizeInBytes > sizeLimitBytes) {
     throw new Error(`File size exceeds the limit of ${sizeLimitMb}MB`);
   }
 
   // Format validation
   if (mimeType) {
-    const allowedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const allowedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/svg+xml"];
     const allowedDocTypes = ["application/pdf", "image/jpeg", "image/png"];
     
     const allowedTypes = isDoc ? allowedDocTypes : allowedImageTypes;
