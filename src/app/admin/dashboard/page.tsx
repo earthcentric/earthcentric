@@ -1379,69 +1379,26 @@ function DisputesView({ disputes, onResolve, adminEmail }: { disputes: DisputeCa
 // PAYMENTS VIEW
 // --------------------------------------------------------------------------
 function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail, globalSearch }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string, globalSearch?: string }) {
-  const [localSearch, setLocalSearch] = useState("");
-  const displayTransactions = (globalSearch || localSearch)
-    ? transactions.filter((t: any) => {
-        const term = localSearch || globalSearch || "";
-        const words = term.toLowerCase().split(/\s+/).filter(Boolean);
-        if (words.length === 0) return true;
-        
-        const targetStr = `
-          ${t.id || ""}
-          ${t.orderId || ""}
-          ${t.cashfreePaymentId || ""}
-          ${t.buyerName || ""}
-          ${t.buyerEmail || ""}
-          ${t.buyerPhone || ""}
-          ${t.sellerCompany || ""}
-          ${t.sellerName || ""}
-          ${(t.products || []).map((p: any) => `${p.name} ${p.sellerCompany}`).join(" ")}
-        `.toLowerCase();
-        
-        return words.every(word => targetStr.includes(word));
-      })
-    : transactions;
-  
-  const [localPayoutSearch, setLocalPayoutSearch] = useState("");
-  const displayPayoutRequests = (globalSearch || localPayoutSearch)
-    ? payoutRequests.filter((r: any) => {
-        const term = localPayoutSearch || globalSearch || "";
-        const words = term.toLowerCase().split(/\s+/).filter(Boolean);
-        if (words.length === 0) return true;
-        
-        const targetStr = `
-          ${r.id || ""}
-          ${r.transactionId || ""}
-          ${r.companyName || ""}
-          ${r.sellerName || ""}
-          ${r.sellerEmail || ""}
-          ${r.paymentMethod || ""}
-        `.toLowerCase();
-        
-        return words.every(word => targetStr.includes(word));
-      })
-    : payoutRequests;
-
-  const [subTab, setSubTab] = useState("transactions");
+  const [subTab, setSubTab] = useState("completed");
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
   const [actionType, setActionType] = useState<"APPROVE" | "REJECT" | "PAY" | null>(null);
-  
-  // Fields for processing dialogs
   const [transactionId, setTransactionId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
   const [processing, setProcessing] = useState(false);
   const [amountToSettle, setAmountToSettle] = useState("");
   const [settlementError, setSettlementError] = useState("");
+  const [searchCompleted, setSearchCompleted] = useState("");
+  const [searchPending, setSearchPending] = useState("");
+  const [searchSellerPending, setSearchSellerPending] = useState("");
+  const [searchSellerSettled, setSearchSellerSettled] = useState("");
 
   const handleAction = async () => {
     if (!selectedRequest || !actionType) return;
     setProcessing(true);
-    
     let status: any = "PAID";
     if (actionType === "APPROVE") status = "APPROVED";
     if (actionType === "REJECT") status = "REJECTED";
-
     const success = await settlePayoutRequest(
       selectedRequest.id,
       adminEmail || "admin@earthcentric.com",
@@ -1450,310 +1407,315 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
       status,
       rejectReason || undefined
     );
-
     setProcessing(false);
     if (success) {
       toast.success(`Payout request successfully ${status.toLowerCase()}!`);
-      setSelectedRequest(null);
-      setActionType(null);
-      setTransactionId("");
-      setRejectReason("");
-      setAdminNotes("");
+      setSelectedRequest(null); setActionType(null); setTransactionId(""); setRejectReason(""); setAdminNotes("");
       onActionComplete();
-    } else {
-      toast.error("Failed to update payout request.");
-    }
+    } else { toast.error("Failed to update payout request."); }
   };
 
   const handleSettle = async (full = false) => {
     if (!selectedRequest) return;
-    const remaining = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount;
+    const remaining = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null
+      ? selectedRequest.remainingAmount : selectedRequest.amount;
     const amt = full ? remaining : Number(amountToSettle);
-    
-    if (isNaN(amt) || amt <= 0) {
-      setSettlementError("Amount must be greater than ₹0.");
-      return;
-    }
-    if (amt > remaining) {
-      setSettlementError("Amount cannot exceed the remaining pending amount.");
-      return;
-    }
-
-    setSettlementError("");
-    setProcessing(true);
-
+    if (isNaN(amt) || amt <= 0) { setSettlementError("Amount must be greater than Rs.0."); return; }
+    if (amt > remaining) { setSettlementError("Amount cannot exceed the remaining pending amount."); return; }
+    setSettlementError(""); setProcessing(true);
     const success = await settlePayoutRequest(
       selectedRequest.id,
       adminEmail || "admin@earthcentric.com",
-      adminNotes || `Payout settlement of ₹${amt.toLocaleString()}`,
+      adminNotes || `Payout settlement of Rs.${amt.toLocaleString()}`,
       transactionId || undefined,
-      "PAID",
-      undefined,
-      amt
+      "PAID", undefined, amt
     );
-
     setProcessing(false);
     if (success) {
-      toast.success(`Successfully settled ₹${amt.toLocaleString()}!`);
-      setSelectedRequest(null);
-      setAmountToSettle("");
-      setTransactionId("");
-      setAdminNotes("");
+      toast.success(`Successfully settled Rs.${amt.toLocaleString()}!`);
+      setSelectedRequest(null); setAmountToSettle(""); setTransactionId(""); setAdminNotes("");
       onActionComplete();
-    } else {
-      toast.error("Failed to process payout settlement.");
-    }
+    } else { toast.error("Failed to process payout settlement."); }
   };
 
-  const pendingRequests = payoutRequests.filter(r => r.status === "PENDING");
+  const filterTx = (list: any[], q: string) => {
+    if (!q.trim()) return list;
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return list.filter((t: any) => {
+      const s = `${t.id} ${t.orderId} ${t.cashfreePaymentId || ""} ${t.buyerName || ""} ${t.buyerEmail || ""} ${t.sellerCompany || ""} ${(t.products || []).map((p: any) => p.name).join(" ")}`.toLowerCase();
+      return words.every((w: string) => s.includes(w));
+    });
+  };
+  const filterPayout = (list: any[], q: string) => {
+    if (!q.trim()) return list;
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return list.filter((r: any) => {
+      const s = `${r.id} ${r.transactionId || ""} ${r.companyName || ""} ${r.sellerName || ""} ${r.sellerEmail || ""} ${r.paymentMethod || ""}`.toLowerCase();
+      return words.every((w: string) => s.includes(w));
+    });
+  };
+
+  const completedTxns = filterTx(
+    transactions.filter((t: any) => ["COMPLETED","SUCCESS","PAID","CONFIRMED"].includes((t.status || "").toUpperCase())),
+    searchCompleted
+  );
+  const pendingTxns = filterTx(
+    transactions.filter((t: any) => !["COMPLETED","SUCCESS","PAID","CONFIRMED"].includes((t.status || "").toUpperCase())),
+    searchPending
+  );
+  const sellerPayoutPending = filterPayout(
+    payoutRequests.filter((r: any) => ["PENDING","APPROVED"].includes(r.status)),
+    searchSellerPending
+  );
+  const sellerPayoutSettled = filterPayout(
+    payoutRequests.filter((r: any) => ["PAID","SETTLED","PARTIALLY_PAID","REJECTED"].includes(r.status)),
+    searchSellerSettled
+  );
+
+  const payoutStatusClass = (status: string) =>
+    status === "PAID" || status === "SETTLED" ? "bg-emerald-50 text-emerald-700" :
+    status === "PARTIALLY_PAID" ? "bg-cyan-50 text-cyan-700" :
+    status === "APPROVED" ? "bg-blue-50 text-blue-700" :
+    status === "REJECTED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700";
+
+  const renderTransactionTable = (rows: any[], emptyLabel: string, variant: "success" | "warn") => (
+    <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6 w-[20%]">Transaction / Order ID</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[15%]">Buyer Info</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[15%]">Seller Info</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[20%]">Products (Qty x Price)</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[10%]">Total Amount</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[10%]">Status</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6 w-[10%]">Date</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.length === 0 ? (
+            <TableRow><TableCell colSpan={7} className="text-center py-12 text-xs text-muted-foreground">
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center"><CheckCircle2 className="h-5 w-5 text-slate-300" /></div>
+                {emptyLabel}
+              </div>
+            </TableCell></TableRow>
+          ) : rows.map((t: any) => (
+            <TableRow key={t.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+              <TableCell className="py-4 pl-6 align-top">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-mono font-bold text-[#1a3321]">Txn: {t.id}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground">Ord: {t.orderId}</p>
+                  {t.cashfreePaymentId && <p className="text-[10px] font-mono text-blue-600/80">CF: {t.cashfreePaymentId}</p>}
+                </div>
+              </TableCell>
+              <TableCell className="py-4 align-top">
+                <p className="text-xs font-bold text-[#1a3321]">{t.buyerName}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{t.buyerEmail}</p>
+                {t.buyerPhone && <p className="text-[10px] text-muted-foreground mt-0.5">{t.buyerPhone}</p>}
+              </TableCell>
+              <TableCell className="py-4 align-top">
+                <p className="text-xs font-bold text-[#1a3321]">{t.sellerCompany}</p>
+                {t.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{t.sellerName}</p>}
+              </TableCell>
+              <TableCell className="py-4 align-top">
+                {t.products && t.products.length > 0 ? (
+                  <div className="space-y-1">
+                    {t.products.map((p: any, idx: number) => (
+                      <div key={idx} className="flex flex-col text-[10px] border-b border-[#e9ece6]/50 last:border-0 pb-2 last:pb-0">
+                        <span className="font-medium text-slate-700">{p.name}</span>
+                        <div className="flex justify-between mt-1">
+                          <span className="text-slate-500">{p.quantity} x Rs.{p.price}</span>
+                          {p.sellerCompany !== t.sellerCompany && <span className="text-[9px] text-emerald-600 truncate ml-2">({p.sellerCompany})</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-[10px] text-slate-400 italic">No products recorded.</p>}
+              </TableCell>
+              <TableCell className="py-4 align-top">
+                <p className="text-sm font-black text-[#1a3321]">Rs.{t.amount}</p>
+                <p className="text-[9px] text-emerald-600 font-bold mt-1">Platform Fee: Rs.{(t.amount * 0.1).toFixed(0)}</p>
+              </TableCell>
+              <TableCell className="py-4 align-top">
+                {variant === "success"
+                  ? <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px] hover:bg-emerald-50"><CheckCircle2 className="h-2.5 w-2.5 mr-1" />{t.status}</Badge>
+                  : <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] hover:bg-amber-50"><AlertCircle className="h-2.5 w-2.5 mr-1" />{t.status || "PENDING"}</Badge>
+                }
+              </TableCell>
+              <TableCell className="py-4 text-right pr-6 align-top">
+                <p className="text-[10px] font-medium text-muted-foreground">{new Date(t.date).toLocaleDateString()}</p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">{new Date(t.date).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</p>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+
+  const renderPayoutTable = (rows: any[], emptyLabel: string, showActions: boolean) => (
+    <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Seller Company</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Amount</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Method</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Requested Date</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.length === 0 ? (
+            <TableRow><TableCell colSpan={6} className="text-center py-12 text-xs text-muted-foreground">
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center"><Wallet className="h-5 w-5 text-slate-300" /></div>
+                {emptyLabel}
+              </div>
+            </TableCell></TableRow>
+          ) : rows.map((r: any) => (
+            <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+              <TableCell className="py-4 pl-6 align-top">
+                <p className="text-xs font-bold text-[#1a3321]">{r.companyName}</p>
+                {r.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerName}</p>}
+                {r.sellerEmail && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerEmail}</p>}
+                <div className="mt-2 space-y-1">
+                  <p className="text-[10px] text-muted-foreground font-mono">ID: {r.id}</p>
+                  {r.transactionId && <p className="text-[10px] text-blue-600/80 font-mono">Txn: {r.transactionId}</p>}
+                </div>
+              </TableCell>
+              <TableCell className="py-4 text-xs font-black text-[#1a3321] align-top">
+                Rs.{r.amount.toLocaleString()}
+                {r.status === "PARTIALLY_PAID" && (
+                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    Rem: Rs.{(r.remainingAmount !== undefined && r.remainingAmount !== null ? r.remainingAmount : r.amount).toLocaleString()}
+                  </div>
+                )}
+              </TableCell>
+              <TableCell className="py-4 text-xs font-bold uppercase text-[#2d4a36] align-top">{r.paymentMethod}</TableCell>
+              <TableCell className="py-4 text-xs text-muted-foreground align-top">{new Date(r.requestedAt).toLocaleDateString()}</TableCell>
+              <TableCell className="py-4 align-top">
+                <Badge className={`border-none text-[9px] font-bold uppercase ${payoutStatusClass(r.status)}`}>{r.status.replace("_", " ")}</Badge>
+              </TableCell>
+              <TableCell className="py-4 text-right pr-6 space-x-1.5 align-top">
+                <Button size="sm" variant="cool" className="text-[10px] h-7 px-2.5" onClick={() => setSelectedRequest(r)}>View Details</Button>
+                {showActions && r.status === "PENDING" && (
+                  <>
+                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("APPROVE"); }}>Approve</Button>
+                    <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>Reject</Button>
+                  </>
+                )}
+                {showActions && r.status === "APPROVED" && (
+                  <>
+                    <Button size="sm" className="bg-[#1a3321] hover:bg-[#122417] text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("PAY"); }}>Mark as Paid</Button>
+                    <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>Reject</Button>
+                  </>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Payments & Payouts</h1>
+        <h1 className="text-2xl font-extrabold text-[#1a3321]">Payments &amp; Payouts</h1>
         <p className="text-sm text-muted-foreground mt-1">Monitor platform revenue collections, commission cuts, and seller payout schedules.</p>
       </div>
 
-      <div className="border-b border-[#e9ece6] flex space-x-6 mt-8">
-        <button 
-          className={`text-xs font-bold pb-3 px-1 ${subTab === "transactions" ? "text-[#1a3321] border-b-2 border-[#1a3321]" : "text-[#8ca193] hover:text-[#1a3321]"}`}
-          onClick={() => setSubTab("transactions")}
-        >
-          Order Transactions
-        </button>
-        <button 
-          className={`text-xs font-bold pb-3 px-1 flex items-center ${subTab === "payouts" ? "text-[#1a3321] border-b-2 border-[#1a3321]" : "text-[#8ca193] hover:text-[#1a3321]"}`}
-          onClick={() => setSubTab("payouts")}
-        >
-          Seller Payout Requests 
-          {pendingRequests.length > 0 && (
-            <span className="bg-rose-500 text-white text-[9px] rounded-full h-4 w-4 flex items-center justify-center ml-2">
-              {pendingRequests.length}
-            </span>
-          )}
-        </button>
+
+      {/* Tab Pills */}
+      <div className="flex flex-wrap gap-2">
+        {([
+          { id: "completed",     label: "Order Completed History",       count: completedTxns.length,        activeCls: "bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm", pillCls: "bg-emerald-100 text-emerald-800" },
+          { id: "pending",       label: "Order Pending Payment History", count: pendingTxns.length,          activeCls: "bg-amber-50 text-amber-700 border-amber-300 shadow-sm",       pillCls: "bg-amber-100 text-amber-800"   },
+          { id: "sellerPending", label: "Seller Payment Pending",        count: sellerPayoutPending.length,   activeCls: "bg-rose-50 text-rose-700 border-rose-300 shadow-sm",          pillCls: "bg-rose-100 text-rose-700"     },
+          { id: "sellerSettled", label: "Seller Payment Settled",        count: sellerPayoutSettled.length,   activeCls: "bg-blue-50 text-blue-700 border-blue-300 shadow-sm",          pillCls: "bg-blue-100 text-blue-800"     },
+        ] as const).map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all duration-200 border ${subTab === t.id ? t.activeCls : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"}`}
+          >
+            {t.label}
+            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${subTab === t.id ? t.pillCls : "bg-slate-100 text-slate-500"}`}>{t.count}</span>
+          </button>
+        ))}
       </div>
 
-      {subTab === "transactions" ? (
-        <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden mt-6">
-          <div className="px-6 pt-6 pb-2">
-            <Input 
-              type="text" 
-              placeholder="Search by Transaction ID, Order ID, Buyer, Seller, Product..." 
-              value={localSearch}
-              onChange={(e) => setLocalSearch(e.target.value)}
-              className="max-w-md h-9 text-xs border-slate-200"
-            />
+      {/* Section 1: Order Completed History */}
+      {subTab === "completed" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3"><div className="h-8 w-8 rounded-xl bg-emerald-100 flex items-center justify-center"><CheckCircle2 className="h-4 w-4 text-emerald-600" /></div><div><h2 className="text-sm font-extrabold text-[#1a3321]">Order Completed History</h2><p className="text-[10px] text-muted-foreground">All successfully paid and confirmed customer orders</p></div></div>
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">{completedTxns.length} records</span>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6 w-[20%]">Transaction / Order ID</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[15%]">Buyer Info</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[15%]">Seller Info</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[20%]">Products (Qty x Price)</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[10%]">Total Amount</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-[10%]">Status</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6 w-[10%]">Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayTransactions.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
-                    No transactions found.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                displayTransactions.map((t: any) => (
-                  <TableRow key={t.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                    <TableCell className="py-4 pl-6 align-top">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-mono font-bold text-[#1a3321]" title="Transaction ID">Txn: {t.id}</p>
-                        <p className="text-[10px] font-mono text-muted-foreground" title="Order ID">Ord: {t.orderId}</p>
-                        {t.cashfreePaymentId && <p className="text-[10px] font-mono text-blue-600/80" title="Cashfree ID">CF: {t.cashfreePaymentId}</p>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4 align-top">
-                      <p className="text-xs font-bold text-[#1a3321]">{t.buyerName}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{t.buyerEmail}</p>
-                      {t.buyerPhone && <p className="text-[10px] text-muted-foreground mt-0.5">{t.buyerPhone}</p>}
-                    </TableCell>
-                    <TableCell className="py-4 align-top">
-                      <p className="text-xs font-bold text-[#1a3321]">{t.sellerCompany}</p>
-                      {t.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{t.sellerName}</p>}
-                    </TableCell>
-                    <TableCell className="py-4 align-top">
-                      {t.products && t.products.length > 0 ? (
-                        <div className="space-y-1">
-                          {t.products.map((p: any, idx: number) => (
-                            <div key={idx} className="flex flex-col text-[10px] border-b border-[#e9ece6]/50 last:border-0 pb-2 last:pb-0">
-                              <span className="font-medium text-slate-700">{p.name}</span>
-                              <div className="flex justify-between mt-1">
-                                <span className="text-slate-500">{p.quantity} × ₹{p.price}</span>
-                                {p.sellerCompany !== t.sellerCompany && (
-                                  <span className="text-[9px] text-emerald-600 truncate ml-2">({p.sellerCompany})</span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-slate-400 italic">No products recorded.</p>
-                      )}
-                    </TableCell>
-                    <TableCell className="py-4 align-top">
-                      <p className="text-sm font-black text-[#1a3321]">₹{t.amount}</p>
-                      <p className="text-[9px] text-emerald-600 font-bold mt-1">Platform Fee: ₹{(t.amount * 0.1).toFixed(0)}</p>
-                    </TableCell>
-                    <TableCell className="py-4 align-top">
-                      <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-2.5 w-2.5 mr-1" /> {t.status}</Badge>
-                    </TableCell>
-                    <TableCell className="py-4 text-right pr-6 align-top">
-                      <p className="text-[10px] font-medium text-muted-foreground">{new Date(t.date).toLocaleDateString()}</p>
-                      <p className="text-[9px] text-muted-foreground mt-0.5">{new Date(t.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </Card>
-      ) : (
-        <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden mt-6">
-          <div className="px-6 pt-6 pb-2">
-            <Input 
-              type="text" 
-              placeholder="Search by ID, Transaction ID, Seller Name, Company, Email, Method..." 
-              value={localPayoutSearch}
-              onChange={(e) => setLocalPayoutSearch(e.target.value)}
-              className="max-w-md h-9 text-xs border-slate-200"
-            />
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Seller Company</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Amount</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Method</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Requested Date</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
-                <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayPayoutRequests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                    No payout requests submitted.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                displayPayoutRequests.map((r: any) => (
-                  <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                    <TableCell className="py-4 pl-6 align-top">
-                      <p className="text-xs font-bold text-[#1a3321]">{r.companyName}</p>
-                      {r.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerName}</p>}
-                      {r.sellerEmail && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerEmail}</p>}
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[10px] text-muted-foreground font-mono" title="Request ID">ID: {r.id}</p>
-                        {r.transactionId && <p className="text-[10px] text-blue-600/80 font-mono" title="Transaction ID">Txn: {r.transactionId}</p>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4 text-xs font-black text-[#1a3321]">
-                      ₹{r.amount.toLocaleString()}
-                      {r.status === "PARTIALLY_PAID" && (
-                        <div className="text-[10px] text-slate-500 font-normal mt-0.5">
-                          Rem: ₹{(r.remainingAmount !== undefined && r.remainingAmount !== null ? r.remainingAmount : r.amount).toLocaleString()}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="py-4 text-xs font-bold uppercase text-[#2d4a36]">
-                      {r.paymentMethod}
-                    </TableCell>
-                    <TableCell className="py-4 text-xs text-muted-foreground">
-                      {new Date(r.requestedAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="py-4">
-                      <Badge className={`border-none text-[9px] font-bold uppercase ${
-                        r.status === "PAID" || r.status === "SETTLED" ? "bg-emerald-50 text-emerald-700" : 
-                        r.status === "PARTIALLY_PAID" ? "bg-cyan-50 text-cyan-700" :
-                        r.status === "APPROVED" ? "bg-blue-50 text-blue-700" :
-                        r.status === "REJECTED" ? "bg-red-50 text-red-700" : 
-                        "bg-amber-50 text-amber-700"
-                      }`}>
-                        {r.status.replace("_", " ")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="py-4 text-right pr-6 space-x-1.5">
-                      <Button size="sm" variant="cool" className="text-[10px] h-7 px-2.5" onClick={() => setSelectedRequest(r)}>
-                        View Details
-                      </Button>
-                      {r.status === "PENDING" && (
-                        <>
-                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("APPROVE"); }}>
-                            Approve
-                          </Button>
-                          <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                      {r.status === "APPROVED" && (
-                        <>
-                          <Button size="sm" className="bg-[#1a3321] hover:bg-[#122417] text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("PAY"); }}>
-                            Mark as Paid
-                          </Button>
-                          <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </Card>
+          <Input type="text" placeholder="Search by Transaction ID, Order ID, Buyer, Seller, Product..." value={searchCompleted} onChange={(e) => setSearchCompleted(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
+          {renderTransactionTable(completedTxns, "No completed orders found.", "success")}
+        </div>
       )}
 
+      {/* Section 2: Order Pending Payment History */}
+      {subTab === "pending" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3"><div className="h-8 w-8 rounded-xl bg-amber-100 flex items-center justify-center"><AlertCircle className="h-4 w-4 text-amber-600" /></div><div><h2 className="text-sm font-extrabold text-[#1a3321]">Order Pending Payment History</h2><p className="text-[10px] text-muted-foreground">Orders where payment is still awaiting confirmation</p></div></div>
+            <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">{pendingTxns.length} records</span>
+          </div>
+          <Input type="text" placeholder="Search by Transaction ID, Order ID, Buyer, Seller, Product..." value={searchPending} onChange={(e) => setSearchPending(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
+          {renderTransactionTable(pendingTxns, "No pending payment orders found.", "warn")}
+        </div>
+      )}
+
+      {/* Section 3: Seller Payment Pending History */}
+      {subTab === "sellerPending" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3"><div className="h-8 w-8 rounded-xl bg-rose-100 flex items-center justify-center"><Wallet className="h-4 w-4 text-rose-600" /></div><div><h2 className="text-sm font-extrabold text-[#1a3321]">Seller Payment Pending History</h2><p className="text-[10px] text-muted-foreground">Seller payout requests awaiting approval or disbursement</p></div></div>
+            {sellerPayoutPending.length > 0
+              ? <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full animate-pulse">Warning {sellerPayoutPending.length} need action</span>
+              : <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">0 records</span>
+            }
+          </div>
+          <Input type="text" placeholder="Search by Seller, Company, ID, Payment Method..." value={searchSellerPending} onChange={(e) => setSearchSellerPending(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
+          {renderPayoutTable(sellerPayoutPending, "No pending seller payout requests.", true)}
+        </div>
+      )}
+
+      {/* Section 4: Seller Payment Settled History */}
+      {subTab === "sellerSettled" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3"><div className="h-8 w-8 rounded-xl bg-blue-100 flex items-center justify-center"><Coins className="h-4 w-4 text-blue-600" /></div><div><h2 className="text-sm font-extrabold text-[#1a3321]">Seller Payment Settled History</h2><p className="text-[10px] text-muted-foreground">All processed seller payout settlements and rejections</p></div></div>
+            <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">{sellerPayoutSettled.length} records</span>
+          </div>
+          <Input type="text" placeholder="Search by Seller, Company, ID, Payment Method..." value={searchSellerSettled} onChange={(e) => setSearchSellerSettled(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
+          {renderPayoutTable(sellerPayoutSettled, "No settled seller payout records.", false)}
+        </div>
+      )}
+
+      {/* Payout Details Modal */}
       {selectedRequest && !actionType && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="absolute inset-0" onClick={() => setSelectedRequest(null)} />
           <Card className="relative w-full max-w-lg p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
             <div className="flex justify-between items-center pb-2 border-b">
               <h3 className="font-bold text-sm text-[#1a3321]">Payout Request Details</h3>
-              <button onClick={() => setSelectedRequest(null)} className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200">✕</button>
+              <button onClick={() => setSelectedRequest(null)} className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200">x</button>
             </div>
-            
             <div className="text-xs space-y-2.5 pt-2 max-h-[80vh] overflow-y-auto pr-1">
               <div className="grid grid-cols-2 gap-4">
                 <p><strong>Seller Name:</strong> {selectedRequest.sellerName || "N/A"}</p>
                 <p><strong>Seller Company:</strong> {selectedRequest.companyName}</p>
-                <p><strong>Requested Amount:</strong> ₹{selectedRequest.amount.toLocaleString()}</p>
+                <p><strong>Requested Amount:</strong> Rs.{selectedRequest.amount.toLocaleString()}</p>
                 <p><strong>Payment Method:</strong> <span className="font-bold uppercase">{selectedRequest.paymentMethod}</span></p>
                 <p><strong>Request Date:</strong> {new Date(selectedRequest.requestedAt).toLocaleString()}</p>
-                <p>
-                  <strong>Current Status:</strong>{" "}
-                  <Badge className={`border-none text-[9px] font-bold uppercase ml-1 ${
-                    selectedRequest.status === "PAID" || selectedRequest.status === "SETTLED" ? "bg-emerald-50 text-emerald-700" : 
-                    selectedRequest.status === "PARTIALLY_PAID" ? "bg-cyan-50 text-cyan-700" :
-                    selectedRequest.status === "APPROVED" ? "bg-blue-50 text-blue-700" :
-                    selectedRequest.status === "REJECTED" ? "bg-red-50 text-red-700" : 
-                    "bg-amber-50 text-amber-700"
-                  }`}>
-                    {selectedRequest.status}
-                  </Badge>
-                </p>
-                <p>
-                  <strong>Remaining Pending Amount:</strong>{" "}
-                  <span className="font-black text-[#1a3321]">
-                    ₹{(selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount).toLocaleString()}
-                  </span>
-                </p>
+                <p><strong>Current Status:</strong>{" "}<Badge className={`border-none text-[9px] font-bold uppercase ml-1 ${payoutStatusClass(selectedRequest.status)}`}>{selectedRequest.status}</Badge></p>
+                <p><strong>Remaining Pending Amount:</strong>{" "}<span className="font-black text-[#1a3321]">Rs.{(selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount).toLocaleString()}</span></p>
               </div>
-
               <div className="p-3 bg-slate-50 rounded-xl border mt-2">
                 <p className="font-bold text-[#1a3321] mb-1">Payment Credentials:</p>
                 {selectedRequest.paymentMethod === "BANK" ? (
@@ -1770,176 +1732,62 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                   </div>
                 )}
               </div>
-
-              {selectedRequest.isUrgent && (
-                <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[11px] text-red-700">
-                  <p className="font-bold">⚠️ Urgent Request Reason:</p>
-                  <p className="mt-0.5">{selectedRequest.reason || "No reason provided."}</p>
-                </div>
-              )}
-
-              {/* Settlement History Section */}
+              {selectedRequest.isUrgent && (<div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[11px] text-red-700"><p className="font-bold">Urgent Request Reason:</p><p className="mt-0.5">{selectedRequest.reason || "No reason provided."}</p></div>)}
               <div className="pt-3 border-t">
                 <h4 className="font-bold text-xs text-[#1a3321] mb-2">Settlement History</h4>
                 {selectedRequest.settlementHistory && Array.isArray(selectedRequest.settlementHistory) && selectedRequest.settlementHistory.length > 0 ? (
                   <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                     {selectedRequest.settlementHistory.map((hist: any, index: number) => (
                       <div key={index} className="p-2 bg-slate-50/70 border rounded-lg flex flex-col space-y-1">
-                        <div className="flex justify-between items-center text-[10px] text-slate-500">
-                          <span>{new Date(hist.date).toLocaleString()}</span>
-                          <span className="bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.2 rounded">₹{hist.amountSettled.toLocaleString()}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-600">
-                          <p><strong>Tx ID:</strong> <span className="font-mono">{hist.transactionId}</span></p>
-                          <p><strong>Method:</strong> {hist.paymentMethod || selectedRequest.paymentMethod}</p>
-                          <p><strong>Admin:</strong> {hist.adminName}</p>
-                          <p><strong>Notes:</strong> {hist.adminNotes}</p>
-                          <p className="col-span-2"><strong>Remaining Bal:</strong> ₹{hist.remainingBalance.toLocaleString()}</p>
-                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-slate-500"><span>{new Date(hist.date).toLocaleString()}</span><span className="bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded">Rs.{hist.amountSettled.toLocaleString()}</span></div>
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-600"><p><strong>Tx ID:</strong> <span className="font-mono">{hist.transactionId}</span></p><p><strong>Method:</strong> {hist.paymentMethod || selectedRequest.paymentMethod}</p><p><strong>Admin:</strong> {hist.adminName}</p><p><strong>Notes:</strong> {hist.adminNotes}</p><p className="col-span-2"><strong>Remaining Bal:</strong> Rs.{hist.remainingBalance.toLocaleString()}</p></div>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-slate-400 italic">No settlements recorded yet.</p>
-                )}
+                ) : <p className="text-slate-400 italic">No settlements recorded yet.</p>}
               </div>
-
-              {/* Settle Payout Payout Form */}
               {selectedRequest.status !== "REJECTED" && (selectedRequest.remainingAmount !== 0) && (
                 <div className="p-4 bg-emerald-50/40 border border-emerald-100 rounded-xl space-y-3 mt-4 text-left">
                   <h4 className="font-bold text-xs text-[#1a3321]">Process Settlement Transaction</h4>
-                  
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase font-bold text-slate-400">Amount to Settle (₹) *</Label>
+                    <Label className="text-[10px] uppercase font-bold text-slate-400">Amount to Settle (Rs.) *</Label>
                     <div className="flex space-x-2">
-                      <Input
-                        type="number"
-                        placeholder="e.g. 5000"
-                        value={amountToSettle}
-                        onChange={(e) => setAmountToSettle(e.target.value)}
-                        className="bg-white border-slate-200 text-xs h-9 flex-1"
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="text-xs h-9 text-[#1a3321]"
-                        onClick={() => {
-                          const remaining = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount;
-                          setAmountToSettle(remaining.toString());
-                        }}
-                      >
-                        Max
-                      </Button>
+                      <Input type="number" placeholder="e.g. 5000" value={amountToSettle} onChange={(e) => setAmountToSettle(e.target.value)} className="bg-white border-slate-200 text-xs h-9 flex-1" />
+                      <Button type="button" size="sm" variant="outline" className="text-xs h-9 text-[#1a3321]" onClick={() => { const rem = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount; setAmountToSettle(rem.toString()); }}>Max</Button>
                     </div>
                     {settlementError && <p className="text-red-600 text-[10px] font-semibold">{settlementError}</p>}
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-[10px] uppercase font-bold text-slate-400">Transaction ID</Label>
-                      <Input
-                        placeholder="TXN..."
-                        value={transactionId}
-                        onChange={(e) => setTransactionId(e.target.value)}
-                        className="bg-white border-slate-200 text-xs h-9"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px] uppercase font-bold text-slate-400">Admin Notes</Label>
-                      <Input
-                        placeholder="Transfer details..."
-                        value={adminNotes}
-                        onChange={(e) => setAdminNotes(e.target.value)}
-                        className="bg-white border-slate-200 text-xs h-9"
-                      />
-                    </div>
+                    <div className="space-y-1"><Label className="text-[10px] uppercase font-bold text-slate-400">Transaction ID</Label><Input placeholder="TXN..." value={transactionId} onChange={(e) => setTransactionId(e.target.value)} className="bg-white border-slate-200 text-xs h-9" /></div>
+                    <div className="space-y-1"><Label className="text-[10px] uppercase font-bold text-slate-400">Admin Notes</Label><Input placeholder="Transfer details..." value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} className="bg-white border-slate-200 text-xs h-9" /></div>
                   </div>
-
                   <div className="flex space-x-2 pt-2">
-                    <Button
-                      size="sm"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white flex-1 border-none text-xs"
-                      onClick={() => handleSettle(false)}
-                      disabled={processing}
-                    >
-                      {processing ? "Processing..." : "Settle Amount"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-[#1a3321] hover:bg-[#122417] text-white flex-1 border-none text-xs"
-                      onClick={() => handleSettle(true)}
-                      disabled={processing}
-                    >
-                      {processing ? "Processing..." : "Settle Full Amount"}
-                    </Button>
+                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white flex-1 border-none text-xs" onClick={() => handleSettle(false)} disabled={processing}>{processing ? "Processing..." : "Settle Amount"}</Button>
+                    <Button size="sm" className="bg-[#1a3321] hover:bg-[#122417] text-white flex-1 border-none text-xs" onClick={() => handleSettle(true)} disabled={processing}>{processing ? "Processing..." : "Settle Full Amount"}</Button>
                   </div>
                 </div>
               )}
             </div>
-
             <div className="flex justify-end space-x-2 pt-2 border-t">
               <Button variant="ghost" onClick={() => setSelectedRequest(null)}>Close</Button>
-              {selectedRequest.status === "PENDING" && (
-                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs border-none" onClick={() => setActionType("APPROVE")}>Approve Request</Button>
-              )}
+              {selectedRequest.status === "PENDING" && (<Button className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs border-none" onClick={() => setActionType("APPROVE")}>Approve Request</Button>)}
             </div>
           </Card>
         </div>
       )}
 
+      {/* Action Confirm Modal */}
       {selectedRequest && actionType && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="absolute inset-0" onClick={() => setActionType(null)} />
           <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
-            <h3 className="font-bold text-sm">
-              {actionType === "APPROVE" ? "Approve Payout Request" :
-               actionType === "REJECT" ? "Reject Payout Request" : "Mark Payout as Paid"}
-            </h3>
-
-            {actionType === "REJECT" && (
-              <div className="space-y-1.5">
-                <Label>Rejection Reason *</Label>
-                <Textarea
-                  placeholder="Detail the reason for rejecting this payout..."
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  required
-                  className="text-xs min-h-[60px]"
-                />
-              </div>
-            )}
-
-            {actionType === "PAY" && (
-              <div className="space-y-1.5">
-                <Label>Transaction Reference ID *</Label>
-                <Input
-                  placeholder="e.g. TXN92834823"
-                  value={transactionId}
-                  onChange={(e) => setTransactionId(e.target.value)}
-                  required
-                />
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label>Internal Admin Notes (Optional)</Label>
-              <Input
-                placeholder="e.g. Audited and confirmed..."
-                value={adminNotes}
-                onChange={(e) => setAdminNotes(e.target.value)}
-              />
-            </div>
-
+            <h3 className="font-bold text-sm">{actionType === "APPROVE" ? "Approve Payout Request" : actionType === "REJECT" ? "Reject Payout Request" : "Mark Payout as Paid"}</h3>
+            {actionType === "REJECT" && (<div className="space-y-1.5"><Label>Rejection Reason *</Label><Textarea placeholder="Detail the reason for rejecting this payout..." value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} required className="text-xs min-h-[60px]" /></div>)}
+            {actionType === "PAY" && (<div className="space-y-1.5"><Label>Transaction Reference ID *</Label><Input placeholder="e.g. TXN92834823" value={transactionId} onChange={(e) => setTransactionId(e.target.value)} required /></div>)}
+            <div className="space-y-1.5"><Label>Internal Admin Notes (Optional)</Label><Input placeholder="e.g. Audited and confirmed..." value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} /></div>
             <div className="flex justify-end space-x-2">
               <Button variant="ghost" onClick={() => setActionType(null)}>Back</Button>
-              <Button 
-                className={actionType === "REJECT" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"} 
-                disabled={processing || (actionType === "REJECT" && !rejectReason) || (actionType === "PAY" && !transactionId)}
-                onClick={handleAction}
-              >
-                {processing ? "Processing..." : "Confirm"}
-              </Button>
+              <Button className={actionType === "REJECT" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"} disabled={processing || (actionType === "REJECT" && !rejectReason) || (actionType === "PAY" && !transactionId)} onClick={handleAction}>{processing ? "Processing..." : "Confirm"}</Button>
             </div>
           </Card>
         </div>

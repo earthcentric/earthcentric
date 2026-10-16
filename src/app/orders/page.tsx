@@ -45,18 +45,34 @@ export default function UserOrdersPage() {
       return;
     }
 
-    startTransition(async () => {
+    let isMounted = true;
+
+    const loadPaidOrders = async () => {
       try {
         setError(null);
         const data = await getOrdersByUser(user.id);
-        setOrders(data);
+        if (!isMounted) return;
+        // Strictly filter to only display orders where payment is successful/done
+        const paidOnly = data.filter((o) => o.paymentStatus === "COMPLETED");
+        setOrders(paidOnly);
       } catch (err: any) {
+        if (!isMounted) return;
         console.error("Failed to load user orders:", err);
         setError("Could not retrieve your orders. Please try again.");
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
-    });
+    };
+
+    loadPaidOrders();
+
+    // Poll periodically so when seller updates the order tracking, it immediately reflects on buyer portal
+    const interval = setInterval(loadPaidOrders, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [user, authLoading]);
 
   // Status mapping to color/badge variants and text description

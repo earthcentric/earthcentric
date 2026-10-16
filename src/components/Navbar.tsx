@@ -443,14 +443,6 @@ export default function Navbar() {
                         <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
                       </div>
 
-                    <Link
-                      href="/orders"
-                      className="flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      onClick={() => setIsProfileOpen(false)}
-                    >
-                      <Settings className="h-4 w-4 text-slate-500" />
-                      <span>My Orders & Tracking</span>
-                    </Link>
 
                     <Link
                       href="/account"
@@ -512,6 +504,18 @@ export default function Navbar() {
                   Sign Up
                 </Link>
               </div>
+            )}
+
+            {/* My Orders & Tracking Button (Beside Cart button when logged in) */}
+            {user && (
+              <Link
+                href="/orders"
+                className="flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none group"
+                title="My Orders & Tracking"
+              >
+                <Package className="h-5 w-5 transition-transform group-hover:scale-110" />
+                <span className="text-[10px] font-bold mt-1">Orders</span>
+              </Link>
             )}
 
             {/* Shopping Cart Trigger */}

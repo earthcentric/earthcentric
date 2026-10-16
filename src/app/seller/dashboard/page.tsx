@@ -169,28 +169,59 @@ export default function SellerDashboard() {
     loadDashboardData();
   };
 
-  const handleUpdateFulfillment = async (orderId: string, currentStatus: string) => {
-    let nextStatus: OrderDetail["status"] = "PLACED";
+  const handleUpdateFulfillment = async (orderId: string, currentOrTargetStatus: string, specificStatus?: OrderDetail["status"]) => {
+    let nextStatus: OrderDetail["status"] = "CONFIRMED";
     let desc = "";
 
-    if (currentStatus === "PLACED") {
-      nextStatus = "CONFIRMED";
-      desc = "Seller confirmed stock availability. Moving to packing bay.";
-    } else if (currentStatus === "CONFIRMED") {
-      nextStatus = "PACKED";
-      desc = "Wrapped in recyclable plastic-free cardboard and tape.";
-    } else if (currentStatus === "PACKED") {
-      nextStatus = "SHIPPED";
-      desc = "Dispatched via carbon-offset logistical partners.";
-    } else if (currentStatus === "SHIPPED") {
-      nextStatus = "DELIVERED";
-      desc = "Package received by buyer. Carbon offset verified.";
+    const targetStatus = specificStatus || (["CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED"].includes(currentOrTargetStatus) ? (currentOrTargetStatus as OrderDetail["status"]) : undefined);
+
+    if (targetStatus) {
+      nextStatus = targetStatus;
+      if (targetStatus === "CONFIRMED") {
+        desc = "Seller confirmed stock availability. Order in fulfillment queue.";
+      } else if (targetStatus === "PACKED") {
+        desc = "Wrapped in recyclable plastic-free cardboard and tape.";
+      } else if (targetStatus === "SHIPPED") {
+        desc = "Dispatched via carbon-offset logistical partners.";
+      } else if (targetStatus === "DELIVERED") {
+        desc = "Package received by buyer. Carbon offset verified.";
+      } else if (targetStatus === "CANCELLED") {
+        desc = "Order cancelled by seller due to inventory constraints.";
+      }
     } else {
-      return; 
+      if (currentOrTargetStatus === "PLACED") {
+        nextStatus = "CONFIRMED";
+        desc = "Seller confirmed stock availability. Order in fulfillment queue.";
+      } else if (currentOrTargetStatus === "CONFIRMED") {
+        nextStatus = "PACKED";
+        desc = "Wrapped in recyclable plastic-free cardboard and tape.";
+      } else if (currentOrTargetStatus === "PACKED") {
+        nextStatus = "SHIPPED";
+        desc = "Dispatched via carbon-offset logistical partners.";
+      } else if (currentOrTargetStatus === "SHIPPED") {
+        nextStatus = "DELIVERED";
+        desc = "Package received by buyer. Carbon offset verified.";
+      } else {
+        return; 
+      }
     }
 
-    await updateOrderStatus(orderId, nextStatus, desc);
-    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: nextStatus } : o));
+    const success = await updateOrderStatus(orderId, nextStatus, desc);
+    if (success) {
+      toast.success(`Order tracking updated to ${nextStatus}! Reflected to buyer.`);
+      setOrders((prev) => prev.map((o) => {
+        if (o.id === orderId) {
+          const newTimeline = [
+            ...(o.timeline || []),
+            { status: nextStatus, description: desc, createdAt: new Date() }
+          ];
+          return { ...o, status: nextStatus, timeline: newTimeline };
+        }
+        return o;
+      }));
+    } else {
+      toast.error("Failed to update order tracking status.");
+    }
   };
 
   if (loading) {
@@ -2775,16 +2806,34 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
                 Close Tracking
               </Button>
               {trackedOrder.status !== "DELIVERED" && trackedOrder.status !== "CANCELLED" && (
-                <Button
-                  size="sm"
-                  className="bg-[#2d4a36] text-white hover:bg-[#1e3425] text-xs"
-                  onClick={() => {
-                    handleUpdateFulfillment(trackedOrder.id, trackedOrder.status);
-                    setTrackedOrder(null);
-                  }}
-                >
-                  Advance Status Stage
-                </Button>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={trackedOrder.status}
+                    onChange={(e) => {
+                      const newStatus = e.target.value as any;
+                      handleUpdateFulfillment(trackedOrder.id, newStatus);
+                      setTrackedOrder((prev: any) => ({ ...prev, status: newStatus }));
+                    }}
+                    className="text-xs bg-white border border-[#d8dcd3] rounded-lg px-2 py-1.5 text-slate-700 font-semibold cursor-pointer"
+                    title="Select Situation of Order"
+                  >
+                    <option value="CONFIRMED">Confirmed</option>
+                    <option value="PACKED">Packed</option>
+                    <option value="SHIPPED">Shipped</option>
+                    <option value="DELIVERED">Delivered</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    className="bg-[#2d4a36] text-white hover:bg-[#1e3425] text-xs"
+                    onClick={() => {
+                      handleUpdateFulfillment(trackedOrder.id, trackedOrder.status);
+                      setTrackedOrder(null);
+                    }}
+                  >
+                    Advance Status Stage
+                  </Button>
+                </div>
               )}
             </div>
           </Card>
@@ -2894,19 +2943,34 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
                         )}
                       </TableCell>
                       <TableCell className="py-4 text-center">
-                        {!isDelivered ? (
-                          <div className="flex items-center justify-center space-x-2">
-                            <button onClick={() => handleUpdateFulfillment(o.id, o.status)} className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-[10px] font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap">
-                              {o.status === "PLACED" ? "Confirm Order" : o.status === "CONFIRMED" ? "Pack Items" : o.status === "PACKED" ? "Ship Cargo" : "Deliver Package"}
+                        <div className="flex items-center justify-center space-x-2">
+                          {/* Situation Selector */}
+                          <select
+                            value={o.status}
+                            onChange={(e) => handleUpdateFulfillment(o.id, e.target.value)}
+                            className="bg-white border border-[#d8dcd3] text-[#2d4a36] text-[10px] font-semibold rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer"
+                            title="Select Situation of Order"
+                          >
+                            <option value="CONFIRMED">Confirmed</option>
+                            <option value="PACKED">Packed</option>
+                            <option value="SHIPPED">Shipped</option>
+                            <option value="DELIVERED">Delivered</option>
+                            <option value="CANCELLED">Cancelled</option>
+                          </select>
+
+                          {!isDelivered && o.status !== "CANCELLED" && (
+                            <button 
+                              onClick={() => handleUpdateFulfillment(o.id, o.status)} 
+                              className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap cursor-pointer transition-colors"
+                              title="Advance to next step"
+                            >
+                              {o.status === "PLACED" ? "Confirm" : o.status === "CONFIRMED" ? "Pack" : o.status === "PACKED" ? "Ship" : "Deliver"}
                             </button>
-                            <button onClick={() => setSelectedInvoice(o)} className="text-[10px] text-muted-foreground border border-[#d8dcd3] px-2 py-1.5 rounded-lg">Invoice</button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center space-x-2 text-[10px] text-muted-foreground font-semibold">
-                            <span><CheckCircle2 className="h-3 w-3 inline mr-0.5 text-emerald-500" /> Complete</span>
-                            <button onClick={() => setSelectedInvoice(o)} className="border border-[#d8dcd3] px-2 py-1 rounded-lg hover:bg-muted/50">Invoice</button>
-                          </div>
-                        )}
+                          )}
+                          <button onClick={() => setSelectedInvoice(o)} className="text-[10px] text-muted-foreground border border-[#d8dcd3] px-2 py-1.5 rounded-lg hover:bg-white cursor-pointer">
+                            Invoice
+                          </button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )

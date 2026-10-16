@@ -526,11 +526,18 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
 export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return mockOrders.filter((o) => o.userId === userId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return mockOrders
+        .filter((o) => o.userId === userId && o.paymentStatus === "COMPLETED")
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }
 
     const dbOrders = await db.order.findMany({
-      where: { userId },
+      where: {
+        userId,
+        payment: {
+          status: "COMPLETED",
+        },
+      },
       include: {
         address: true,
         items: {
@@ -577,7 +584,9 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
       })),
     }));
   } catch (e) {
-    return mockOrders.filter((o) => o.userId === userId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return mockOrders
+      .filter((o) => o.userId === userId && o.paymentStatus === "COMPLETED")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 }
 
@@ -644,7 +653,7 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
     
     // Send Notification to Buyer
     if (order?.user?.id) {
-      await createNotification(order.user.id, `Order ${status}`, `Your order ${orderId} is now ${status}. ${description}`, `/profile/orders`);
+      await createNotification(order.user.id, `Order ${status}`, `Your order ${orderId} is now ${status}. ${description}`, `/orders`);
     }
 
     return true;
@@ -713,7 +722,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
           }
         ];
       }
-      return mockOrders;
+      return mockOrders.filter((o) => o.paymentStatus === "COMPLETED");
     }
 
     // Resolve seller ID candidate keys
@@ -728,6 +737,9 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
 
     const dbOrders = await db.order.findMany({
       where: {
+        payment: {
+          status: "COMPLETED",
+        },
         OR: [
           { sellerId: { in: candidateSellerIds } },
           {
@@ -762,8 +774,13 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
     });
 
     if (dbOrders.length === 0) {
-      // Fallback query: check all recent orders in DB if no specific sellerId match found
+      // Fallback query: check all recent orders in DB if no specific sellerId match found (only completed payments)
       const fallbackOrders = await db.order.findMany({
+        where: {
+          payment: {
+            status: "COMPLETED",
+          },
+        },
         take: 50,
         include: {
           address: true,
@@ -1012,9 +1029,10 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
       };
     }
 
-    // Database lookup
+    // Database lookup (only paid orders)
     const dbOrder = await db.order.findFirst({
       where: {
+        payment: { status: "COMPLETED" },
         OR: [
           { id: { equals: cleanId, mode: "insensitive" } },
           { id: { contains: cleanId, mode: "insensitive" } },
