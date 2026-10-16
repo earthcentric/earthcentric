@@ -78,7 +78,7 @@ interface ImagePreview {
 }
 
 export default function SellerDashboard() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
@@ -318,7 +318,7 @@ export default function SellerDashboard() {
           <button 
             onClick={() => {
               setIsSidebarOpen(false);
-              window.location.href = "/";
+              logout();
             }}
             className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer border-none bg-transparent"
           >

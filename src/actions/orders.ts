@@ -27,6 +27,13 @@ export interface AddressInput {
 export interface OrderDetail {
   id: string;
   userId: string;
+  sellerId?: string | null;
+  seller?: {
+    id: string;
+    companyName: string;
+    email?: string;
+    phone?: string;
+  };
   totalAmount: number;
   status: "PLACED" | "CONFIRMED" | "PACKED" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "RETURNED";
   createdAt: Date;
@@ -881,6 +888,14 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
       include: {
         address: true,
         user: { select: { name: true, email: true } },
+        seller: {
+          select: {
+            id: true,
+            companyName: true,
+            phone: true,
+            user: { select: { email: true } },
+          },
+        },
         items: {
           include: {
             product: {
@@ -903,44 +918,61 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
       orderBy: { createdAt: "desc" },
     });
 
-    return dbOrders.map((order) => ({
-      id: order.id,
-      userId: order.userId,
-      totalAmount: order.totalAmount,
-      status: order.status as any,
-      createdAt: order.createdAt,
-      address: {
-        street: order.address.street,
-        city: order.address.city,
-        state: order.address.state,
-        postalCode: order.address.postalCode,
-        country: order.address.country,
-      },
-      items: order.items.map((it) => ({
-        productId: it.productId,
-        name: it.product.name,
-        quantity: it.quantity,
-        price: it.price,
-        image: it.product.images[0]?.url || "",
-        seller: {
-          id: it.product.seller.id,
-          companyName: it.product.seller.companyName,
-          email: it.product.seller.user.email,
-          phone: it.product.seller.phone || "Not provided",
+    return dbOrders.map((order) => {
+      const primaryItemSeller = order.items.find((it) => it.product?.seller)?.product?.seller;
+      const resolvedSeller = order.seller ? {
+        id: order.seller.id,
+        companyName: order.seller.companyName,
+        email: order.seller.user?.email || "",
+        phone: order.seller.phone || "Not provided",
+      } : (primaryItemSeller ? {
+        id: primaryItemSeller.id,
+        companyName: primaryItemSeller.companyName,
+        email: primaryItemSeller.user?.email || "",
+        phone: primaryItemSeller.phone || "Not provided",
+      } : undefined);
+
+      return {
+        id: order.id,
+        userId: order.userId,
+        sellerId: order.sellerId || resolvedSeller?.id || null,
+        seller: resolvedSeller,
+        totalAmount: order.totalAmount,
+        status: order.status as any,
+        createdAt: order.createdAt,
+        address: {
+          street: order.address.street,
+          city: order.address.city,
+          state: order.address.state,
+          postalCode: order.address.postalCode,
+          country: order.address.country,
+        },
+        items: order.items.map((it) => ({
+          productId: it.productId,
+          name: it.product.name,
+          quantity: it.quantity,
+          price: it.price,
+          image: it.product.images[0]?.url || "",
+          seller: it.product?.seller ? {
+            id: it.product.seller.id,
+            companyName: it.product.seller.companyName,
+            email: it.product.seller.user?.email || "",
+            phone: it.product.seller.phone || "Not provided",
+          } : resolvedSeller,
+        })),
+        paymentStatus: (order.payment?.status as any) || "PENDING",
+        ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
+        timeline: order.timeline.map((t) => ({
+          status: t.status,
+          description: t.description,
+          createdAt: t.createdAt,
+        })),
+        user: {
+          name: order.user?.name || "Anonymous User",
+          email: order.user?.email || "unknown@email.com",
         }
-      })),
-      paymentStatus: (order.payment?.status as any) || "PENDING",
-      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
-      timeline: order.timeline.map((t) => ({
-        status: t.status,
-        description: t.description,
-        createdAt: t.createdAt,
-      })),
-      user: {
-        name: order.user?.name || "Anonymous User",
-        email: order.user?.email || "unknown@email.com",
-      }
-    }));
+      };
+    });
   } catch (e) {
     console.error("Failed to fetch all orders for admin, returning mock:", e);
     if (mockOrders.length === 0) {

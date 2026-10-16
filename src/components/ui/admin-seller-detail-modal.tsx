@@ -17,9 +17,10 @@ export interface AdminSellerDetailModalProps {
   onClose: () => void;
   adminEmail?: string;
   onActionComplete?: () => void;
+  onViewOrders?: (sellerId: string) => void;
 }
 
-export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onActionComplete }: AdminSellerDetailModalProps) {
+export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onActionComplete, onViewOrders }: AdminSellerDetailModalProps) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [stats, setStats] = useState({ revenue: 0, ordersCount: 0, productsCount: 0, rating: 4.8, mostSoldProduct: "" });
@@ -361,7 +362,22 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                   </Card>
                   
                   <Card className="p-4 border-border/40 bg-card flex flex-col justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 block">Total Orders</span>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Total Orders</span>
+                      {onViewOrders && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onViewOrders(profile?.id || sellerId);
+                            onClose();
+                          }}
+                          className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center space-x-1 hover:underline cursor-pointer"
+                        >
+                          <span>Manage</span>
+                          <ExternalLink className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </div>
                     <h3 className="text-xl sm:text-2xl font-black text-foreground">
                       {stats.ordersCount.toLocaleString()}
                     </h3>

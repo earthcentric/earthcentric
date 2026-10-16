@@ -275,9 +275,15 @@ export default function Navbar() {
   const [searchTerm, setSearchTerm] = useState("");
   const pathname = usePathname();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
 
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
+
+  // Set mounted flag after first client-side render (prevents hydration mismatch on cart/wishlist badges)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Fetch categories for navbar dropdown
   useEffect(() => {
@@ -410,8 +416,8 @@ export default function Navbar() {
               title="View your wishlist"
             >
               <div className="relative">
-                <Heart className={`h-5 w-5 transition-transform group-hover:scale-110 ${wishlistCount > 0 ? "fill-rose-50 text-rose-500" : ""}`} />
-                {wishlistCount > 0 && (
+                <Heart className={`h-5 w-5 transition-transform group-hover:scale-110 ${mounted && wishlistCount > 0 ? "fill-rose-50 text-rose-500" : ""}`} />
+                {mounted && wishlistCount > 0 && (
                   <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[9px] font-bold rounded-full h-4 min-w-4 px-1 flex items-center justify-center shadow-sm">
                     {wishlistCount > 99 ? "99+" : wishlistCount}
                   </span>
@@ -524,7 +530,7 @@ export default function Navbar() {
               className="relative flex flex-col items-center justify-center text-slate-500 hover:text-[#0F6E56] transition-colors cursor-pointer select-none border-none bg-transparent"
             >
               <ShoppingBag className="h-5 w-5" />
-              {cartCount > 0 && (
+              {mounted && cartCount > 0 && (
                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#0F6E56] text-[10px] font-bold text-white animate-pulse">
                   {cartCount}
                 </span>
@@ -733,10 +739,10 @@ export default function Navbar() {
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   <div className="flex items-center gap-2">
-                    <Heart className={`h-4 w-4 ${wishlistCount > 0 ? "fill-rose-500 text-rose-500" : ""}`} />
+                    <Heart className={`h-4 w-4 ${mounted && wishlistCount > 0 ? "fill-rose-500 text-rose-500" : ""}`} />
                     <span>My Wishlist</span>
                   </div>
-                  {wishlistCount > 0 && (
+                  {mounted && wishlistCount > 0 && (
                     <span className="bg-rose-500 text-white text-[11px] font-bold rounded-full px-2 py-0.5">
                       {wishlistCount}
                     </span>

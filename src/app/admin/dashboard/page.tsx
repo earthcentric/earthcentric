@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useTransition } from "react";
+import React, { useState, useEffect, useTransition, useMemo, useRef } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -36,6 +36,12 @@ import {
   Award,
   Bell,
   Search,
+  Store,
+  Building2,
+  Filter,
+  SlidersHorizontal,
+  Layers,
+  ArrowUpDown,
   HelpCircle,
   TrendingUp,
   Activity,
@@ -103,6 +109,7 @@ export default function AdminDashboard() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
+  const [selectedSellerFilterForOrders, setSelectedSellerFilterForOrders] = useState<string | null>(null);
   const [selectedBuyerId, setSelectedBuyerId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -443,7 +450,16 @@ export default function AdminDashboard() {
             {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "disputes" && <DisputesView disputes={disputes} onResolve={loadAdminData} adminEmail={user?.email} />}
             {activeTab === "analytics" && <AdminAnalyticsCharts data={analyticsData!} />}
-            {activeTab === "orders" && <OrderManagementView orders={allOrders} onUpdateStatus={loadAdminData} globalSearch={globalSearch} />}
+            {activeTab === "orders" && (
+              <OrderManagementView 
+                orders={allOrders} 
+                onUpdateStatus={loadAdminData} 
+                globalSearch={globalSearch} 
+                sellers={pendingSellers}
+                initialSelectedSellerId={selectedSellerFilterForOrders}
+                onClearSellerFilter={() => setSelectedSellerFilterForOrders(null)}
+              />
+            )}
             {activeTab === "credentials" && <CredentialsManagerView credentials={credentials} reload={loadAdminData} globalSearch={globalSearch} />}
           </FadeIn>
         </main>
@@ -455,6 +471,11 @@ export default function AdminDashboard() {
           onClose={() => setSelectedSellerId(null)} 
           adminEmail={user?.email}
           onActionComplete={loadAdminData}
+          onViewOrders={(sId) => {
+            setSelectedSellerFilterForOrders(sId);
+            setSelectedSellerId(null);
+            setActiveTab("orders");
+          }}
         />
       )}
 
@@ -1800,30 +1821,239 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
 // ORDER MANAGEMENT VIEW
 // --------------------------------------------------------------------------
 
-function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders: any[], onUpdateStatus: () => void, globalSearch?: string }) {
+function OrderManagementView({ 
+  orders, 
+  onUpdateStatus, 
+  globalSearch,
+  sellers = [],
+  initialSelectedSellerId,
+  onClearSellerFilter
+}: { 
+  orders: any[], 
+  onUpdateStatus: () => void, 
+  globalSearch?: string,
+  sellers?: any[],
+  initialSelectedSellerId?: string | null,
+  onClearSellerFilter?: () => void
+}) {
   const [trackInput, setTrackInput] = useState("");
-  
-  const displayOrders = (globalSearch || trackInput)
-    ? orders.filter((o: any) => {
-        const term = trackInput || globalSearch || "";
-        const words = term.toLowerCase().split(/\s+/).filter(Boolean);
-        if (words.length === 0) return true;
-        
-        const targetStr = `
-          ${o.id || ""}
-          ec-ord-${(o.id || "").substring(4, 10).toLowerCase()}
-          ${o.user?.name || ""}
-          ${o.user?.email || ""}
-        `.toLowerCase();
-        
-        return words.every(word => targetStr.includes(word));
-      })
-    : orders;
-
+  const [selectedSellerId, setSelectedSellerId] = useState<string>(initialSelectedSellerId || "");
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [isSearchingTrack, setIsSearchingTrack] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [inspectProductId, setInspectProductId] = useState<string | null>(null);
+
+  // Scalable combobox & filter states
+  const [isSellerDropdownOpen, setIsSellerDropdownOpen] = useState(false);
+  const [sellerSearchQuery, setSellerSearchQuery] = useState("");
+  const [sellerFilterTab, setSellerFilterTab] = useState<"all" | "active">("all");
+  const [orderSortBy, setOrderSortBy] = useState<"newest" | "oldest" | "highest" | "lowest">("newest");
+  const sellerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside or Escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sellerDropdownRef.current && !sellerDropdownRef.current.contains(event.target as Node)) {
+        setIsSellerDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSellerDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  // Sync external seller filter prop if provided
+  useEffect(() => {
+    if (initialSelectedSellerId !== undefined && initialSelectedSellerId !== null) {
+      setSelectedSellerId(initialSelectedSellerId);
+    }
+  }, [initialSelectedSellerId]);
+
+  // Aggregate comprehensive seller list strictly in alphabetical order (A to Z)
+  const baseSellersList = useMemo(() => {
+    const sellerMap = new Map<string, { id: string; companyName: string; email?: string }>();
+
+    // 1. All registered sellers
+    (sellers || []).forEach((s: any) => {
+      const id = s.id || s.userId;
+      if (id && s.companyName && !sellerMap.has(id)) {
+        sellerMap.set(id, {
+          id: id,
+          companyName: s.companyName.trim(),
+          email: s.user?.email || s.email || "",
+        });
+      }
+    });
+
+    // 2. Any seller attached to orders or items
+    (orders || []).forEach((o: any) => {
+      if (o.seller?.id && !sellerMap.has(o.seller.id)) {
+        sellerMap.set(o.seller.id, {
+          id: o.seller.id,
+          companyName: (o.seller.companyName || "").trim(),
+          email: o.seller.email || "",
+        });
+      }
+      if (o.items && Array.isArray(o.items)) {
+        o.items.forEach((it: any) => {
+          if (it.seller?.id && !sellerMap.has(it.seller.id)) {
+            sellerMap.set(it.seller.id, {
+              id: it.seller.id,
+              companyName: (it.seller.companyName || "").trim(),
+              email: it.seller.email || "",
+            });
+          }
+        });
+      }
+    });
+
+    // Compute order counts and sort strictly alphabetically (A to Z)
+    return Array.from(sellerMap.values())
+      .filter((s) => s.companyName && s.companyName.length > 0)
+      .map((seller) => {
+        const orderCount = (orders || []).filter((o: any) => {
+          if (o.sellerId === seller.id || o.seller?.id === seller.id) return true;
+          if (o.items?.some((it: any) => it.seller?.id === seller.id || (it.seller?.companyName && it.seller.companyName.toLowerCase() === seller.companyName.toLowerCase()))) return true;
+          return false;
+        }).length;
+
+        const totalRevenue = (orders || []).reduce((acc: number, o: any) => {
+          const match = o.sellerId === seller.id || o.seller?.id === seller.id || o.items?.some((it: any) => it.seller?.id === seller.id || (it.seller?.companyName && it.seller.companyName.toLowerCase() === seller.companyName.toLowerCase()));
+          return match ? acc + (o.totalAmount || 0) : acc;
+        }, 0);
+
+        return {
+          ...seller,
+          orderCount,
+          totalRevenue,
+        };
+      })
+      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: "base" }));
+  }, [sellers, orders]);
+
+  // Active seller object
+  const activeSeller = useMemo(() => {
+    if (!selectedSellerId) return null;
+    return baseSellersList.find((s) => s.id === selectedSellerId) || null;
+  }, [selectedSellerId, baseSellersList]);
+
+  // Top active sellers with orders (for fast 1-click pills)
+  const activeSellersWithOrders = useMemo(() => {
+    return baseSellersList.filter((s) => s.orderCount > 0);
+  }, [baseSellersList]);
+
+  // Dynamic filtered list inside the combobox for fast search when sellers scale to 50+ / 100+
+  const visibleSellersInDropdown = useMemo(() => {
+    let list = baseSellersList;
+    if (sellerFilterTab === "active") {
+      list = list.filter((s) => s.orderCount > 0);
+    }
+    if (!sellerSearchQuery.trim()) return list;
+
+    const q = sellerSearchQuery.trim().toLowerCase();
+    return list.filter((s) => 
+      s.companyName.toLowerCase().includes(q) || 
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      s.id.toLowerCase().includes(q)
+    );
+  }, [baseSellersList, sellerSearchQuery, sellerFilterTab]);
+
+  // Handle clearing the seller filter
+  const handleClearSellerFilter = () => {
+    setSelectedSellerId("");
+    if (onClearSellerFilter) onClearSellerFilter();
+  };
+
+  // Helper to extract seller info for an order row
+  const getOrderSellerInfo = (order: any) => {
+    if (order.seller?.companyName) {
+      return { 
+        name: order.seller.companyName, 
+        email: order.seller.email || "", 
+        id: order.seller.id || order.sellerId || "" 
+      };
+    }
+    const itemWithSeller = order.items?.find((it: any) => it.seller?.companyName);
+    if (itemWithSeller?.seller) {
+      return { 
+        name: itemWithSeller.seller.companyName, 
+        email: itemWithSeller.seller.email || "", 
+        id: itemWithSeller.seller.id || "" 
+      };
+    }
+    return { name: "EarthCentric Direct", email: "", id: "" };
+  };
+
+  // 1. Filter orders by selected seller (if any)
+  const sellerFilteredOrders = useMemo(() => {
+    if (!selectedSellerId) return orders || [];
+
+    return (orders || []).filter((o: any) => {
+      if (o.sellerId && o.sellerId === selectedSellerId) return true;
+      if (o.seller?.id && o.seller.id === selectedSellerId) return true;
+      if (o.items && Array.isArray(o.items)) {
+        if (o.items.some((it: any) => it.seller?.id === selectedSellerId)) return true;
+      }
+      if (activeSeller) {
+        if (o.seller?.companyName && o.seller.companyName.toLowerCase() === activeSeller.companyName.toLowerCase()) return true;
+        if (o.items && Array.isArray(o.items)) {
+          if (o.items.some((it: any) => it.seller?.companyName && it.seller.companyName.toLowerCase() === activeSeller.companyName.toLowerCase())) return true;
+        }
+      }
+      return false;
+    });
+  }, [orders, selectedSellerId, activeSeller]);
+
+  // 2. Filter orders by search terms AND apply order sorting (Date / Amount)
+  const displayOrders = useMemo(() => {
+    const term = (trackInput || globalSearch || "").trim().toLowerCase();
+    let result = sellerFilteredOrders;
+
+    if (term) {
+      const words = term.split(/\s+/).filter(Boolean);
+      if (words.length > 0) {
+        result = result.filter((o: any) => {
+          const targetStr = `
+            ${o.id || ""}
+            ec-ord-${(o.id || "").substring(4, 10).toLowerCase()}
+            ${o.user?.name || ""}
+            ${o.user?.email || ""}
+            ${o.seller?.companyName || ""}
+            ${(o.items || []).map((it: any) => `${it.name || ""} ${it.seller?.companyName || ""}`).join(" ")}
+          `.toLowerCase();
+
+          return words.every((word) => targetStr.includes(word));
+        });
+      }
+    }
+
+    // Sort orders table
+    const sorted = [...result];
+    if (orderSortBy === "newest") {
+      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (orderSortBy === "oldest") {
+      sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    } else if (orderSortBy === "highest") {
+      sorted.sort((a, b) => b.totalAmount - a.totalAmount);
+    } else if (orderSortBy === "lowest") {
+      sorted.sort((a, b) => a.totalAmount - b.totalAmount);
+    }
+
+    return sorted;
+  }, [sellerFilteredOrders, trackInput, globalSearch, orderSortBy]);
+
+  // Executive KPI summary metrics
+  const totalRevenueDisplayed = useMemo(() => {
+    return displayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  }, [displayOrders]);
 
   const handleTrackSearch = async () => {
     if (!trackInput.trim()) return;
@@ -1843,33 +2073,431 @@ function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders:
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Order Tracking & Management System</h1>
-        <p className="text-sm text-muted-foreground mt-1">Platform-wide overview of all customer order stages, payment status, and carbon offsets.</p>
+      {/* Executive Header & Filter Context */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-2.5 flex-wrap">
+            <h1 className="text-2xl font-extrabold text-[#1a3321] tracking-tight">Order Tracking &amp; Management System</h1>
+            {selectedSellerId && activeSeller ? (
+              <Badge className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs px-2.5 py-0.5 font-bold flex items-center space-x-1">
+                <Store className="h-3 w-3 text-emerald-700" />
+                <span>{activeSeller.companyName}</span>
+              </Badge>
+            ) : (
+              <Badge className="bg-slate-100 text-slate-700 border border-slate-200 text-xs px-2.5 py-0.5 font-bold flex items-center space-x-1">
+                <Layers className="h-3 w-3 text-slate-500" />
+                <span>Platform-Wide ({orders.length} Orders)</span>
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 mt-1">
+            {selectedSellerId && activeSeller ? (
+              <span>
+                Isolated fulfillment orders for <strong className="text-emerald-950 font-bold">{activeSeller.companyName}</strong>. Click &quot;All Sellers&quot; to restore platform-wide management.
+              </span>
+            ) : (
+              "Platform-wide overview of all customer order stages, payment status, seller fulfillment, and carbon offsets."
+            )}
+          </p>
+        </div>
+
+        {/* Quick Reset if filtered */}
+        {selectedSellerId && (
+          <Button
+            onClick={handleClearSellerFilter}
+            className="bg-white hover:bg-emerald-50 text-[#1a3321] border border-emerald-300 text-xs font-bold px-4 py-2 rounded-xl shadow-xs flex items-center space-x-2 cursor-pointer transition-all self-start md:self-auto"
+          >
+            <X className="h-3.5 w-3.5 text-emerald-800" />
+            <span>Reset to Overall Platform View</span>
+          </Button>
+        )}
       </div>
 
-      {/* Admin Order Track Search Bar */}
-      <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-2xl space-y-3">
+      {/* 3 Executive High-Value KPI Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Card 1: Orders */}
+        <div className="bg-white border border-[#e8ece7] rounded-2xl p-4.5 shadow-xs flex items-center space-x-4">
+          <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0 border border-emerald-100">
+            <PackageCheck className="h-6 w-6 text-emerald-700" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              {selectedSellerId ? "Seller Orders" : "Platform Orders"}
+            </p>
+            <h3 className="text-2xl font-black text-[#1a3321] tracking-tight">
+              {displayOrders.length}
+              <span className="text-xs font-bold text-slate-400 ml-1.5 font-normal">
+                / {orders.length} total
+              </span>
+            </h3>
+            <p className="text-[11px] text-slate-500 truncate">
+              {selectedSellerId && activeSeller ? `Fulfilled by ${activeSeller.companyName}` : "Across all registered sellers"}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 2: Revenue */}
+        <div className="bg-white border border-[#e8ece7] rounded-2xl p-4.5 shadow-xs flex items-center space-x-4">
+          <div className="h-12 w-12 rounded-xl bg-teal-50 text-teal-800 flex items-center justify-center shrink-0 border border-teal-100">
+            <DollarSign className="h-6 w-6 text-teal-700" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              {selectedSellerId ? "Seller Volume (GMV)" : "Total Orders Value"}
+            </p>
+            <h3 className="text-2xl font-black text-[#1a3321] tracking-tight">
+              ₹{totalRevenueDisplayed.toLocaleString()}
+            </h3>
+            <p className="text-[11px] text-slate-500 truncate">
+              {selectedSellerId ? "Order value for this seller" : "Gross merchandise handled"}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 3: Fulfillment Partners */}
+        <div className="bg-white border border-[#e8ece7] rounded-2xl p-4.5 shadow-xs flex items-center space-x-4">
+          <div className="h-12 w-12 rounded-xl bg-slate-50 text-[#1a3321] flex items-center justify-center shrink-0 border border-slate-200">
+            <Store className="h-6 w-6 text-emerald-700" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fulfillment Partners</p>
+            <h3 className="text-2xl font-black text-[#1a3321] tracking-tight">
+              {baseSellersList.length}
+              <span className="text-xs font-bold text-slate-400 ml-1.5 font-normal">
+                Sellers (A → Z)
+              </span>
+            </h3>
+            <p className="text-[11px] text-slate-500 truncate">
+              {activeSellersWithOrders.length} currently fulfilling orders
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Enterprise Filter & Search Control Center (Zero clipping, fully scalable) */}
+      <div className="bg-white border border-[#e8ece7] rounded-2xl shadow-xs p-4 sm:p-5 space-y-4 relative">
+        {/* Top Row: Global Order Search & Direct Tracker */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by Order ID (e.g. EC-ORD-4729), Buyer Name, or Email..."
+              placeholder="Search by Order ID (e.g. EC-ORD-4729), Buyer Name, Email, or Product..."
               value={trackInput}
               onChange={(e) => setTrackInput(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+              className="w-full bg-[#f8faf7] hover:bg-white focus:bg-white border border-[#e2e7e0] rounded-xl pl-10 pr-10 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1a3321] transition-all"
               onKeyDown={(e) => { if (e.key === "Enter") handleTrackSearch(); }}
             />
+            {trackInput && (
+              <button
+                type="button"
+                onClick={() => setTrackInput("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
+
           <Button
             onClick={handleTrackSearch}
             disabled={isSearchingTrack || !trackInput.trim()}
-            className="bg-[#1a3321] hover:bg-[#122417] text-white text-xs px-6 py-2 rounded-xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer"
+            className="bg-[#1a3321] hover:bg-[#122417] text-white text-xs font-bold px-6 py-2.5 rounded-xl flex items-center justify-center space-x-2 shrink-0 border-none cursor-pointer shadow-xs transition-all"
           >
             <Search className="h-4 w-4" />
             <span>Track Order</span>
           </Button>
+        </div>
+
+        {/* Bottom Row: Perfect Seller Account Selector + Sort Orders Control */}
+        <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3.5 pt-3.5 border-t border-[#f0f3ef]">
+          {/* Left: Scalable Seller Account Combobox + Quick-Access Seller Badges */}
+          <div className="flex items-center gap-2.5 flex-wrap flex-1">
+            <div className="flex items-center space-x-1.5 text-xs font-bold text-[#1a3321] shrink-0 mr-1">
+              <Store className="h-4 w-4 text-emerald-700" />
+              <span>Seller Account:</span>
+            </div>
+
+            {/* Custom Scalable Seller Selector Dropdown (Scales smoothly to 50+ / 100+ sellers) */}
+            <div className="relative" ref={sellerDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsSellerDropdownOpen((prev) => !prev)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-2.5 border shadow-xs min-w-[220px] justify-between ${
+                  selectedSellerId
+                    ? "bg-emerald-50/90 border-emerald-300 text-emerald-950 ring-2 ring-emerald-600/15"
+                    : isSellerDropdownOpen
+                      ? "bg-white border-[#1a3321] ring-2 ring-[#1a3321]/15 text-[#1a3321]"
+                      : "bg-slate-50 hover:bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center space-x-2 min-w-0">
+                  {selectedSellerId && activeSeller ? (
+                    <>
+                      <div className="h-5 w-5 rounded-md bg-[#1a3321] text-white flex items-center justify-center text-[10px] font-black shrink-0 uppercase">
+                        {activeSeller.companyName.substring(0, 2)}
+                      </div>
+                      <span className="truncate max-w-[150px] font-extrabold text-[#1a3321]">
+                        {activeSeller.companyName}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Building2 className="h-4 w-4 text-emerald-700 shrink-0" />
+                      <span className="font-bold text-[#1a3321]">All Sellers (Platform-wide)</span>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-1.5 shrink-0 ml-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    selectedSellerId 
+                      ? "bg-emerald-200/80 text-emerald-900" 
+                      : "bg-slate-200 text-slate-700"
+                  }`}>
+                    {selectedSellerId && activeSeller ? `${activeSeller.orderCount} orders` : `${orders.length} orders`}
+                  </span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${
+                    isSellerDropdownOpen ? "rotate-180 text-emerald-800" : ""
+                  }`} />
+                </div>
+              </button>
+
+              {/* Floating Directory Popover (Guaranteed ZERO clipping, rendered with z-50 and absolute placement) */}
+              {isSellerDropdownOpen && (
+                <div className="absolute left-0 top-full mt-2 w-[340px] sm:w-[420px] bg-white rounded-2xl shadow-2xl border border-slate-200/95 z-50 p-3.5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* Header inside popover */}
+                  <div className="flex items-center justify-between px-1 pb-1 border-b border-slate-100">
+                    <span className="text-xs font-black text-[#1a3321] flex items-center space-x-1.5">
+                      <Store className="h-3.5 w-3.5 text-emerald-700" />
+                      <span>Select Seller Account</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md">
+                      Strictly A → Z ({baseSellersList.length} Sellers)
+                    </span>
+                  </div>
+
+                  {/* Real-time search */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Search seller by company name or email..."
+                      value={sellerSearchQuery}
+                      onChange={(e) => setSellerSearchQuery(e.target.value)}
+                      className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+                    />
+                    {sellerSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSellerSearchQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter Tabs: All Sellers vs With Orders */}
+                  <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setSellerFilterTab("all")}
+                      className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        sellerFilterTab === "all"
+                          ? "bg-white text-[#1a3321] shadow-xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      All Sellers ({baseSellersList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSellerFilterTab("active")}
+                      className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        sellerFilterTab === "active"
+                          ? "bg-white text-[#1a3321] shadow-xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      With Orders ({activeSellersWithOrders.length})
+                    </button>
+                  </div>
+
+                  {/* Pinned "All Sellers" Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleClearSellerFilter();
+                      setIsSellerDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-colors cursor-pointer border ${
+                      !selectedSellerId 
+                        ? "bg-emerald-50/90 border-emerald-300 text-emerald-950 font-bold" 
+                        : "hover:bg-slate-50 border-transparent text-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2.5">
+                      <div className="h-7 w-7 rounded-lg bg-emerald-100 text-emerald-900 flex items-center justify-center text-xs font-black shrink-0">
+                        <Building2 className="h-4 w-4 text-emerald-800" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-[#1a3321]">All Sellers (Platform-wide)</p>
+                        <p className="text-[10px] text-slate-400">View orders across all fulfillment partners</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Badge className="bg-slate-100 text-slate-700 border-none text-[10px] font-bold">
+                        {orders.length} orders
+                      </Badge>
+                      {!selectedSellerId && <Check className="h-4 w-4 text-emerald-700 shrink-0" />}
+                    </div>
+                  </button>
+
+                  {/* Scrollable Seller List strictly in Alphabetical Order (A to Z) */}
+                  <div className="max-h-60 overflow-y-auto space-y-1 pr-1 divide-y divide-slate-50">
+                    {visibleSellersInDropdown.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground space-y-1">
+                        <p className="font-semibold text-slate-600">No sellers matching &quot;{sellerSearchQuery}&quot;</p>
+                        <button
+                          type="button"
+                          onClick={() => { setSellerSearchQuery(""); setSellerFilterTab("all"); }}
+                          className="text-[11px] text-emerald-700 hover:underline font-bold cursor-pointer"
+                        >
+                          Reset filters
+                        </button>
+                      </div>
+                    ) : (
+                      visibleSellersInDropdown.map((seller) => {
+                        const isSelected = selectedSellerId === seller.id;
+                        return (
+                          <button
+                            key={seller.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedSellerId(seller.id);
+                              setIsSellerDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer border ${
+                              isSelected
+                                ? "bg-emerald-50/90 border-emerald-300 text-emerald-950 font-bold"
+                                : "hover:bg-slate-50 border-transparent text-slate-700"
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                              <div className="h-7 w-7 rounded-lg bg-slate-100 text-[#1a3321] flex items-center justify-center text-xs font-black shrink-0 uppercase border border-slate-200">
+                                {seller.companyName.substring(0, 2)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-[#1a3321] truncate">{seller.companyName}</p>
+                                {seller.email && (
+                                  <p className="text-[10px] text-slate-400 truncate">{seller.email}</p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2 shrink-0 ml-2">
+                              <Badge className={`text-[10px] border-none font-bold ${
+                                seller.orderCount > 0 
+                                  ? "bg-emerald-100 text-emerald-800" 
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                {seller.orderCount} {seller.orderCount === 1 ? "order" : "orders"}
+                              </Badge>
+                              {isSelected && <Check className="h-4 w-4 text-emerald-700 shrink-0" />}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Popover Footer Info */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Sorted A → Z automatically</span>
+                    <span>Scales to 500+ sellers</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick-Access 1-Click Pills for Active Sellers */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={handleClearSellerFilter}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border shadow-xs ${
+                  !selectedSellerId
+                    ? "bg-[#1a3321] text-white border-[#1a3321]"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-[#1a3321]"
+                }`}
+              >
+                <span>All Sellers</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  !selectedSellerId ? "bg-white/25 text-white" : "bg-slate-200 text-slate-700"
+                }`}>
+                  {orders.length}
+                </span>
+              </button>
+
+              {activeSellersWithOrders.map((seller) => {
+                const isSelected = selectedSellerId === seller.id;
+                return (
+                  <button
+                    key={seller.id}
+                    type="button"
+                    onClick={() => setSelectedSellerId(seller.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border truncate max-w-[180px] shadow-xs ${
+                      isSelected
+                        ? "bg-[#1a3321] text-white border-[#1a3321]"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-[#1a3321]"
+                    }`}
+                    title={`${seller.companyName} (${seller.orderCount} orders)`}
+                  >
+                    <span className="truncate">{seller.companyName}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
+                      isSelected 
+                        ? "bg-white/25 text-white" 
+                        : "bg-emerald-100 text-emerald-800"
+                    }`}>
+                      {seller.orderCount}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right: Sort Control & Active Orders Count */}
+          <div className="flex items-center space-x-2.5 shrink-0 self-end xl:self-auto">
+            <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-xs">
+              <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
+              <span className="text-[11px] font-bold text-slate-500">Sort:</span>
+              <select
+                value={orderSortBy}
+                onChange={(e) => setOrderSortBy(e.target.value as any)}
+                className="bg-transparent text-[#1a3321] text-xs font-bold focus:outline-none cursor-pointer"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="highest">Amount: High to Low</option>
+                <option value="lowest">Amount: Low to High</option>
+              </select>
+            </div>
+
+            {selectedSellerId && (
+              <button
+                type="button"
+                onClick={handleClearSellerFilter}
+                className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center space-x-1 shadow-xs"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {trackError && (
@@ -1878,13 +2506,50 @@ function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders:
             <span>{trackError}</span>
           </div>
         )}
-      </Card>
+      </div>
 
-      <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+      {/* Prominent Active Seller Filter Ribbon */}
+      {activeSeller && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-gradient-to-r from-[#1a3321] via-[#23482f] to-[#1a3321] text-white rounded-2xl shadow-sm gap-4">
+          <div className="flex items-center space-x-3.5">
+            <div className="h-10 w-10 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center justify-center font-black text-sm shrink-0">
+              <Store className="h-5 w-5 text-emerald-300" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2 flex-wrap">
+                <span className="font-extrabold text-white text-base">
+                  {activeSeller.companyName}
+                </span>
+                <Badge className="bg-emerald-500 text-[#1a3321] text-[9px] font-black border-none uppercase tracking-wider">
+                  Active Filter
+                </Badge>
+                {activeSeller.email && (
+                  <span className="text-xs text-emerald-200/80 font-medium">({activeSeller.email})</span>
+                )}
+              </div>
+              <p className="text-xs text-emerald-100/90 mt-0.5">
+                Showing <strong>{displayOrders.length}</strong> of <strong>{orders.length}</strong> total platform orders fulfilled by this seller • Total Order Value: <strong>₹{totalRevenueDisplayed.toLocaleString()}</strong>
+              </p>
+            </div>
+          </div>
+
+          <Button
+            onClick={handleClearSellerFilter}
+            className="bg-white hover:bg-emerald-50 text-[#1a3321] border-none text-xs px-4 py-2 h-9 rounded-xl font-bold shadow-md flex items-center space-x-1.5 cursor-pointer shrink-0 transition-all"
+          >
+            <X className="h-3.5 w-3.5 text-emerald-800" />
+            <span>Show All {orders.length} Orders</span>
+          </Button>
+        </div>
+      )}
+
+      {/* Orders Table */}
+      <Card className="bg-white border border-[#e8ece7] shadow-xs rounded-2xl overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Order ID</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller Account</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Buyer</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Date</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Items Count</TableHead>
@@ -1897,49 +2562,116 @@ function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders:
           <TableBody>
             {displayOrders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-xs text-muted-foreground">
-                  No orders recorded on the platform yet.
+                <TableCell colSpan={9} className="text-center py-16 text-xs text-muted-foreground">
+                  {selectedSellerId ? (
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        <Store className="h-6 w-6 text-slate-400" />
+                      </div>
+                      <p className="font-bold text-slate-700 text-sm">No orders found for {activeSeller?.companyName || "this seller account"}.</p>
+                      <p className="text-xs text-slate-400 max-w-sm">This merchant is registered on the platform, but has not yet received or fulfilled any customer orders.</p>
+                      <Button
+                        onClick={handleClearSellerFilter}
+                        className="bg-[#1a3321] hover:bg-[#122417] text-white text-xs font-bold px-4 py-2 rounded-xl mt-2 cursor-pointer shadow-xs"
+                      >
+                        Return to All Platform Orders ({orders.length})
+                      </Button>
+                    </div>
+                  ) : (
+                    <p>No orders found matching your criteria.</p>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
-              displayOrders.map((o: any) => (
-                <TableRow key={o.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                  <TableCell className="py-4 pl-6 font-mono text-xs font-bold text-[#1a3321]">
-                    EC-ORD-{o.id.substring(4, 10).toUpperCase()}
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs font-bold text-[#1a3321]">{o.user?.name || "Anonymous"}</p>
-                    <p className="text-[9px] text-muted-foreground">{o.user?.email}</p>
-                  </TableCell>
-                  <TableCell className="py-4 text-xs text-muted-foreground">
-                    {new Date(o.createdAt).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell className="py-4 text-xs text-muted-foreground">
-                    {o.items.length} units
-                  </TableCell>
-                  <TableCell className="py-4 text-xs font-black text-[#1a3321]">
-                    ₹{o.totalAmount.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">{o.status}</Badge>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <Badge variant={o.paymentStatus === "COMPLETED" ? "success" : "danger"} className="text-[9px] border-none">
-                      {o.paymentStatus}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="py-4 text-right pr-6">
-                    <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setSelectedOrder(o)}>
-                      View Timeline
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+              displayOrders.map((order: any) => {
+                const sellerInfo = getOrderSellerInfo(order);
+                const isFilteredSeller = selectedSellerId && sellerInfo.id === selectedSellerId;
+
+                return (
+                  <TableRow key={order.id} className={`border-[#e9ece6] transition-colors ${isFilteredSeller ? "bg-emerald-50/20 hover:bg-emerald-50/40" : "hover:bg-[#fbfcfb]"}`}>
+                    <TableCell className="font-bold text-xs text-[#1a3321] py-4 pl-6">
+                      EC-ORD-{(order.id || "").substring(4, 10).toUpperCase()}
+                    </TableCell>
+
+                    {/* Clickable Seller Account Column */}
+                    <TableCell className="py-4">
+                      {sellerInfo.id ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSellerId(sellerInfo.id)}
+                          className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            selectedSellerId === sellerInfo.id
+                              ? "bg-emerald-100 text-emerald-900 border border-emerald-300 ring-1 ring-emerald-500/20"
+                              : "bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-900 border border-slate-200 hover:border-emerald-200"
+                          }`}
+                          title={`Click to filter orders specifically for ${sellerInfo.name}`}
+                        >
+                          <Store className="h-3 w-3 text-emerald-700 shrink-0" />
+                          <span className="truncate max-w-[130px]">{sellerInfo.name}</span>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-500 font-medium">{sellerInfo.name}</span>
+                      )}
+                    </TableCell>
+
+                    <TableCell className="py-4">
+                      <div className="text-xs font-medium text-slate-800">{order.user?.name || "Direct Customer"}</div>
+                      <div className="text-[10px] text-muted-foreground">{order.user?.email || "customer@earthcentric.com"}</div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground py-4">
+                      {new Date(order.createdAt).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric"
+                      })}
+                    </TableCell>
+                    <TableCell className="text-xs font-medium text-slate-700 py-4">
+                      {order.items?.length || 1} items
+                    </TableCell>
+                    <TableCell className="font-extrabold text-xs text-[#1a3321] py-4">
+                      ₹{order.totalAmount?.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge className={`text-[10px] font-bold border-none capitalize ${
+                        order.orderStatus === "DELIVERED"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : order.orderStatus === "SHIPPED"
+                          ? "bg-blue-100 text-blue-800"
+                          : order.orderStatus === "CANCELLED"
+                          ? "bg-rose-100 text-rose-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}>
+                        {order.orderStatus}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge className={`text-[10px] font-bold border-none capitalize ${
+                        order.paymentStatus === "PAID"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {order.paymentStatus}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right py-4 pr-6">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedOrder(order)}
+                        className="text-xs font-bold text-[#1a3321] border-[#1a3321] hover:bg-[#1a3321] hover:text-white rounded-xl h-8 px-3.5 transition-colors cursor-pointer"
+                      >
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </Card>
 
+      {/* Order Detail Modal with Seller Timeline & Item Inspection */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setSelectedOrder(null)} />
@@ -1949,79 +2681,98 @@ function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders:
                 <h3 className="font-bold text-base text-[#1a3321]">Order Details: EC-ORD-{selectedOrder.id.substring(4, 10).toUpperCase()}</h3>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Placed on {new Date(selectedOrder.createdAt).toLocaleString()}</p>
               </div>
-              <button onClick={() => setSelectedOrder(null)} className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200"><X className="h-4 w-4" /></button>
+              <button onClick={() => setSelectedOrder(null)} className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 cursor-pointer"><X className="h-4 w-4" /></button>
             </div>
             
+            {/* Seller Account Indicator inside Modal */}
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-2">
+                <Store className="h-4 w-4 text-emerald-700 shrink-0" />
+                <span className="text-emerald-900 font-semibold">
+                  Fulfilling Seller: <strong>{getOrderSellerInfo(selectedOrder).name}</strong>
+                </span>
+              </div>
+              {selectedSellerId !== getOrderSellerInfo(selectedOrder).id && getOrderSellerInfo(selectedOrder).id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSellerId(getOrderSellerInfo(selectedOrder).id);
+                    setSelectedOrder(null);
+                  }}
+                  className="text-[11px] font-bold text-emerald-800 hover:underline cursor-pointer"
+                >
+                  Filter this seller&apos;s orders →
+                </button>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Left Column: Order Items & Summary */}
               <div className="space-y-4">
                 <div>
                   <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Order Items</h4>
                   <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-                    {selectedOrder.items.map((it: any, idx: number) => (
-                      <div key={idx} className="flex items-center space-x-3 text-xs bg-slate-50 p-2.5 rounded-lg border">
-                        <img src={it.image || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"} className="h-10 w-10 object-cover rounded" />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-[#1a3321] truncate">{it.name}</p>
-                          <p className="text-[10px] text-slate-500 mt-0.5">Qty: {it.quantity} × ₹{it.price}</p>
-                          {it.seller && (
-                            <p className="text-[9px] text-emerald-700 font-semibold mt-0.5">Seller: {it.seller.companyName} ({it.seller.email})</p>
+                    {selectedOrder.items.map((it: any, idx: number) => {
+                      const isTargetSeller = selectedSellerId && (
+                        it.seller?.id === selectedSellerId || 
+                        it.seller?.companyName?.toLowerCase() === activeSeller?.companyName?.toLowerCase()
+                      );
+                      return (
+                        <div key={idx} className={`flex items-center space-x-3 text-xs p-2.5 rounded-lg border ${isTargetSeller ? "bg-emerald-50/50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                          <img src={it.image || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"} className="h-10 w-10 object-cover rounded" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-1.5">
+                              <p className="font-bold text-[#1a3321] truncate">{it.name}</p>
+                              {isTargetSeller && (
+                                <Badge className="bg-emerald-600 text-white text-[8px] px-1 py-0 font-bold shrink-0">Selected Seller</Badge>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Qty: {it.quantity} × ₹{it.price}</p>
+                            {it.seller?.companyName && (
+                              <p className="text-[9px] text-emerald-800 font-semibold truncate">Seller: {it.seller.companyName}</p>
+                            )}
+                          </div>
+                          {it.productId && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-7 px-2 text-[10px] text-emerald-800 hover:bg-emerald-100/50"
+                              onClick={() => setInspectProductId(it.productId)}
+                            >
+                              Inspect
+                            </Button>
                           )}
-                          <Button variant="ghost" className="h-5 px-2 mt-1 text-[9px] bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 rounded-sm p-0" onClick={() => setInspectProductId(it.productId || it.product?.id || it.id)}>Inspect Full Product</Button>
                         </div>
-                        <p className="font-bold text-[#1a3321] shrink-0">₹{it.quantity * it.price}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-lg border space-y-1.5 text-xs text-slate-600">
-                  <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span className="font-semibold text-slate-800">₹{selectedOrder.totalAmount}</span>
+                <div className="bg-slate-50 p-3 rounded-lg border text-xs space-y-1">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Payment Method:</span>
+                    <span className="font-semibold text-slate-700 capitalize">{selectedOrder.paymentMethod || "Prepaid"}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Payment Status</span>
-                    <Badge className={selectedOrder.paymentStatus === "COMPLETED" ? "bg-emerald-50 text-emerald-800 border-none text-[9px]" : "bg-amber-50 text-amber-800 border-none text-[9px]"}>
-                      {selectedOrder.paymentStatus}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t font-bold text-slate-800 text-sm">
-                    <span>Total</span>
-                    <span>₹{selectedOrder.totalAmount}</span>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Total Amount:</span>
+                    <span className="font-bold text-[#1a3321]">₹{selectedOrder.totalAmount?.toLocaleString()}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Right Column: Buyer Info & Timeline */}
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Buyer Information</h4>
-                  <div className="text-xs space-y-1 bg-slate-50 p-3 rounded-lg border">
-                    <p className="font-bold text-[#1a3321]">{selectedOrder.user?.name || "Anonymous"}</p>
-                    <p className="text-slate-600">{selectedOrder.user?.email}</p>
-                    {selectedOrder.address && (
-                      <p className="text-slate-500 mt-1 pt-1 border-t text-[10px] leading-relaxed">
-                        <strong>Shipping Address:</strong><br />
-                        {selectedOrder.address.street}, {selectedOrder.address.city}, {selectedOrder.address.state} - {selectedOrder.address.postalCode}, {selectedOrder.address.country}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Order Timeline</h4>
-                  <div className="space-y-3.5 max-h-40 overflow-y-auto pr-1">
-                    {selectedOrder.timeline && selectedOrder.timeline.length > 0 ? (
-                      selectedOrder.timeline.map((step: any, idx: number) => (
-                        <div key={idx} className="flex space-x-2 text-xs">
-                          <div className="flex flex-col items-center shrink-0">
-                            <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1" />
-                            {idx < selectedOrder.timeline.length - 1 && <div className="w-px h-6 bg-border" />}
-                          </div>
+              {/* Right Column: Tracking Timeline */}
+              <div>
+                <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Tracking Milestones</h4>
+                <div className="border rounded-lg p-3 bg-slate-50 max-h-56 overflow-y-auto space-y-3">
+                  <div className="space-y-4">
+                    {selectedOrder.trackingEvents && selectedOrder.trackingEvents.length > 0 ? (
+                      selectedOrder.trackingEvents.map((evt: any, i: number) => (
+                        <div key={i} className="flex space-x-2 text-xs">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-1 shrink-0" />
                           <div>
-                            <p className="font-bold text-[#1a3321] text-[11px]">{step.status}</p>
-                            <p className="text-muted-foreground text-[9px]">{step.description}</p>
+                            <p className="font-bold text-[#1a3321]">{evt.status}</p>
+                            <p className="text-[10px] text-muted-foreground">{evt.message}</p>
+                            <p className="text-[9px] text-slate-400">{new Date(evt.timestamp).toLocaleString()}</p>
                           </div>
                         </div>
                       ))
@@ -2070,12 +2821,7 @@ function OrderManagementView({ orders, onUpdateStatus, globalSearch }: { orders:
       )}
     </div>
   );
-}
-
-// --------------------------------------------------------------------------
-// CREDENTIALS MANAGER VIEW
-// --------------------------------------------------------------------------
-function CredentialsManagerView({ credentials, reload, globalSearch }: { credentials: CredentialItem[], reload: () => void, globalSearch?: string }) {
+}function CredentialsManagerView({ credentials, reload, globalSearch }: { credentials: CredentialItem[], reload: () => void, globalSearch?: string }) {
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
   const [savingKeys, setSavingKeys] = useState<Record<string, boolean>>({});
