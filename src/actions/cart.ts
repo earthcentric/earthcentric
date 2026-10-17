@@ -28,6 +28,14 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
       return [];
     }
 
+    const userExists = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!userExists) {
+      return [];
+    }
+
     let cart = await db.cart.findUnique({
       where: { userId },
       include: { items: true },

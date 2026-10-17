@@ -47,110 +47,22 @@ export interface SellerProfile {
   }[];
 }
 
-// In-memory global array to keep track of seller verification requests during local demo sessions
+// In-memory global array for single designated seller fallback
 let mockSellers: SellerProfile[] = [
   {
-    id: "seller-1-profile",
-    userId: "seller-1",
-    companyName: "EcoThreads Apparel",
+    id: "cmvcbbtm80001txgw8dd0r3lk",
+    userId: "user_3KopVGVdy94cAVqZ4lzQjtWRCMK",
+    userName: "AR ECO INDIA",
+    companyName: "AR ECO INDIA",
     businessType: "Manufacturer",
-    description: "Ethical manufacturers of organic hemp and bamboo clothing sheets.",
-    website: "https://ecothreads.com",
+    description: "Certified manufacturer of 100% biodegradable and compostable sugarcane bagasse tableware and eco-friendly packaging.",
+    website: "https://earthcentric.in",
+    phone: "+91 8868882388",
+    ownerName: "AR ECO INDIA",
+    founderName: "AR ECO INDIA",
     verificationStatus: "APPROVED",
-    badges: ["Verified Business", "Verified Sustainable Manufacturer"],
+    badges: ["Verified Business", "Verified Sustainable Manufacturer", "Eco Certified"],
     documents: [],
-  },
-  {
-    id: "seller-2-profile",
-    userId: "seller-2",
-    companyName: "BioKnit Textiles",
-    businessType: "Manufacturer",
-    description: "Pioneering zero-carbon organic cotton knitwear. Hand-spun and vegetable-dyed in small batches.",
-    website: "https://bioknit.in",
-    gstNumber: "29AAACB1234A1Z1",
-    panNumber: "AAACB1234A",
-    founderName: "Rohan Mehta",
-    aadharNumber: "9876 5432 1098",
-    verificationStatus: "PENDING",
-    badges: [],
-    documents: [
-      {
-        id: "doc-gst-2",
-        type: "GST",
-        fileName: "gst_certificate.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?w=800"
-      },
-      {
-        id: "doc-pan-2",
-        type: "PAN",
-        fileName: "pan_card.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=800"
-      },
-      {
-        id: "doc-sug-2",
-        type: "SUSTAINABILITY_CERTIFICATE",
-        fileName: "gots_organic_cert.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1606857521015-7f9fcf423740?w=800"
-      }
-    ],
-  },
-  {
-    id: "seller-3-profile",
-    userId: "seller-3",
-    companyName: "Forest Craft Co.",
-    businessType: "Artisanal Supplier",
-    description: "Sourcing certified reclaimed wood furniture and bamboo decor from local tribal co-ops.",
-    website: "https://forestcraft.org",
-    gstNumber: "06AABCF9876D2Y0",
-    panNumber: "AABCF9876D",
-    verificationStatus: "PENDING",
-    badges: [],
-    documents: [
-      {
-        id: "doc-gst-3",
-        type: "GST",
-        fileName: "registration_doc.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=800"
-      },
-      {
-        id: "doc-pan-3",
-        type: "PAN",
-        fileName: "pan_identity.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=800"
-      },
-      {
-        id: "doc-sug-3",
-        type: "BUSINESS_REGISTRATION",
-        fileName: "fsc_reclaimed_wood.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=800"
-      }
-    ],
-  },
-  {
-    id: "seller-4-profile",
-    userId: "seller-4",
-    companyName: "Solaris Pack Solutions",
-    businessType: "Eco Packaging Brand",
-    description: "100% biodegradable and home-compostable packaging mailers and water-soluble seaweed sheets.",
-    website: "https://solarispack.com",
-    gstNumber: "27AACCS3344E3Z8",
-    panNumber: "AACCS3344E",
-    verificationStatus: "PENDING",
-    badges: [],
-    documents: [
-      {
-        id: "doc-gst-4",
-        type: "GST",
-        fileName: "gst_authority_cert.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=800"
-      },
-      {
-        id: "doc-sug-4",
-        type: "SUSTAINABILITY_CERTIFICATE",
-        fileName: "iso_biodegradable_report.jpg",
-        fileUrl: "https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=800"
-      }
-    ],
   }
 ];
 
@@ -1103,22 +1015,16 @@ export async function getAllBrands() {
 
     if (uniqueMap.size === 0) {
       return [
-        { id: "seller-pkg", companyName: "Earth Centric" },
-        { id: "seller-1-profile", companyName: "EcoThreads Apparel" },
-        { id: "seller-2-profile", companyName: "BioKnit Textiles" },
-        { id: "seller-3-profile", companyName: "Forest Craft Co." }
-      ].sort((a, b) => a.companyName.localeCompare(b.companyName));
+        { id: "cmvcbbtm80001txgw8dd0r3lk", companyName: "AR ECO INDIA" }
+      ];
     }
 
     return Array.from(uniqueMap.values()).sort((a, b) => a.companyName.localeCompare(b.companyName));
   } catch (e) {
     console.error("Failed to fetch all brands", e);
     return [
-      { id: "seller-pkg", companyName: "Earth Centric" },
-      { id: "seller-1-profile", companyName: "EcoThreads Apparel" },
-      { id: "seller-2-profile", companyName: "BioKnit Textiles" },
-      { id: "seller-3-profile", companyName: "Forest Craft Co." }
-    ].sort((a, b) => a.companyName.localeCompare(b.companyName));
+      { id: "cmvcbbtm80001txgw8dd0r3lk", companyName: "AR ECO INDIA" }
+    ];
   }
 }
 

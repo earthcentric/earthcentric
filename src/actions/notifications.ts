@@ -98,16 +98,7 @@ export async function getAdminNotifications() {
       });
     } catch (e) {}
 
-    // Add mock product approval notifications
-    notificationsList.push({
-      id: "product-mock-1",
-      title: "Product Approval Required",
-      message: `Seller "EcoThreads Apparel" added a new product "Organic Hemp Denim Jacket" which requires approval.`,
-      redirectSection: "products",
-      actionUrl: "/admin/dashboard?tab=products",
-      isRead: false,
-      createdAt: new Date(Date.now() - 7200000)
-    });
+
 
     // Add mock dispute notification
     notificationsList.push({

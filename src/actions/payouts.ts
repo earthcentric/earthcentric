@@ -39,57 +39,7 @@ export interface SellerPayoutStats {
 }
 
 // In-memory global array for mock payouts sandbox session
-let mockPayoutRequests: PayoutRequestInfo[] = [
-  {
-    id: "pay-req-1",
-    sellerId: "seller-1-profile",
-    sellerName: "Rajesh Kumar",
-    companyName: "EcoThreads Apparel",
-    amount: 15000,
-    remainingAmount: 0,
-    status: "PAID",
-    requestedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago
-    settledAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
-    paidAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
-    adminEmail: "admin@earthcentric.com",
-    notes: "Settled via IMPS bank transfer.",
-    paymentMethod: "BANK",
-    bankDetails: {
-      bankName: "HDFC Bank",
-      accountNumber: "501002293848",
-      ifscCode: "HDFC0000123",
-      accountHolderName: "Rajesh Kumar",
-    },
-    transactionId: "TXN9838482",
-    settlementHistory: [
-      {
-        date: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
-        amountSettled: 15000,
-        transactionId: "TXN9838482",
-        paymentMethod: "BANK",
-        adminName: "Super Admin",
-        adminNotes: "Settled via IMPS bank transfer.",
-        remainingBalance: 0,
-      }
-    ]
-  },
-  {
-    id: "pay-req-2",
-    sellerId: "seller-1-profile",
-    sellerName: "Shiva Teja",
-    companyName: "EcoThreads Apparel",
-    amount: 8000,
-    remainingAmount: 8000,
-    status: "PENDING",
-    requestedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-    paymentMethod: "UPI",
-    upiDetails: {
-      upiId: "ecothreads@okaxis",
-      accountHolderName: "Shiva Teja",
-    },
-    settlementHistory: []
-  }
-];
+let mockPayoutRequests: PayoutRequestInfo[] = [];
 
 export async function getSellerPayoutStats(sellerId: string): Promise<SellerPayoutStats> {
   try {
@@ -234,7 +184,7 @@ export async function requestPayout(
       mockPayoutRequests.push({
         id: `pay-req-${Math.random().toString(36).substring(2, 9)}`,
         sellerId,
-        companyName: "EcoThreads Apparel",
+        companyName: "AR ECO INDIA",
         amount,
         status: "PENDING",
         requestedAt: new Date(),

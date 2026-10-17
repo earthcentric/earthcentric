@@ -502,8 +502,8 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return [
         {
-          sellerId: "seller-1",
-          companyName: "EcoThreads Apparel",
+          sellerId: "cmvcbbtm80001txgw8dd0r3lk",
+          companyName: "AR ECO INDIA",
           businessType: "Manufacturer",
           verificationStatus: "APPROVED",
           totalRevenue: 156900,
@@ -581,8 +581,8 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     console.error("getAllSellersRevenue failed, using mock:", e);
     return [
       {
-        sellerId: "seller-1",
-        companyName: "EcoThreads Apparel",
+        sellerId: "cmvcbbtm80001txgw8dd0r3lk",
+        companyName: "AR ECO INDIA",
         businessType: "Manufacturer",
         verificationStatus: "APPROVED",
         totalRevenue: 156900,

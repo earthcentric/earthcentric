@@ -97,449 +97,1895 @@ export interface ProductItem {
 // Global mock items for fallback mode
 const MOCK_PRODUCTS: ProductItem[] = [
   {
-    id: "pkg1",
-    name: "Plant-Starch Spoon Pack of 50",
-    slug: "plant-starch-spoon-pack-50",
-    description: "Stronger than plastic, compostable. Heat resistant up to 104°C. Perfect for hot and cold foods.",
-    price: 199,
-    originalPrice: 299,
-    stock: 500,
-    sustainabilityScore: 98,
-    sustainabilityDetail: "Made from 100% plant-starch materials, GMO-free corn. Fully compostable in commercial facilities.",
-    images: ["https://images.unsplash.com/photo-1591871937573-74dbba515c4c?w=600&auto=format&fit=crop&q=80"],
-    category: "Cutlery",
-    categoryId: "c_cutlery",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    bulkPriceSlabs: [
-      { min: 1, price: 199 },
-      { min: 10, price: 179 },
-      { min: 50, price: 149 }
+    "id": "prod-pdf-1",
+    "name": "Sauce Dip Bowl",
+    "slug": "sauce-dip-bowl",
+    "description": "Eco-friendly Sauce Dip Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_1.png"
     ],
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business", "Premium Verified Seller"],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["BPI Certified", "USDA Biobased"],
-    rating: 4.8,
-    reviewsCount: 212,
-    badgeType: "verified",
-    createdAt: new Date(),
-  },
-  {
-    id: "pkg2",
-    name: "2-Compartment Bagasse Meal Tray",
-    slug: "2-compartment-bagasse-meal-tray",
-    description: "Sturdy, leak-proof sugarcane pulp tray. Microwave & freezer safe. Oil and water resistant.",
-    price: 249,
-    stock: 350,
-    bulkOrderQuantity: 100,
-    bulkOrderPrice: 100,
-    sustainabilityScore: 97,
-    sustainabilityDetail: "Made from natural sugarcane bagasse. 100% biodegradable and compostable. No plastic or wax lining.",
-    images: ["https://images.unsplash.com/photo-1543083503-4c902cff990d?w=600&auto=format&fit=crop&q=80"],
-    category: "Bagasse Trays",
-    categoryId: "c_bagasse",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business", "Premium Verified Seller"],
-    },
-    certifications: ["FSC Certified", "FDA Approved"],
-    rating: 4.8,
-    reviewsCount: 210,
-    badgeType: "verified",
-    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-  },
-  {
-    id: "pkg3",
-    name: "Medium Bagasse Clamshell (Pack of 25)",
-    slug: "medium-bagasse-clamshell-25",
-    description: "Microwave safe, 100% compostable food container. Lock-tab closure design prevents accidental spills.",
-    price: 269,
-    stock: 400,
-    bulkOrderQuantity: 100,
-    bulkOrderPrice: 250,
-    sustainabilityScore: 97,
-    sustainabilityDetail: "Renewable agricultural byproduct (sugarcane). Breaks down in 90 days in compost heap.",
-    images: ["https://images.unsplash.com/photo-1599839575945-a9e5af0c3fa5?w=600&auto=format&fit=crop&q=80"],
-    category: "Clamshells",
-    categoryId: "c_clamshell",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business", "Premium Verified Seller"],
-    },
-    certifications: ["BPI Certified", "OK Compost"],
-    rating: 4.8,
-    reviewsCount: 198,
-    badgeType: "verified",
-    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
-  },
-  {
-    id: "pkg4",
-    name: "Paper Hand Towels Dispenser Pack",
-    slug: "paper-hand-towels-dispenser-pack",
-    description: "Ideal for washrooms and kitchens. Soft, absorbent, and multi-fold paper sheets. Fits standard dispensers.",
-    price: 299,
-    stock: 600,
-    sustainabilityScore: 91,
-    sustainabilityDetail: "Made from 100% recycled paper fiber. Chlorine-free process, zero bleaching agents.",
-    images: ["https://images.unsplash.com/photo-1583947215259-38e31be8751f?w=600&auto=format&fit=crop&q=80"],
-    category: "Disposable",
-    categoryId: "c_disposable",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business"],
-    },
-    certifications: ["FSC Recycled", "EcoLogo Certified"],
-    rating: 4.6,
-    reviewsCount: 156,
-    badgeType: "eco"
-  },
-  {
-    id: "pkg5",
-    name: "Eco Wooden Fork Pack of 50",
-    slug: "eco-wooden-fork-pack-50",
-    description: "Smooth finish, heat resistant forks. Heavy-weight grade birchwood. 100% natural, chemical-free.",
-    price: 179,
-    stock: 300,
-    sustainabilityScore: 97,
-    sustainabilityDetail: "Harvested from sustainably managed birch forests. Certified organic coating, compostable.",
-    images: ["https://images.unsplash.com/photo-1610701596007-11502861dcfa?w=600&auto=format&fit=crop&q=80"],
-    category: "Cutlery",
-    categoryId: "c_cutlery",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business"],
-    },
-    certifications: ["FSC Certified", "USDA Biobased"],
-    rating: 4.7,
-    reviewsCount: 145,
-    badgeType: "eco"
-  },
-  {
-    id: "pkg6",
-    name: "Bagasse Delivery Container - Small (Pack of 50)",
-    slug: "bagasse-delivery-container-small-50",
-    description: "Ideal for snacks and sides. High heat-retention properties. Breathable bagasse prevents food from getting soggy.",
-    price: 399,
-    stock: 250,
-    sustainabilityScore: 96,
-    sustainabilityDetail: "Zero emissions manufacturing. Derived from plant bagasse waste, fully biodegradable.",
-    images: ["https://images.unsplash.com/photo-1599839575945-a9e5af0c3fa5?w=600&auto=format&fit=crop&q=80"],
-    category: "Delivery Containers",
-    categoryId: "c_delivery",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business"],
-    },
-    certifications: ["BPI Certified", "OK Compost"],
-    rating: 4.7,
-    reviewsCount: 143,
-    badgeType: "eco"
-  },
-  {
-    id: "pkg7",
-    name: "Biodegradable Bagasse Plates (Pack of 50)",
-    slug: "biodegradable-bagasse-plates-50",
-    description: "Super sturdy plates for hot & cold foods. Cut-resistant construction.",
-    price: 349,
-    stock: 280,
-    sustainabilityScore: 98,
-    sustainabilityDetail: "Premium bagasse sugar pulp. Toxic-free chemical treatment.",
-    images: ["https://images.unsplash.com/photo-1576086213369-97a306d36557?w=600&auto=format&fit=crop&q=80"],
-    category: "Tableware",
-    categoryId: "c_tableware",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business", "Premium Verified Seller"],
-    },
-    certifications: ["BPI Certified", "FSC Certified"],
-    rating: 4.9,
-    reviewsCount: 112,
-    badgeType: "verified"
-  },
-  {
-    id: "pkg8",
-    name: "Recycled Kraft Paper Bags (Pack of 100)",
-    slug: "recycled-kraft-paper-bags-100",
-    description: "Heavy-duty grocery and shopping bags with handles. Strong base support.",
-    price: 499,
-    stock: 150,
-    sustainabilityScore: 95,
-    sustainabilityDetail: "100% recycled wood pulp. Zero plastic materials.",
-    images: ["https://images.unsplash.com/photo-1544816155-12df9643f363?w=600&auto=format&fit=crop&q=80"],
-    category: "Paper Products",
-    categoryId: "c_paper",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business"],
-    },
-    certifications: ["FSC Recycled", "PEFC Certified"],
-    rating: 4.8,
-    reviewsCount: 88,
-    badgeType: "bestseller"
-  },
-  {
-    id: "pkg9",
-    name: "Eco-Friendly Bamboo Garbage Bags",
-    slug: "eco-friendly-bamboo-garbage-bags",
-    description: "Compostable, heavy-duty trash bags. Extremely tear-resistant.",
-    price: 189,
-    stock: 220,
-    sustainabilityScore: 92,
-    sustainabilityDetail: "Crafted from natural bamboo fibers, certified compostable.",
-    images: ["https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&auto=format&fit=crop&q=80"],
-    category: "Housekeeping",
-    categoryId: "c_housekeeping",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business"],
-    },
-    certifications: ["USDA Biobased", "OK Compost Home"],
-    rating: 4.6,
-    reviewsCount: 75,
-    badgeType: "eco"
-  },
-  {
-    id: "pkg10",
-    name: "PLA Compostable Cups (Pack of 100)",
-    slug: "pla-compostable-cups-100",
-    description: "Cold cups made from corn starch PLA. High clarity and rigidity.",
-    price: 299,
-    stock: 180,
-    sustainabilityScore: 96,
-    sustainabilityDetail: "Starch-derived PLA polymer. Leaves zero toxic residues upon composting.",
-    images: ["https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80"],
-    category: "Disposable",
-    categoryId: "c_disposable",
-    isApproved: true,
-    sellerId: "seller-pkg",
-    seller: {
-      id: "seller-pkg",
-      companyName: "Earth Centric",
-      badges: ["Verified Business", "Premium Verified Seller"],
-    },
-    certifications: ["BPI Certified", "EN 13432 Compliant"],
-    rating: 4.7,
-    reviewsCount: 104,
-    badgeType: "verified"
-  },
-  {
-    id: "p1",
-    name: "Organic Cotton Classic Tee",
-    slug: "organic-cotton-classic-tee",
-    description: "Crafted from 100% GOTS-certified organic cotton, this t-shirt is dyed with non-toxic, eco-friendly pigments. Spun ethically in small batches by verified weavers. Zero microplastics, breathable, and designed for circular recycling.",
-    price: 1899,
-    originalPrice: 2699,
-    stock: 45,
-    sustainabilityScore: 95,
-    sustainabilityDetail: "Saves 2,000 liters of water compared to conventional cotton. GOTS certified organic, fair-trade manufacturing, colored using natural vegetable dyes.",
-    images: [
-      "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=800&auto=format&fit=crop&q=80"
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
     ],
-    category: "Organic Apparel",
-    categoryId: "c1",
-    isApproved: true,
-    sellerId: "seller-1",
-    seller: {
-      id: "seller-1",
-      companyName: "EcoThreads Apparel",
-      badges: ["Verified Business", "Verified Sustainable Manufacturer"],
-      logoUrl: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=100&auto=format&fit=crop&q=80"
-    },
-    certifications: ["GOTS Organic", "FairTrade Certified"],
-    rating: 4.8,
-    reviewsCount: 34
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Pieces/Pack: 50",
+      "Pieces/Case: 4000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
   },
   {
-    id: "p2",
-    name: "Zero-Waste Bamboo Cutlery Set",
-    slug: "zero-waste-bamboo-cutlery",
-    description: "An elegant, reusable cutlery kit for dining on the go. Made of premium sustainably harvested Moso bamboo. Includes a fork, knife, spoon, bamboo straw, and cleaning brush, nested inside a washable organic canvas wrap.",
-    price: 699,
-    stock: 120,
-    sustainabilityScore: 90,
-    sustainabilityDetail: "100% biodegradable bamboo. Pesticide-free farming. Eliminates single-use plastic waste from food takeout.",
-    images: [
-      "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1610701596007-11502861dcfa?w=800&auto=format&fit=crop&q=80"
+    "id": "prod-pdf-2",
+    "name": "Snack Plate",
+    "slug": "snack-plate",
+    "description": "Eco-friendly Snack Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_2.png"
     ],
-    category: "Zero-Waste Living",
-    categoryId: "c2",
-    isApproved: true,
-    sellerId: "seller-1",
-    seller: {
-      id: "seller-1",
-      companyName: "EcoThreads Apparel",
-      badges: ["Verified Business", "Verified Sustainable Manufacturer"],
-      logoUrl: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=100&auto=format&fit=crop&q=80"
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["FSC Certified", "USDA Biobased"],
-    rating: 4.6,
-    reviewsCount: 18
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Pieces/Pack: 50",
+      "Pieces/Case: 3000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
   },
   {
-    id: "p3",
-    name: "Solar Powered Portable Charger",
-    slug: "solar-portable-charger",
-    description: "High-efficiency monocrystalline solar panels capture ambient sunlight to charge your smart devices on-the-go. Built with an outer chassis made from recycled sea plastic and shockproof upcycled rubber.",
-    price: 3499,
-    stock: 30,
-    sustainabilityScore: 85,
-    sustainabilityDetail: "Encourages renewable energy usage. Frame is crafted entirely from Ocean Bound Plastic. Certified RoHS compliant battery cells.",
-    images: [
-      "https://images.unsplash.com/photo-1620286127226-a36113702e51?w=800&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=800&auto=format&fit=crop&q=80"
+    "id": "prod-pdf-3",
+    "name": "Glass",
+    "slug": "glass",
+    "description": "Eco-friendly Glass made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_3.png"
     ],
-    category: "Renewable Energy",
-    categoryId: "c3",
-    isApproved: true,
-    sellerId: "seller-2",
-    seller: {
-      id: "seller-2",
-      companyName: "SolTerra Systems",
-      badges: ["Verified Business", "Premium Verified Seller"],
-      logoUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100&auto=format&fit=crop&q=80"
+    "category": "Tableware",
+    "categoryId": "tableware",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["B-Corp Certified", "RoHS Compliant"],
-    rating: 4.4,
-    reviewsCount: 22
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
   },
   {
-    id: "p4",
-    name: "Minimalist Hemp Backpack",
-    slug: "minimalist-hemp-backpack",
-    description: "Super-durable daily pack constructed from pure natural hemp fibers and organic cotton canvas backing. Features an interior sleeve for a 15-inch laptop and multi-functional organization pockets. Natural water-resistant qualities.",
-    price: 4999,
-    stock: 15,
-    sustainabilityScore: 92,
-    sustainabilityDetail: "Hemp cultivation regenerates soil health through bioremediation and requires 50% less land than cotton. Biodegradable construction.",
-    images: [
-      "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1622560480654-d96214fdc887?w=800&auto=format&fit=crop&q=80"
+    "id": "prod-pdf-4",
+    "name": "1D Tray",
+    "slug": "1d-tray",
+    "description": "Eco-friendly 1D Tray made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_4.png"
     ],
-    category: "Organic Apparel",
-    categoryId: "c1",
-    isApproved: true,
-    sellerId: "seller-1",
-    seller: {
-      id: "seller-1",
-      companyName: "EcoThreads Apparel",
-      badges: ["Verified Business", "Verified Sustainable Manufacturer"],
+    "category": "Trays",
+    "categoryId": "trays",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["GOTS Certified", "OEKO-TEX Standard"],
-    rating: 4.9,
-    reviewsCount: 15
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
   },
   {
-    id: "p5",
-    name: "Upcycled Glass Water Bottle",
-    slug: "upcycled-glass-bottle",
-    description: "Stylish, robust drinking vessel molded from 100% post-consumer recycled glass jars. Protected by a premium non-slip sleeve made from cork oak bark. Leak-proof natural wood cap with food-grade silicone seal.",
-    price: 1299,
-    stock: 50,
-    sustainabilityScore: 88,
-    sustainabilityDetail: "100% recycled glass composition reduces carbon output of raw manufacturing. Natural oak cork bark sleeve is renewable and biodegradable.",
-    images: [
-      "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=800&auto=format&fit=crop&q=80"
+    "id": "prod-pdf-5",
+    "name": "6\" x 6\" Clamshell Box",
+    "slug": "6x6-clamshell-box",
+    "description": "Eco-friendly 6\" x 6\" Clamshell Box made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_5.png"
     ],
-    category: "Zero-Waste Living",
-    categoryId: "c2",
-    isApproved: true,
-    sellerId: "seller-2",
-    seller: {
-      id: "seller-2",
-      companyName: "SolTerra Systems",
-      badges: ["Verified Business", "Premium Verified Seller"],
+    "category": "Clamshells",
+    "categoryId": "clamshells",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["Forest Stewardship Council (FSC)"],
-    rating: 4.5,
-    reviewsCount: 9
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 6\" x 6\"",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
   },
   {
-    id: "p6",
-    name: "Solid Oak Recycled Cutting Board",
-    slug: "solid-oak-cutting-board",
-    description: "Premium kitchen cutting blocks crafted from upcycled oak wood offcuts collected from architectural build sites. Conditioned with high-grade organic cold-pressed flaxseed oil. Extremely knife-friendly, durable, and naturally antibacterial.",
-    price: 2799,
-    stock: 8,
-    sustainabilityScore: 82,
-    sustainabilityDetail: "Saves wood waste from landfills. Sanded and treated completely by hand without any chemical stains, binders, or synthetic adhesives.",
-    images: [
-      "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=800&auto=format&fit=crop&q=80"
+    "id": "prod-pdf-6",
+    "name": "9\" x 9\" Clamshell Box",
+    "slug": "9x9-clamshell-box",
+    "description": "Eco-friendly 9\" x 9\" Clamshell Box made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_6.png"
     ],
-    category: "Eco Home Goods",
-    categoryId: "c4",
-    isApproved: true,
-    sellerId: "seller-1",
-    seller: {
-      id: "seller-1",
-      companyName: "EcoThreads Apparel",
-      badges: ["Verified Business", "Verified Sustainable Manufacturer"],
+    "category": "Clamshells",
+    "categoryId": "clamshells",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["FSC Upcycled Wood"],
-    rating: 4.7,
-    reviewsCount: 29
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 9\" x 9\"",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 200",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
   },
   {
-    id: "p7",
-    name: "Organic Herbal Solid Shampoo Bar",
-    slug: "organic-herbal-solid-shampoo-bar",
-    description: "Sulfate-free, plastic-free organic shampoo bar. Gently cleanses and moisturizes with natural herbal extracts and pure essential oils.",
-    price: 120,
-    originalPrice: 150,
-    stock: 120,
-    sustainabilityScore: 98,
-    sustainabilityDetail: "100% biodegradable ingredients, completely zero-waste cardboard packaging. No synthetic preservatives or chemical surfactants.",
-    images: [
-      "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?w=800&auto=format&fit=crop&q=80"
+    "id": "prod-pdf-7",
+    "name": "100 ml Round Bowl",
+    "slug": "100-ml-round-bowl",
+    "description": "Eco-friendly 100 ml Round Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_7.png"
     ],
-    category: "Zero-Waste Living",
-    categoryId: "c2",
-    isApproved: true,
-    sellerId: "seller-2",
-    seller: {
-      id: "seller-2",
-      companyName: "SolTerra Systems",
-      badges: ["Verified Business", "Premium Verified Seller"],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
     },
-    certifications: ["Cruelty-Free Certified", "USDA Organic Ingredients"],
-    rating: 4.9,
-    reviewsCount: 42,
-    bulkPriceSlabs: [
-      { min: 1, price: 120, total: 120 },
-      { min: 2, price: 100, total: 200 }
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 100 ml",
+      "Shape: Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 4000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-8",
+    "name": "120 ml Square Bowl",
+    "slug": "120-ml-square-bowl",
+    "description": "Eco-friendly 120 ml Square Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_8.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 120 ml",
+      "Shape: Square",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 4000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-9",
+    "name": "150 ml Kiwi Bowl",
+    "slug": "150-ml-kiwi-bowl",
+    "description": "Eco-friendly 150 ml Kiwi Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_9.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 150 ml",
+      "Type: Kiwi Bowl",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 4000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-10",
+    "name": "180 ml Deep Round Bowl",
+    "slug": "180-ml-deep-round-bowl",
+    "description": "Eco-friendly 180 ml Deep Round Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_10.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 180 ml",
+      "Shape: Deep Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-11",
+    "name": "180 ml Round Bowl",
+    "slug": "180-ml-round-bowl",
+    "description": "Eco-friendly 180 ml Round Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_11.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 180 ml",
+      "Shape: Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-12",
+    "name": "180 ml Square Bowl",
+    "slug": "180-ml-square-bowl",
+    "description": "Eco-friendly 180 ml Square Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p1_12.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 180 ml",
+      "Shape: Square",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-13",
+    "name": "240 ml Deep Round Bowl",
+    "slug": "240-ml-deep-round-bowl",
+    "description": "Eco-friendly 240 ml Deep Round Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_1.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 240 ml",
+      "Shape: Deep Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-14",
+    "name": "300 ml Deep Round Bowl",
+    "slug": "300-ml-deep-round-bowl",
+    "description": "Eco-friendly 300 ml Deep Round Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_2.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 300 ml",
+      "Shape: Deep Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-15",
+    "name": "360 ml Round Bowl",
+    "slug": "360-ml-round-bowl",
+    "description": "Eco-friendly 360 ml Round Bowl made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_3.png"
+    ],
+    "category": "Bowls",
+    "categoryId": "bowls",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Capacity: 360 ml",
+      "Shape: Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 1800",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-16",
+    "name": "4\" Sq Saucer Plate",
+    "slug": "4-sq-saucer-plate",
+    "description": "Eco-friendly 4\" Sq Saucer Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_4.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 4\" Square",
+      "Type: Saucer Plate",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 3000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-17",
+    "name": "6\" Deep Round Plate",
+    "slug": "6-deep-round-plate",
+    "description": "Eco-friendly 6\" Deep Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_5.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 6\" Diameter",
+      "Type: Deep Round Plate",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-18",
+    "name": "2 CP Plate",
+    "slug": "2-cp-plate",
+    "description": "Eco-friendly 2 CP Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_6.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Type: 2-Compartment Plate",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 2000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-19",
+    "name": "7\" Round Plate",
+    "slug": "7-round-plate",
+    "description": "Eco-friendly 7\" Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_7.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 7\" Diameter",
+      "Shape: Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 1800",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-20",
+    "name": "7\" Square Plate",
+    "slug": "7-square-plate",
+    "description": "Eco-friendly 7\" Square Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_8.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 7\" Square",
+      "Shape: Square",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 1800",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-21",
+    "name": "3CP Rectangular Plate",
+    "slug": "3cp-rectangular-plate",
+    "description": "Eco-friendly 3CP Rectangular Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_9.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Type: 3-Compartment Rectangular Plate",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 1000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-22",
+    "name": "9\" Round Plate",
+    "slug": "9-round-plate",
+    "description": "Eco-friendly 9\" Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_10.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 9\" Diameter",
+      "Shape: Round",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 1000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-23",
+    "name": "9\" 3 CP Round Plate",
+    "slug": "9-3-cp-round-plate",
+    "description": "Eco-friendly 9\" 3 CP Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_11.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 9\" Diameter",
+      "Type: 3-Compartment Round Plate",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 1000",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-24",
+    "name": "9\" Square Plate",
+    "slug": "9-square-plate",
+    "description": "Eco-friendly 9\" Square Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p2_12.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 50,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 9\" Square",
+      "Shape: Square",
+      "Pieces/Pack: 50",
+      "Pieces/Case: 600",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-25",
+    "name": "10\" Round Plate",
+    "slug": "10-round-plate",
+    "description": "Eco-friendly 10\" Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_1.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 10\" Diameter",
+      "Shape: Round",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-26",
+    "name": "10\" 3CP Round Plate",
+    "slug": "10-3cp-round-plate",
+    "description": "Eco-friendly 10\" 3CP Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_2.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 10\" Diameter",
+      "Type: 3-Compartment Round Plate",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-27",
+    "name": "10\" Square Plate",
+    "slug": "10-square-plate",
+    "description": "Eco-friendly 10\" Square Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_3.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 10\" Square",
+      "Shape: Square",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-28",
+    "name": "10\" 3CP Square",
+    "slug": "10-3cp-square",
+    "description": "Eco-friendly 10\" 3CP Square made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_4.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 10\" Square",
+      "Type: 3-Compartment Square Plate",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-29",
+    "name": "11\" Round Plate",
+    "slug": "11-round-plate",
+    "description": "Eco-friendly 11\" Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_5.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 11\" Diameter",
+      "Shape: Round",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-30",
+    "name": "11\" 4CP Round Plate",
+    "slug": "11-4cp-round-plate",
+    "description": "Eco-friendly 11\" 4CP Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_6.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 11\" Diameter",
+      "Type: 4-Compartment Round Plate",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-31",
+    "name": "12\" Round Plate",
+    "slug": "12-round-plate",
+    "description": "Eco-friendly 12\" Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_7.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 12\" Diameter",
+      "Shape: Round",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-32",
+    "name": "12\" 4 CP Round Plate",
+    "slug": "12-4-cp-round-plate",
+    "description": "Eco-friendly 12\" 4 CP Round Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_8.png"
+    ],
+    "category": "Plates",
+    "categoryId": "plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Dimensions: 12\" Diameter",
+      "Type: 4-Compartment Round Plate",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-33",
+    "name": "4 CP Meal Plate",
+    "slug": "4-cp-meal-plate",
+    "description": "Eco-friendly 4 CP Meal Plate made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 1,
+    "originalPrice": 1,
+    "wholesalePrice": 1,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_9.png"
+    ],
+    "category": "Meal Trays & Plates",
+    "categoryId": "meal-trays-plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Type: 4-Compartment Meal Plate",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 500",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
+    ]
+  },
+  {
+    "id": "prod-pdf-34",
+    "name": "5 CP Meal Tray & Lid",
+    "slug": "5-cp-meal-tray-and-lid",
+    "description": "Eco-friendly 5 CP Meal Tray & Lid made from 100% biodegradable and compostable sugarcane bagasse.",
+    "price": 2,
+    "originalPrice": 2,
+    "wholesalePrice": 2,
+    "stock": 1000,
+    "sustainabilityScore": 95,
+    "sustainabilityDetail": "100% plant-based renewable agricultural waste fiber. Zero plastic and zero petroleum chemicals.",
+    "images": [
+      "/images/products/product_p3_10.png"
+    ],
+    "category": "Meal Trays & Plates",
+    "categoryId": "meal-trays-plates",
+    "isApproved": true,
+    "sellerId": "cmvcbbtm80001txgw8dd0r3lk",
+    "seller": {
+      "id": "cmvcbbtm80001txgw8dd0r3lk",
+      "companyName": "AR ECO INDIA",
+      "badges": [
+        "Verified Business",
+        "Verified Sustainable Manufacturer",
+        "Eco Certified"
+      ],
+      "logoUrl": "/images/products/product_p1_1.png",
+      "trustScore": 98
+    },
+    "certifications": [
+      "100% Biodegradable",
+      "100% Compostable"
+    ],
+    "rating": 5,
+    "reviewsCount": 12,
+    "badgeType": "verified",
+    "moq": 25,
+    "highlights": [
+      "100% Biodegradable & Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "Chemical-Free Sugarcane Bagasse"
+    ],
+    "technicalSpecs": [
+      "Type: 5-Compartment Meal Tray with Matching Lid",
+      "Pieces/Pack: 25",
+      "Pieces/Case: 450",
+      "100% Biodegradable",
+      "100% Compostable",
+      "Freezer & Microwave Safe",
+      "Oil & Water Proof",
+      "100% Organic",
+      "No Chemical"
     ]
   }
 ];
 
-// In-memory array to simulate newly added products during the demo session
 let dynamicProducts: ProductItem[] = [];
 
 export async function getDynamicProducts(): Promise<ProductItem[]> {

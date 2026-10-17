@@ -43,71 +43,71 @@ const CERTIFICATIONS = [
 const CAROUSEL_SLIDES = [
   {
     image: "https://images.unsplash.com/photo-1473448912268-2022ce9509d8?w=1600&auto=format&fit=crop&q=80",
-    title: "ECO HOME SHOPPING SPREE",
-    tagline: "Starting from ₹99 | Extra up to ₹150 Cashback on verified sustainable brands",
-    buttonText: "Shop Deals",
-    category: "eco-home-goods"
+    title: "SUSTAINABLE TABLEWARE COLLECTION",
+    tagline: "100% Biodegradable & Compostable Sugarcane Bagasse | Prices starting at ₹1",
+    buttonText: "Shop Tableware",
+    category: "tableware"
   },
   {
     image: "https://images.unsplash.com/photo-1544816155-12df9643f363?w=1600&auto=format&fit=crop&q=80",
-    title: "REVAMP YOUR WARDROBE",
-    tagline: "Up to 30% Off GOTS-certified Organic Apparel & Hemp clothing",
-    buttonText: "Explore Apparel",
-    category: "organic-apparel"
+    title: "ECO-FRIENDLY PLATES & PLATTERS",
+    tagline: "Heavy-duty microwave & freezer safe dinnerware | Only ₹1 or ₹2",
+    buttonText: "Explore Plates",
+    category: "plates"
   },
   {
     image: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=1600&auto=format&fit=crop&q=80",
-    title: "DEALS ON HOME ESSENTIALS",
-    tagline: "Zero-waste living made easy | Biodegradable Moso Bamboo starting at ₹49",
-    buttonText: "Browse Zero-Waste",
-    category: "zero-waste-living"
+    title: "COMPOSTABLE BOWLS & CLAMSHELLS",
+    tagline: "Oil & water proof natural fiber bowls & meal boxes | Only ₹1 or ₹2",
+    buttonText: "Browse Bowls",
+    category: "bowls"
   }
 ];
 
 const GRID_CARDS = [
   {
-    title: "Organic Apparel & Linen | Up to 30% off",
-    category: "organic-apparel",
+    title: "Eco Bowls & Cups | ₹1 & ₹2",
+    category: "bowls",
     items: [
-      { name: "Organic Hemp Tee", slug: "organic-hemp-tee", image: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=400&q=80", price: "₹1,899" },
-      { name: "Linen Lounge Pants", slug: "linen-lounge-pants", image: "https://images.unsplash.com/photo-1509551388413-e18d0ac5d495?w=400&q=80", price: "₹2,499" },
-      { name: "Organic Cotton Tee", slug: "organic-cotton-classic-tee", image: "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=400&q=80", price: "₹1,899" },
-      { name: "Minimalist Backpack", slug: "minimalist-hemp-backpack", image: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=400&q=80", price: "₹4,999" }
+      { name: "Sauce Dip Bowl", slug: "sauce-dip-bowl", image: "/images/products/product_p1_1.png", price: "₹1" },
+      { name: "100 ml Round Bowl", slug: "100-ml-round-bowl", image: "/images/products/product_p1_7.png", price: "₹1" },
+      { name: "120 ml Square Bowl", slug: "120-ml-square-bowl", image: "/images/products/product_p1_8.png", price: "₹2" },
+      { name: "Glass", slug: "glass", image: "/images/products/product_p1_3.png", price: "₹1" }
     ],
-    linkText: "Shop Organic Apparel"
+    linkText: "Shop Eco Bowls"
   },
   {
-    title: "Zero-Waste Living | Deals from ₹49",
-    category: "zero-waste-living",
+    title: "Dining & Snack Plates | ₹1 & ₹2",
+    category: "plates",
     items: [
-      { name: "Bamboo Cutlery", slug: "zero-waste-bamboo-cutlery", image: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&q=80", price: "₹699" },
-      { name: "Upcycled Tote", slug: "zero-waste-cotton-tote", image: "https://images.unsplash.com/photo-1544816155-12df9643f363?w=400&q=80", price: "₹499" },
-      { name: "Glass Water Bottle", slug: "upcycled-glass-bottle", image: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=400&q=80", price: "₹1,299" },
-      { name: "Eco Straws & Kits", slug: "zero-waste-bamboo-cutlery", image: "https://images.unsplash.com/photo-1610701596007-11502861dcfa?w=400&q=80", price: "₹699" }
+      { name: "Snack Plate", slug: "snack-plate", image: "/images/products/product_p1_2.png", price: "₹2" },
+      { name: "6\" Deep Round Plate", slug: "6-deep-round-plate", image: "/images/products/product_p2_5.png", price: "₹1" },
+      { name: "7\" Round Plate", slug: "7-round-plate", image: "/images/products/product_p2_7.png", price: "₹1" },
+      { name: "9\" Square Plate", slug: "9-square-plate", image: "/images/products/product_p2_12.png", price: "₹2" }
     ],
-    linkText: "Browse Zero-Waste Shop"
+    linkText: "Shop Eco Plates"
   },
   {
-    title: "Renewable Energy | Solar Chargers",
-    category: "renewable-energy",
+    title: "Compartment Plates & Thalis | ₹1 & ₹2",
+    category: "plates",
     items: [
-      { name: "Solar Chargers", slug: "solar-portable-charger", image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=400&q=80", price: "₹3,499" },
-      { name: "Solar Power Bank", slug: "solar-portable-charger", image: "https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=400&q=80", price: "₹3,499" },
-      { name: "Solar Lanterns", slug: "solar-portable-charger", image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=400&q=80", price: "Starting ₹99" },
-      { name: "Outdoor Solar Gear", slug: "solar-portable-charger", image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=400&q=80", price: "Up to 20% off" }
+      { name: "2 CP Plate", slug: "2-cp-plate", image: "/images/products/product_p2_6.png", price: "₹2" },
+      { name: "3CP Rectangular Plate", slug: "3cp-rectangular-plate", image: "/images/products/product_p2_9.png", price: "₹1" },
+      { name: "9\" 3 CP Round Plate", slug: "9-3-cp-round-plate", image: "/images/products/product_p2_11.png", price: "₹1" },
+      { name: "11\" 4CP Round Plate", slug: "11-4cp-round-plate", image: "/images/products/product_p3_6.png", price: "₹2" }
     ],
-    linkText: "Explore Renewable Energy"
+    linkText: "Explore Compartment Plates"
   },
   {
-    title: "Eco Home Goods | Upcycled Wood",
-    category: "eco-home-goods",
+    title: "Clamshells & Meal Trays | ₹1 & ₹2",
+    category: "clamshells",
     items: [
-      { name: "Cooling Sheets", slug: "bamboo-cooling-sheets", image: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=400&q=80", price: "₹3,499" },
-      { name: "Duvet Cover", slug: "tencel-duvet-cover", image: "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=400&q=80", price: "₹4,999" },
-      { name: "Hemp Bath Towels", slug: "hemp-bath-towels", image: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400&q=80", price: "₹1,299" },
-      { name: "Wood Board", slug: "solid-oak-cutting-board", image: "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=400&q=80", price: "₹2,799" }
+      { name: "6\" x 6\" Clamshell", slug: "6x6-clamshell-box", image: "/images/products/product_p1_5.png", price: "₹1" },
+      { name: "9\" x 9\" Clamshell", slug: "9x9-clamshell-box", image: "/images/products/product_p1_6.png", price: "₹2" },
+      { name: "1D Tray", slug: "1d-tray", image: "/images/products/product_p1_4.png", price: "₹2" },
+      { name: "5 CP Meal Tray & Lid", slug: "5-cp-meal-tray-and-lid", image: "/images/products/product_p3_10.png", price: "₹2" }
     ],
-    linkText: "Shop Eco Home Goods"
+    linkText: "Shop Clamshells & Trays"
   }
 ];
 

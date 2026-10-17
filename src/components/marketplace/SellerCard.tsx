@@ -15,45 +15,10 @@ export interface SellerData {
 
 export const TOP_SELLERS: SellerData[] = [
   {
-    id: "s1",
-    name: "GreenLeaf Organics",
-    city: "Bangalore",
-    productCount: 142,
-    badge: "Premium Seller",
-  },
-  {
-    id: "s2",
-    name: "EcoWeave Textiles",
-    city: "Ahmedabad",
-    productCount: 88,
-    badge: "Sustainable Mfr.",
-  },
-  {
-    id: "s3",
-    name: "SolarBright India",
-    city: "Chennai",
-    productCount: 56,
-    badge: "Verified Business",
-  },
-  {
-    id: "s4",
-    name: "HempHarvest Co.",
-    city: "Pune",
-    productCount: 74,
-    badge: "Sustainable Mfr.",
-  },
-  {
-    id: "s5",
-    name: "ZeroWaste Hub",
-    city: "Mumbai",
-    productCount: 105,
-    badge: "Premium Seller",
-  },
-  {
-    id: "s6",
-    name: "TerraCraft Studio",
-    city: "Jaipur",
-    productCount: 63,
+    id: "cmvcbbtm80001txgw8dd0r3lk",
+    name: "AR ECO INDIA",
+    city: "India",
+    productCount: 34,
     badge: "Verified Business",
   },
 ];

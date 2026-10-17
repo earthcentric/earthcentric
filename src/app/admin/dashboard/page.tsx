@@ -66,18 +66,9 @@ import {
   Sparkles,
 } from "lucide-react";
 
-// Mock User Data for User Management View
+// Mock User Data for User Management View Fallback
 const MOCK_USERS = [
-  { id: "seller-1", name: "Shiva Teja", email: "bluegamer355@gmail.com", phone: "8121143399", role: "Seller", joinedDate: "11 Jun 2026", orders: "No orders placed yet" },
-  { id: "seller-2", name: "Shiva Teja Yadav", email: "imshivateja082@gmail.com", phone: "8639096121", role: "Seller", joinedDate: "10 Jun 2026", orders: "No orders placed yet" },
-];
-
-// Mock Product Data for Product Approval View
-const MOCK_PRODUCTS = [
-  { sku: "PROD-8321", name: "Biodegradable Bamboo Straws Pack", seller: "GreenLeaf Organics", category: "Disposables", price: 199, claims: "100% organic bamboo, zero-plastic packaging, chemical-free processing" },
-  { sku: "PROD-7910", name: "Recycled Waste Paper Notebook Set", seller: "EcoKraft India", category: "Stationery", price: 249, claims: "Made from 100% post-consumer waste paper, organic soy-based inks" },
-  { sku: "PROD-6812", name: "Organic Jute Wine Tote Bags", seller: "Bangalore Jute Crafts", category: "Bags", price: 399, claims: "Sustainable plant fiber, natural vegetable dyes, heavy-duty stitching" },
-  { sku: "PROD-6815", name: "Handcrafted Coconut Shell Bowls", seller: "Kerala Naturals", category: "Home Goods", price: 499, claims: "Upcycled natural coconut shells, food-safe polish" },
+  { id: "user_3KopVGVdy94cAVqZ4lzQjtWRCMK", name: "AR ECO INDIA", email: "ar.eco.india2026@gmail.com", phone: "+91 8868882388", role: "Seller", joinedDate: "17 Oct 2026", orders: "Active Designated Seller" },
 ];
 
 // Mock Order Transactions

@@ -50,91 +50,8 @@ export interface AdminConversationSummary {
   isOnline?: boolean;
 }
 
-// In-memory mock store for messages
-const mockMessages: MessageData[] = [
-  {
-    id: "m-1",
-    senderId: "admin-1",
-    receiverId: "seller-1",
-    content: "Hello Shiva! Welcome to EarthCentric Seller Portal. Please ensure your GST & PAN documents are uploaded.",
-    isRead: true,
-    isDelivered: true,
-    createdAt: new Date(Date.now() - 3600000 * 24),
-    senderName: "Super Admin",
-    senderRole: "ADMIN",
-  },
-  {
-    id: "m-2",
-    senderId: "seller-1",
-    receiverId: "admin-1",
-    content: "Hi Admin! I have uploaded all required business documents for EcoThreads Apparel. Please review my profile.",
-    isRead: true,
-    isDelivered: true,
-    createdAt: new Date(Date.now() - 3600000 * 20),
-    senderName: "Shiva Teja",
-    senderRole: "SELLER",
-    attachments: [
-      {
-        name: "gots_organic_cert.pdf",
-        url: "https://images.unsplash.com/photo-1606857521015-7f9fcf423740?w=800",
-        type: "pdf",
-        size: 1024 * 512,
-      }
-    ]
-  },
-  {
-    id: "m-3",
-    senderId: "admin-1",
-    receiverId: "seller-1",
-    content: "Your seller account for EcoThreads Apparel has been APPROVED! 🚀 You can now publish products to the Marketplace.",
-    isRead: true,
-    isDelivered: true,
-    createdAt: new Date(Date.now() - 3600000 * 10),
-    senderName: "Super Admin",
-    senderRole: "ADMIN",
-    reference: {
-      type: "verification",
-      id: "seller-1-profile",
-      title: "Verification Approved",
-      subtitle: "EcoThreads Apparel — Status: APPROVED",
-    }
-  },
-  {
-    id: "m-4",
-    senderId: "seller-1",
-    receiverId: "admin-1",
-    content: "Thank you so much! Regarding Order #EC-ORD-8834A, when will buyer payout settlement be processed?",
-    isRead: false,
-    isDelivered: true,
-    createdAt: new Date(Date.now() - 3600000 * 2),
-    senderName: "Shiva Teja",
-    senderRole: "SELLER",
-    reference: {
-      type: "order",
-      id: "ord-8834a",
-      title: "Order #EC-ORD-8834A",
-      subtitle: "Organic Cotton Classic Tee — ₹1,899",
-      price: 1899,
-    }
-  },
-  {
-    id: "m-5",
-    senderId: "seller-2",
-    receiverId: "admin-1",
-    content: "Greetings Admin! We have submitted our BioKnit Textiles product discount for approval.",
-    isRead: false,
-    isDelivered: true,
-    createdAt: new Date(Date.now() - 3600000 * 5),
-    senderName: "Rohan Mehta",
-    senderRole: "SELLER",
-    reference: {
-      type: "discount",
-      id: "p2",
-      title: "Individual Discount Request: 20% OFF",
-      subtitle: "Zero-Waste Bamboo Cutlery Set",
-    }
-  }
-];
+// In-memory mock store for messages (empty by default)
+const mockMessages: MessageData[] = [];
 
 // Helper to map any ID (User ID, Seller ID, Seller Profile ID, or Email) to User ID in Mock Mode
 async function resolveMockUserId(idOrEmail: string): Promise<string> {
@@ -423,26 +340,28 @@ export async function getAllConversationsForAdmin(): Promise<AdminConversationSu
           },
         });
 
-        const lastMsg = conversationMsgs[0];
-        const unreadCount = conversationMsgs.filter(
-          (m) => m.receiverId === adminId && !m.isRead
-        ).length;
+        if (conversationMsgs.length > 0) {
+          const lastMsg = conversationMsgs[0];
+          const unreadCount = conversationMsgs.filter(
+            (m) => m.receiverId === adminId && !m.isRead
+          ).length;
 
-        summaries.push({
-          sellerId: seller.id,
-          sellerUserId: sellerUserId,
-          sellerName: seller.ownerName || seller.founderName || seller.user?.name || "Seller Partner",
-          companyName: seller.companyName || "Organic Store",
-          email: seller.user?.email || "seller@earthcentric.com",
-          phone: seller.phone || "",
-          avatarUrl: seller.logoUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150`,
-          verificationStatus: seller.verificationStatus || "APPROVED",
-          accountStatus: "ACTIVE",
-          lastMessage: lastMsg ? lastMsg.content : "No messages yet.",
-          lastMessageTime: lastMsg ? new Date(lastMsg.createdAt) : new Date(Date.now() - 3600000 * 48),
-          unreadCount,
-          isOnline: sellerUserId === "seller-1" || false,
-        });
+          summaries.push({
+            sellerId: seller.id,
+            sellerUserId: sellerUserId,
+            sellerName: seller.ownerName || seller.founderName || seller.user?.name || "Seller Partner",
+            companyName: seller.companyName || "Organic Store",
+            email: seller.user?.email || "seller@earthcentric.com",
+            phone: seller.phone || "",
+            avatarUrl: seller.logoUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150`,
+            verificationStatus: seller.verificationStatus || "APPROVED",
+            accountStatus: "ACTIVE",
+            lastMessage: lastMsg.content,
+            lastMessageTime: new Date(lastMsg.createdAt),
+            unreadCount,
+            isOnline: false,
+          });
+        }
       }
 
       summaries.sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
@@ -457,34 +376,36 @@ export async function getAllConversationsForAdmin(): Promise<AdminConversationSu
     const mockSellers = await getMockSellersInternal();
     const adminId = "admin-1";
 
-    const summaries: AdminConversationSummary[] = mockSellers.map((seller) => {
+    const summaries: AdminConversationSummary[] = [];
+    for (const seller of mockSellers) {
       const sellerUserId = seller.userId || seller.id;
       const conversationMsgs = mockMessages.filter(
         (m) => (m.senderId === adminId && m.receiverId === sellerUserId) ||
                (m.senderId === sellerUserId && m.receiverId === adminId)
       );
 
-      conversationMsgs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      if (conversationMsgs.length > 0) {
+        conversationMsgs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const lastMsg = conversationMsgs[0];
+        const unreadCount = conversationMsgs.filter((m) => m.receiverId === adminId && !m.isRead).length;
 
-      const lastMsg = conversationMsgs[0];
-      const unreadCount = conversationMsgs.filter((m) => m.receiverId === adminId && !m.isRead).length;
-
-      return {
-        sellerId: seller.id,
-        sellerUserId: sellerUserId,
-        sellerName: seller.ownerName || seller.founderName || seller.userName || "Seller Partner",
-        companyName: seller.companyName || "Organic Store",
-        email: seller.user?.email || (sellerUserId === "seller-1" ? "bluegamer355@gmail.com" : "imshivateja082@gmail.com"),
-        phone: seller.phone || (sellerUserId === "seller-1" ? "+91 98765 43210" : "+91 98123 45678"),
-        avatarUrl: seller.logoUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150`,
-        verificationStatus: seller.verificationStatus || "APPROVED",
-        accountStatus: "ACTIVE",
-        lastMessage: lastMsg ? lastMsg.content : "No messages yet.",
-        lastMessageTime: lastMsg ? new Date(lastMsg.createdAt) : new Date(Date.now() - 3600000 * 48),
-        unreadCount,
-        isOnline: sellerUserId === "seller-1",
-      };
-    });
+        summaries.push({
+          sellerId: seller.id,
+          sellerUserId: sellerUserId,
+          sellerName: seller.ownerName || seller.founderName || seller.userName || "Seller Partner",
+          companyName: seller.companyName || "Organic Store",
+          email: seller.user?.email || "seller@earthcentric.com",
+          phone: seller.phone || "",
+          avatarUrl: seller.logoUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150`,
+          verificationStatus: seller.verificationStatus || "APPROVED",
+          accountStatus: "ACTIVE",
+          lastMessage: lastMsg.content,
+          lastMessageTime: new Date(lastMsg.createdAt),
+          unreadCount,
+          isOnline: false,
+        });
+      }
+    }
 
     summaries.sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
     return summaries;

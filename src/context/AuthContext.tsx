@@ -42,13 +42,13 @@ const DEMO_USERS: Record<Role, User> = {
     role: "BUYER",
   },
   SELLER: {
-    id: "seller-1",
-    name: "EcoThreads Inc",
-    email: "contact@ecothreads.com",
+    id: "user_3KopVGVdy94cAVqZ4lzQjtWRCMK",
+    name: "AR ECO INDIA",
+    email: "ar.eco.india2026@gmail.com",
     role: "SELLER",
     sellerStatus: "APPROVED",
-    sellerId: "seller-1-profile",
-    badges: ["Verified Business", "Verified Sustainable Manufacturer"],
+    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
+    badges: ["Verified Business", "Verified Sustainable Manufacturer", "Eco Certified"],
   },
   ADMIN: {
     id: "admin-1",
@@ -77,6 +77,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (cancelled) return;
 
       if (!isSignedIn || !clerkUser) {
+        // If there's an active local session (e.g. from credentials login), preserve it
+        if (typeof window !== "undefined") {
+          const saved = localStorage.getItem("earthcentric_user");
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              setUser(parsed);
+              setIsLoading(false);
+              return;
+            } catch (e) {
+              // Ignore parse error and proceed to clear
+            }
+          }
+        }
         setUser(null);
         setIsLoading(false);
         localStorage.removeItem("earthcentric_user");

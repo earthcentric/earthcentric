@@ -40,9 +40,13 @@ export default clerkMiddleware(async (auth, request) => {
 
   if (sessionCookie) {
     try {
-      session = JSON.parse(sessionCookie);
+      session = JSON.parse(decodeURIComponent(sessionCookie));
     } catch (e) {
-      console.error('Invalid session cookie format');
+      try {
+        session = JSON.parse(sessionCookie);
+      } catch (e2) {
+        console.error('Invalid session cookie format');
+      }
     }
   }
 
