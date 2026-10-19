@@ -6,6 +6,14 @@ import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "@/lib/email";
 import { createNotification, createAdminNotification } from "./notifications";
 import { getProductById } from "./products";
 import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
+import { verifyAdminAuth, verifyAuthenticatedUser, verifySellerAuth } from "@/lib/auth-server";
+import {
+  applyCashfreeRefundWebhook,
+  refreshCancellationRefund as refreshCashfreeCancellationRefund,
+  retryFailedCancellationRefund,
+  startCancellationRefund,
+  type RefundState,
+} from "@/lib/order-cancellations";
 
 export interface OrderItemInput {
   productId: string;
@@ -35,7 +43,7 @@ export interface OrderDetail {
     phone?: string;
   };
   totalAmount: number;
-  status: "PLACED" | "CONFIRMED" | "PACKED" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "RETURNED";
+  status: "PLACED" | "CONFIRMED" | "PACKED" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "RETURNED" | "REFUNDED";
   createdAt: Date;
   address: AddressInput;
   items: {
@@ -52,6 +60,19 @@ export interface OrderDetail {
     };
   }[];
   paymentStatus: "PENDING" | "COMPLETED" | "FAILED";
+  cancellation?: {
+    id: string;
+    status: string;
+    reason: string;
+    requestedAt: Date;
+    reviewedAt?: Date | null;
+    adminNote?: string | null;
+    refundStatus: RefundState;
+    refundAmount?: number | null;
+    cashfreeRefundReference?: string | null;
+    refundArn?: string | null;
+    refundError?: string | null;
+  };
   cashfreeOrderId?: string;
   cashfreePaymentSessionId?: string;
   timeline: {
@@ -63,11 +84,43 @@ export interface OrderDetail {
     name: string;
     email: string;
     phone?: string;
+    image?: string | null;
+    emailVerified?: Date | null;
   };
 }
 
 // In-memory global arrays to mock order records for sandbox testing
 let mockOrders: OrderDetail[] = [];
+
+function mapLatestCancellation(cancellations?: {
+  id: string;
+  status: string;
+  reason: string;
+  requestedAt: Date;
+  reviewedAt: Date | null;
+  adminNote: string | null;
+  refundStatus: string;
+  refundAmount: number | null;
+  cashfreeRefundReference: string | null;
+  refundArn: string | null;
+  refundError: string | null;
+}[]): OrderDetail["cancellation"] {
+  const cancellation = cancellations?.[0];
+  if (!cancellation) return undefined;
+  return {
+    id: cancellation.id,
+    status: cancellation.status,
+    reason: cancellation.reason,
+    requestedAt: cancellation.requestedAt,
+    reviewedAt: cancellation.reviewedAt,
+    adminNote: cancellation.adminNote,
+    refundStatus: cancellation.refundStatus as RefundState,
+    refundAmount: cancellation.refundAmount,
+    cashfreeRefundReference: cancellation.cashfreeRefundReference,
+    refundArn: cancellation.refundArn,
+    refundError: cancellation.refundError,
+  };
+}
 
 export async function createOrder(data: {
   userId: string;
@@ -408,14 +461,31 @@ export async function confirmOrderPayment(
     // Find all orders in this payment group
     const dbOrders = await db.order.findMany({
       where: { paymentGroupId: cashfreeOrderId },
-      select: { id: true, totalAmount: true },
+      select: {
+        id: true,
+        totalAmount: true,
+        status: true,
+        cancellations: {
+          where: { status: "APPROVED" },
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
     });
     
     const ordersToUpdate = dbOrders.length > 0 ? dbOrders : [{ id: orderId, totalAmount: 0 }];
 
     for (const ord of ordersToUpdate) {
-      await db.order.update({
-        where: { id: ord.id },
+      if ("status" in ord && (ord.status === "CANCELLED" || ord.status === "REFUNDED")) {
+        if (ord.cancellations[0]) {
+          await startCancellationRefund(ord.cancellations[0].id);
+        }
+        continue;
+      }
+
+      await db.order.updateMany({
+        where: { id: ord.id, status: { notIn: ["CANCELLED", "REFUNDED"] } },
         data: { status: "CONFIRMED" },
       });
 
@@ -469,8 +539,9 @@ export async function confirmOrderPayment(
 }
 
 export async function getOrderById(orderId: string): Promise<OrderDetail | null> {
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (isMock) {
       return mockOrders.find((o) => o.id === orderId) || null;
     }
 
@@ -488,6 +559,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
           },
         },
         payment: true,
+        cancellations: { orderBy: { requestedAt: "desc" }, take: 1 },
         timeline: {
           orderBy: { createdAt: "asc" },
         },
@@ -495,6 +567,16 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
     });
 
     if (!order) return null;
+    const auth = await verifyAuthenticatedUser();
+    const isAdmin = auth.authorized && (auth.role === "ADMIN" || (await verifyAdminAuth()).authorized);
+    const isOrderSeller =
+      auth.authorized &&
+      auth.role === "SELLER" &&
+      (auth.sellerId === order.sellerId ||
+        order.items.some((item) => item.product.sellerId === auth.sellerId));
+    if (!auth.authorized || (!isAdmin && auth.userId !== order.userId && !isOrderSeller)) {
+      return null;
+    }
 
     return {
       id: order.id,
@@ -517,6 +599,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
+      cancellation: mapLatestCancellation(order.cancellations),
       ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
@@ -525,14 +608,21 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       })),
     };
   } catch (e) {
-    console.warn("getOrderById failed, returning mock order:", e);
-    return mockOrders.find((o) => o.id === orderId) || null;
+    console.error("getOrderById failed:", e);
+    return null;
   }
 }
 
 export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  if (!isMock) {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || auth.userId !== userId) {
+      throw new Error("You can only view orders belonging to your signed-in account.");
+    }
+  }
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (isMock) {
       return mockOrders
         .filter((o) => o.userId === userId && o.paymentStatus === "COMPLETED")
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -557,6 +647,7 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
           },
         },
         payment: true,
+        cancellations: { orderBy: { requestedAt: "desc" }, take: 1 },
         timeline: true,
       },
       orderBy: { createdAt: "desc" },
@@ -583,6 +674,7 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
+      cancellation: mapLatestCancellation(order.cancellations),
       ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
@@ -591,35 +683,41 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
       })),
     }));
   } catch (e) {
-    return mockOrders
-      .filter((o) => o.userId === userId && o.paymentStatus === "COMPLETED")
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    console.error("getOrdersByUser failed:", e);
+    throw new Error("Could not retrieve your orders. Please try again.");
   }
 }
 
 export async function updateOrderStatus(orderId: string, status: OrderDetail["status"], description: string, buyerEmail?: string) {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (status === "CANCELLED" || status === "REFUNDED") {
+      console.warn("Cancellation and refund statuses must use the cancellation workflow.");
+      return false;
+    }
+
+    if (isMock) {
+      let updatedOrder: OrderDetail | undefined;
       mockOrders = mockOrders.map((o) => {
         if (o.id === orderId) {
-          return {
+          if (o.status === status || o.status === "CANCELLED" || o.status === "REFUNDED") {
+            updatedOrder = o;
+            return o;
+          }
+          updatedOrder = {
             ...o,
-            status: status,
-            timeline: [
-              ...o.timeline,
-              {
-                status: status,
-                description: description,
-                createdAt: new Date(),
-              },
-            ],
+            status,
+            timeline: [...o.timeline, { status, description, createdAt: new Date() }],
+          };
+          return {
+            ...updatedOrder,
           };
         }
         return o;
       });
+      if (!updatedOrder) return false;
 
-      // Send delivery alert email (mock mode)
-      if (buyerEmail) {
+      if (updatedOrder !== mockOrders.find((o) => o.id === orderId) && buyerEmail) {
         await sendOrderStatusEmail(buyerEmail, orderId, status, description).catch((err) =>
           console.error("Failed to send order status email:", err)
         );
@@ -627,29 +725,61 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
       return true;
     }
 
-    // Fetch the buyer's email from the order if not provided
+    const adminAuth = await verifyAdminAuth();
+    const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth();
+    if (!adminAuth.authorized && !sellerAuth?.authorized) return false;
+
     let emailToSend = buyerEmail;
     const order = await db.order.findUnique({
       where: { id: orderId },
-      include: { user: { select: { id: true, email: true } } },
+      include: {
+        user: { select: { id: true, email: true } },
+        seller: { select: { id: true, userId: true, verificationStatus: true } },
+        items: { include: { product: { select: { sellerId: true } } } },
+      },
     });
-    
+    if (!order || order.status === "CANCELLED" || order.status === "REFUNDED") return false;
+
+    if (!adminAuth.authorized) {
+      const matchesSeller =
+        order.seller?.id === sellerAuth?.sellerId ||
+        order.seller?.userId === sellerAuth?.userId ||
+        order.items.some((item) => item.product.sellerId === sellerAuth?.sellerId);
+      const sellerProfile = sellerAuth?.sellerId
+        ? await db.seller.findUnique({
+            where: { id: sellerAuth.sellerId },
+            select: { verificationStatus: true },
+          })
+        : null;
+      if (!matchesSeller || sellerProfile?.verificationStatus !== "APPROVED") return false;
+
+      const nextSellerStatus: Partial<Record<OrderDetail["status"], OrderDetail["status"]>> = {
+        PLACED: "CONFIRMED",
+        CONFIRMED: "PACKED",
+        PACKED: "SHIPPED",
+        SHIPPED: "DELIVERED",
+      };
+      if (nextSellerStatus[order.status as OrderDetail["status"]] !== status) return false;
+    }
+
+    if (order.status === status) return true;
     if (!emailToSend) {
       emailToSend = order?.user?.email;
     }
 
-    await db.order.update({
-      where: { id: orderId },
-      data: { status: status },
-    });
-
-    await db.orderTimeline.create({
-      data: {
-        orderId,
-        status,
-        description,
-      },
-    });
+    await db.$transaction([
+      db.order.update({
+        where: { id: orderId },
+        data: { status },
+      }),
+      db.orderTimeline.create({
+        data: {
+          orderId,
+          status,
+          description,
+        },
+      }),
+    ]);
 
     // Send delivery alert email
     if (emailToSend) {
@@ -665,38 +795,24 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
 
     return true;
   } catch (e) {
-    console.error("updateOrderStatus failed in DB, updating mock:", e);
-    mockOrders = mockOrders.map((o) => {
-      if (o.id === orderId) {
-        return {
-          ...o,
-          status: status,
-          timeline: [
-            ...o.timeline,
-            {
-              status: status,
-              description: description,
-              createdAt: new Date(),
-            },
-          ],
-        };
-      }
-      return o;
-    });
-
-    // Send delivery alert email (fallback)
-    if (buyerEmail) {
-      await sendOrderStatusEmail(buyerEmail, orderId, status, description).catch((err) =>
-        console.error("Failed to send order status email:", err)
-      );
-    }
-    return true;
+    console.error("updateOrderStatus failed:", e);
+    return false;
   }
 }
 
 export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<OrderDetail[]> {
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  if (!isMock) {
+    const auth = await verifySellerAuth();
+    if (!auth.authorized) {
+      throw new Error("Seller sign-in is required to view seller orders.");
+    }
+    if (auth.sellerId && auth.sellerId !== sellerIdOrUserId && auth.userId !== sellerIdOrUserId) {
+      throw new Error("You can only view orders for your own seller account.");
+    }
+  }
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (isMock) {
       // In mock mode, initialize sample orders if mockOrders is empty
       if (mockOrders.length === 0) {
         mockOrders = [
@@ -762,7 +878,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
       },
       include: {
         address: true,
-        user: { select: { id: true, name: true, email: true, phone: true } },
+        user: { select: { id: true, name: true, email: true, phone: true, image: true, emailVerified: true } },
         items: {
           include: {
             product: {
@@ -773,6 +889,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
           },
         },
         payment: true,
+        cancellations: { orderBy: { requestedAt: "desc" }, take: 1 },
         timeline: {
           orderBy: { createdAt: "asc" },
         },
@@ -780,70 +897,16 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
       orderBy: { createdAt: "desc" },
     });
 
-    if (dbOrders.length === 0) {
-      // Fallback query: check all recent orders in DB if no specific sellerId match found (only completed payments)
-      const fallbackOrders = await db.order.findMany({
-        where: {
-          payment: {
-            status: "COMPLETED",
-          },
-        },
-        take: 50,
-        include: {
-          address: true,
-          user: { select: { id: true, name: true, email: true, phone: true } },
-          items: {
-            include: {
-              product: {
-                include: { images: true },
-              },
-            },
-          },
-          payment: true,
-          timeline: { orderBy: { createdAt: "asc" } },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-
-      if (fallbackOrders.length > 0) {
-        return fallbackOrders.map((order) => ({
-          id: order.id,
-          userId: order.userId,
-          user: order.user ? { name: order.user.name || "Customer", email: order.user.email || "", phone: order.user.phone || "" } : undefined,
-          totalAmount: order.totalAmount,
-          status: order.status as any,
-          createdAt: order.createdAt,
-          address: {
-            street: order.address.street,
-            city: order.address.city,
-            state: order.address.state,
-            postalCode: order.address.postalCode,
-            country: order.address.country,
-          },
-          items: order.items.map((it) => ({
-            productId: it.productId,
-            name: it.product.name,
-            quantity: it.quantity,
-            price: it.price,
-            image: it.product.images[0]?.url || "",
-          })),
-          paymentStatus: (order.payment?.status as any) || "PENDING",
-          ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
-          timeline: order.timeline.map((t) => ({
-            status: t.status,
-            description: t.description,
-            createdAt: t.createdAt,
-          })),
-        }));
-      }
-
-      return mockOrders;
-    }
-
     return dbOrders.map((order) => ({
       id: order.id,
       userId: order.userId,
-      user: order.user ? { name: order.user.name || "Customer", email: order.user.email || "", phone: order.user.phone || "" } : undefined,
+      user: order.user ? {
+        name: order.user.name || "Customer",
+        email: order.user.email || "",
+        phone: order.user.phone || "",
+        image: order.user.image,
+        emailVerified: order.user.emailVerified,
+      } : undefined,
       totalAmount: order.totalAmount,
       status: order.status as any,
       createdAt: order.createdAt,
@@ -862,6 +925,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: (order.payment?.status as any) || "PENDING",
+      cancellation: mapLatestCancellation(order.cancellations),
       ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
       timeline: order.timeline.map((t) => ({
         status: t.status,
@@ -870,21 +934,28 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
       })),
     }));
   } catch (e) {
-    console.error("getOrdersBySeller failed in DB, returning mock:", e);
-    return mockOrders;
+    console.error("getOrdersBySeller failed:", e);
+    throw new Error("Could not retrieve seller orders. Please try again.");
   }
 }
 
 export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
+  if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+    const auth = await verifyAdminAuth();
+    if (!auth.authorized) throw new Error("Super Admin access is required to view all orders.");
+  }
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       if (mockOrders.length === 0) {
         await getOrdersBySeller("seller-1");
       }
-      return mockOrders;
+      return mockOrders.filter((order) => order.paymentStatus === "COMPLETED");
     }
 
     const dbOrders = await db.order.findMany({
+      where: {
+        payment: { is: { status: "COMPLETED" } },
+      },
       include: {
         address: true,
         user: { select: { name: true, email: true } },
@@ -974,47 +1045,340 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
       };
     });
   } catch (e) {
-    console.error("Failed to fetch all orders for admin, returning mock:", e);
-    if (mockOrders.length === 0) {
-      await getOrdersBySeller("seller-1");
-    }
-    return mockOrders;
+    console.error("Failed to fetch all orders for admin:", e);
+    throw new Error("Could not retrieve platform orders. Please try again.");
   }
 }
 
-export async function cancelOrder(orderId: string, userId: string, reason?: string) {
+async function createCancellationRequest(
+  orderId: string,
+  reason: string,
+  requester: { userId: string; email: string; role: string; sellerId?: string }
+): Promise<{ success: boolean; error?: string; cancellationId?: string }> {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      mockOrders = mockOrders.map((o) => (o.id === orderId ? { ...o, status: "CANCELLED" as const } : o));
-      await createNotification(userId, "Order Cancelled ❌", `Your order ${orderId} has been cancelled.`, `/orders/${orderId}`);
-      return { success: true };
+    const cleanedReason = reason.trim();
+    if (cleanedReason.length < 8 || cleanedReason.length > 500) {
+      return { success: false, error: "Please provide a cancellation reason between 8 and 500 characters." };
     }
 
-    await db.order.update({
+    const order = await db.order.findUnique({
       where: { id: orderId },
-      data: { status: "CANCELLED" },
-    });
-
-    await db.orderTimeline.create({
-      data: {
-        orderId,
-        status: "CANCELLED",
-        description: reason ? `Order cancelled by user. Reason: ${reason}` : "Order cancelled by user.",
+      include: {
+        seller: { select: { id: true, userId: true, companyName: true } },
+        user: { select: { id: true } },
+        payment: { select: { status: true } },
+        items: { include: { product: { select: { sellerId: true } } } },
+        cancellations: {
+          where: { status: { in: ["REQUESTED", "APPROVED"] } },
+          select: { id: true },
+        },
       },
     });
+    if (!order) return { success: false, error: "Order not found." };
+    if (!["PLACED", "CONFIRMED", "PACKED"].includes(order.status)) {
+      return { success: false, error: "Cancellation requests are only available before shipment. Contact support for shipped or delivered orders." };
+    }
+    if (order.cancellations.length > 0) {
+      return { success: false, error: "An active cancellation request already exists for this order." };
+    }
 
+    if (requester.role === "SELLER") {
+      const belongsToSeller =
+        requester.sellerId === order.seller?.id ||
+        requester.userId === order.seller?.userId ||
+        order.items.some((item) => item.product.sellerId === requester.sellerId);
+      if (!belongsToSeller) {
+        return { success: false, error: "You can only request cancellation for your own seller orders." };
+      }
+    } else if (requester.role === "BUYER" && requester.userId !== order.userId) {
+      return { success: false, error: "You can only request cancellation for your own order." };
+    }
+
+    const cancellation = await db.$transaction(async (tx) => {
+      const record = await tx.orderCancellation.create({
+        data: {
+          orderId,
+          activeOrderId: orderId,
+          requestedByUserId: requester.userId,
+          requestedByEmail: requester.email,
+          requestedByRole: requester.role,
+          reason: cleanedReason,
+          refundStatus: order.payment?.status === "COMPLETED" ? "PENDING" : "PENDING_PAYMENT",
+        },
+      });
+      await tx.orderTimeline.create({
+        data: {
+          orderId,
+          status: order.status,
+          description: `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation. Reason: ${cleanedReason}`,
+        },
+      });
+      return record;
+    });
+
+    const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
     await createNotification(
-      userId,
-      "Order Cancelled ❌",
-      `Your order ${orderId} has been cancelled successfully.`,
+      order.userId,
+      "Cancellation request received",
+      `${requesterLabel} requested cancellation of order ${orderId}. Reason: ${cleanedReason}. The order is not yet cancelled; a Super Admin must review the request.`,
       `/orders/${orderId}`
     );
+    await createAdminNotification(
+      "Order cancellation needs review",
+      `${requesterLabel} requested cancellation for order ${orderId}. Reason: ${cleanedReason}`,
+      "orders"
+    );
 
-    return { success: true };
+    return { success: true, cancellationId: cancellation.id };
   } catch (e) {
-    console.error("cancelOrder failed:", e);
-    return { success: false, error: "Failed to cancel order." };
+    console.error("createCancellationRequest failed:", e);
+    if (
+      typeof e === "object" &&
+      e !== null &&
+      "code" in e &&
+      e.code === "P2002"
+    ) {
+      return { success: false, error: "An active cancellation request already exists for this order." };
+    }
+    return { success: false, error: "Failed to submit the cancellation request." };
   }
+}
+
+export async function requestOrderCancellation(orderId: string, reason: string) {
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    return { success: false, error: "Cancellation review and refunds require the configured database and Cashfree account." };
+  }
+  const auth = await verifySellerAuth();
+  if (!auth.authorized || !auth.userId || !auth.sellerId) {
+    return { success: false, error: "Sign in with an approved seller account to request cancellation." };
+  }
+  const user = await db.user.findUnique({
+    where: { id: auth.userId },
+    select: { email: true, role: true },
+  });
+  if (!user || user.role !== "SELLER") {
+    return { success: false, error: "A verified seller account is required." };
+  }
+  return createCancellationRequest(orderId, reason, {
+    userId: auth.userId,
+    email: user.email,
+    role: "SELLER",
+    sellerId: auth.sellerId,
+  });
+}
+
+export async function cancelOrder(orderId: string, userId: string, reason?: string) {
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    return { success: false, error: "Cancellation review requires the configured database." };
+  }
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || auth.userId !== userId || !auth.email) {
+    return { success: false, error: "Sign in to the account that placed this order." };
+  }
+  if (auth.role === "SELLER" || auth.role === "ADMIN") {
+    return { success: false, error: "Use the seller or administrator cancellation workflow for this account." };
+  }
+  return createCancellationRequest(orderId, reason || "Buyer requested cancellation.", {
+    userId: auth.userId,
+    email: auth.email,
+    role: "BUYER",
+  });
+}
+
+export async function getOrderCancellationsForAdmin() {
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  if (isMock) return [];
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Super Admin access is required to review cancellations.");
+
+  return db.orderCancellation.findMany({
+    where: {
+      OR: [
+        { status: "REQUESTED" },
+        { status: "APPROVED", refundStatus: { in: ["PENDING_PAYMENT", "PENDING", "FAILED"] } },
+      ],
+    },
+    include: {
+      order: {
+        include: {
+          user: { select: { name: true, email: true } },
+          seller: { select: { companyName: true } },
+          payment: { select: { status: true } },
+        },
+      },
+    },
+    orderBy: [{ status: "asc" }, { requestedAt: "desc" }],
+  });
+}
+
+export async function reviewOrderCancellation(
+  cancellationId: string,
+  decision: "APPROVE" | "REJECT",
+  adminNote: string
+): Promise<{ success: boolean; error?: string; refundStatus?: RefundState }> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized || !auth.userId || !auth.email) {
+    return { success: false, error: "Super Admin access is required." };
+  }
+  const note = adminNote.trim();
+  if (decision === "REJECT" && note.length < 8) {
+    return { success: false, error: "Provide a rejection reason of at least 8 characters." };
+  }
+  if (note.length > 500) {
+    return { success: false, error: "The administrator note must be 500 characters or fewer." };
+  }
+
+  try {
+    const cancellation = await db.orderCancellation.findUnique({
+      where: { id: cancellationId },
+      include: { order: { include: { payment: true } } },
+    });
+    if (!cancellation || cancellation.status !== "REQUESTED") {
+      return { success: false, error: "This cancellation request is no longer awaiting review." };
+    }
+    if (decision === "APPROVE" && !["PLACED", "CONFIRMED", "PACKED"].includes(cancellation.order.status)) {
+      return { success: false, error: "The order has shipped or reached a terminal state; handle it as a return/dispute instead." };
+    }
+
+    const resultingRefundStatus =
+      decision === "REJECT"
+        ? "NOT_REQUIRED"
+        : cancellation.order.payment?.status === "COMPLETED"
+          ? "PENDING"
+          : cancellation.order.payment?.status === "PENDING"
+            ? "PENDING_PAYMENT"
+            : "NOT_REQUIRED";
+
+    await db.$transaction(async (tx) => {
+      const changedCancellation = await tx.orderCancellation.updateMany({
+        where: { id: cancellationId, status: "REQUESTED" },
+        data: {
+          status: decision === "APPROVE" ? "APPROVED" : "REJECTED",
+          ...(decision === "REJECT" ? { activeOrderId: null } : {}),
+          adminNote: note || null,
+          reviewedAt: new Date(),
+          reviewedByUserId: auth.userId,
+          reviewedByEmail: auth.email,
+          refundStatus: resultingRefundStatus,
+          refundUpdatedAt: new Date(),
+        },
+      });
+      if (changedCancellation.count !== 1) {
+        throw new Error("This cancellation request was already reviewed.");
+      }
+
+      if (decision === "APPROVE") {
+        const changedOrder = await tx.order.updateMany({
+          where: {
+            id: cancellation.orderId,
+            status: { in: ["PLACED", "CONFIRMED", "PACKED"] },
+          },
+          data: { status: "CANCELLED" },
+        });
+        if (changedOrder.count !== 1) {
+          throw new Error("The order status changed while the cancellation was being reviewed.");
+        }
+      }
+
+      await tx.orderTimeline.create({
+        data: {
+          orderId: cancellation.orderId,
+          status: decision === "APPROVE" ? "CANCELLED" : cancellation.order.status,
+          description:
+            decision === "APPROVE"
+              ? `Cancellation approved by Super Admin. Reason: ${cancellation.reason}. Refund status: ${resultingRefundStatus}.${note ? ` Admin note: ${note}` : ""}`
+              : `Cancellation rejected by Super Admin. Reason: ${note}`,
+        },
+      });
+    });
+
+    const buyerMessage =
+      decision === "APPROVE"
+        ? resultingRefundStatus === "PENDING"
+          ? `Order ${cancellation.orderId} was cancelled. Refund of ₹${cancellation.order.totalAmount.toLocaleString("en-IN")} is being initiated.`
+          : resultingRefundStatus === "PENDING_PAYMENT"
+            ? `Order ${cancellation.orderId} was cancelled. Payment is still pending; refund eligibility will be checked if payment completes.`
+            : `Order ${cancellation.orderId} was cancelled. No captured payment was found, so no refund is currently due.`
+        : `Cancellation for order ${cancellation.orderId} was not approved. Reason: ${note}`;
+    await createNotification(
+      cancellation.order.userId,
+      decision === "APPROVE" ? "Order cancellation approved" : "Cancellation request declined",
+      buyerMessage,
+      `/orders/${cancellation.orderId}`
+    );
+
+    let refundStatus = resultingRefundStatus as RefundState;
+    if (decision === "APPROVE" && resultingRefundStatus === "PENDING") {
+      const refund = await startCancellationRefund(cancellationId);
+      refundStatus = refund.status;
+    }
+    return { success: true, refundStatus };
+  } catch (error) {
+    console.error("reviewOrderCancellation failed:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to review the cancellation request.",
+    };
+  }
+}
+
+export async function refreshOrderCancellationRefund(cancellationId: string) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return { success: false, error: "Super Admin access is required." };
+  try {
+    const status = await refreshCashfreeCancellationRefund(cancellationId);
+    return { success: true, status };
+  } catch (error) {
+    console.error("refreshOrderCancellationRefund failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Could not refresh refund status." };
+  }
+}
+
+export async function retryOrderCancellationRefund(cancellationId: string) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return { success: false, error: "Super Admin access is required." };
+  try {
+    const result = await retryFailedCancellationRefund(cancellationId);
+    return { success: true, status: result.status, error: result.error };
+  } catch (error) {
+    console.error("retryOrderCancellationRefund failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Could not retry the refund." };
+  }
+}
+
+export async function resumePendingOrderCancellationRefund(cancellationId: string) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return { success: false, error: "Super Admin access is required." };
+  try {
+    const cancellation = await db.orderCancellation.findUnique({ where: { id: cancellationId } });
+    if (!cancellation || cancellation.status !== "APPROVED" || cancellation.refundStatus !== "PENDING") {
+      return { success: false, error: "Only an approved pending refund can be safely resumed." };
+    }
+    const result = await startCancellationRefund(cancellationId);
+    return { success: true, status: result.status, error: result.error };
+  } catch (error) {
+    console.error("resumePendingOrderCancellationRefund failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Could not resume refund processing." };
+  }
+}
+
+export async function cancelOrderAsAdmin(
+  orderId: string,
+  reason: string
+): Promise<{ success: boolean; error?: string; refundStatus?: RefundState }> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized || !auth.userId || !auth.email) {
+    return { success: false, error: "Super Admin access is required." };
+  }
+  const request = await createCancellationRequest(orderId, reason, {
+    userId: auth.userId,
+    email: auth.email,
+    role: "ADMIN",
+  });
+  if (!request.success || !request.cancellationId) {
+    return { success: false, error: request.error };
+  }
+  return reviewOrderCancellation(request.cancellationId, "APPROVE", "Cancellation initiated by Super Admin.");
 }
 
 export async function trackOrderById(orderIdInput: string, sellerIdFilter?: string) {

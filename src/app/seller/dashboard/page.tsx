@@ -7,7 +7,7 @@ import { AdminSellerMessenger } from "@/components/ui/admin-seller-messenger";
 import { getSellerDashboardStats, getSellerProfile, SellerProfile, getSellerAnalyticsTimeSeries, getSellerCustomers, SellerCustomer, updateSellerProfile } from "@/actions/sellers";
 import { getUserNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getProducts, createProduct, archiveProduct, ProductItem, updateProductStock, updateProduct, TierDiscount, BuyXGetYOffer } from "@/actions/products";
-import { getOrdersBySeller, updateOrderStatus, trackOrderById, OrderDetail } from "@/actions/orders";
+import { getOrdersBySeller, requestOrderCancellation, updateOrderStatus, trackOrderById, OrderDetail } from "@/actions/orders";
 import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
@@ -173,7 +173,7 @@ export default function SellerDashboard() {
     let nextStatus: OrderDetail["status"] = "CONFIRMED";
     let desc = "";
 
-    const targetStatus = specificStatus || (["CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED"].includes(currentOrTargetStatus) ? (currentOrTargetStatus as OrderDetail["status"]) : undefined);
+    const targetStatus = specificStatus || (["CONFIRMED", "PACKED", "SHIPPED", "DELIVERED"].includes(currentOrTargetStatus) ? (currentOrTargetStatus as OrderDetail["status"]) : undefined);
 
     if (targetStatus) {
       nextStatus = targetStatus;
@@ -185,8 +185,6 @@ export default function SellerDashboard() {
         desc = "Dispatched via carbon-offset logistical partners.";
       } else if (targetStatus === "DELIVERED") {
         desc = "Package received by buyer. Carbon offset verified.";
-      } else if (targetStatus === "CANCELLED") {
-        desc = "Order cancelled by seller due to inventory constraints.";
       }
     } else {
       if (currentOrTargetStatus === "PLACED") {
@@ -222,6 +220,18 @@ export default function SellerDashboard() {
     } else {
       toast.error("Failed to update order tracking status.");
     }
+  };
+
+  const handleRequestCancellation = async (orderId: string) => {
+    const reason = window.prompt("Why does this order need to be cancelled? The Super Admin will review this request.");
+    if (reason === null) return;
+    const result = await requestOrderCancellation(orderId, reason);
+    if (!result.success) {
+      toast.error(result.error || "Could not submit the cancellation request.");
+      return;
+    }
+    toast.success("Cancellation request sent to the Super Admin. The buyer has been notified.");
+    await loadDashboardData();
   };
 
   if (loading) {
@@ -511,7 +521,7 @@ export default function SellerDashboard() {
           <FadeIn>
             {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} payoutStats={payoutStats} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
-            {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} sellerId={profile?.id || user?.id} />}
+            {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} handleRequestCancellation={handleRequestCancellation} sellerId={profile?.id || user?.id} />}
             {activeTab === "customers" && <CustomersView sellerId={profile?.id || user?.id || ""} />}
             {activeTab === "enquiries" && <EnquiriesView sellerId={profile?.id || ""} />}
             { activeTab === "complaints" && <ComplaintsView sellerId={profile?.id || ""} />}
@@ -2593,7 +2603,7 @@ function AddProductForm({ onBack, profile, reload }: any) {
 // --------------------------------------------------------------------------
 // ORDERS TAB VIEW
 // --------------------------------------------------------------------------
-function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
+function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation, sellerId }: any) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
 
@@ -2807,22 +2817,6 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
               </Button>
               {trackedOrder.status !== "DELIVERED" && trackedOrder.status !== "CANCELLED" && (
                 <div className="flex items-center space-x-2">
-                  <select
-                    value={trackedOrder.status}
-                    onChange={(e) => {
-                      const newStatus = e.target.value as any;
-                      handleUpdateFulfillment(trackedOrder.id, newStatus);
-                      setTrackedOrder((prev: any) => ({ ...prev, status: newStatus }));
-                    }}
-                    className="text-xs bg-white border border-[#d8dcd3] rounded-lg px-2 py-1.5 text-slate-700 font-semibold cursor-pointer"
-                    title="Select Situation of Order"
-                  >
-                    <option value="CONFIRMED">Confirmed</option>
-                    <option value="PACKED">Packed</option>
-                    <option value="SHIPPED">Shipped</option>
-                    <option value="DELIVERED">Delivered</option>
-                    <option value="CANCELLED">Cancelled</option>
-                  </select>
                   <Button
                     size="sm"
                     className="bg-[#2d4a36] text-white hover:bg-[#1e3425] text-xs"
@@ -2833,6 +2827,18 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
                   >
                     Advance Status Stage
                   </Button>
+                  {["PLACED", "CONFIRMED", "PACKED"].includes(trackedOrder.status) &&
+                    trackedOrder.cancellation?.status !== "REQUESTED" &&
+                    trackedOrder.cancellation?.status !== "APPROVED" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs text-rose-700 border-rose-200"
+                        onClick={() => handleRequestCancellation(trackedOrder.id)}
+                      >
+                        Request cancellation
+                      </Button>
+                    )}
                 </div>
               )}
             </div>
@@ -2944,20 +2950,6 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
                       </TableCell>
                       <TableCell className="py-4 text-center">
                         <div className="flex items-center justify-center space-x-2">
-                          {/* Situation Selector */}
-                          <select
-                            value={o.status}
-                            onChange={(e) => handleUpdateFulfillment(o.id, e.target.value)}
-                            className="bg-white border border-[#d8dcd3] text-[#2d4a36] text-[10px] font-semibold rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer"
-                            title="Select Situation of Order"
-                          >
-                            <option value="CONFIRMED">Confirmed</option>
-                            <option value="PACKED">Packed</option>
-                            <option value="SHIPPED">Shipped</option>
-                            <option value="DELIVERED">Delivered</option>
-                            <option value="CANCELLED">Cancelled</option>
-                          </select>
-
                           {!isDelivered && o.status !== "CANCELLED" && (
                             <button 
                               onClick={() => handleUpdateFulfillment(o.id, o.status)} 
@@ -2966,6 +2958,21 @@ function OrdersView({ orders, handleUpdateFulfillment, sellerId }: any) {
                             >
                               {o.status === "PLACED" ? "Confirm" : o.status === "CONFIRMED" ? "Pack" : o.status === "PACKED" ? "Ship" : "Deliver"}
                             </button>
+                          )}
+                          {["PLACED", "CONFIRMED", "PACKED"].includes(o.status) &&
+                            o.cancellation?.status !== "REQUESTED" &&
+                            o.cancellation?.status !== "APPROVED" && (
+                              <button
+                                onClick={() => handleRequestCancellation(o.id)}
+                                className="text-rose-700 border border-rose-200 bg-white text-[10px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap cursor-pointer"
+                              >
+                                Cancel request
+                              </button>
+                            )}
+                          {o.cancellation && (
+                            <span className="text-[9px] text-amber-800" title={o.cancellation.reason}>
+                              Cancellation: {o.cancellation.status}
+                            </span>
                           )}
                           <button onClick={() => setSelectedInvoice(o)} className="text-[10px] text-muted-foreground border border-[#d8dcd3] px-2 py-1.5 rounded-lg hover:bg-white cursor-pointer">
                             Invoice
@@ -3609,11 +3616,13 @@ function CustomersView({ sellerId }: { sellerId: string }) {
                       {/* Customer Avatar & Name */}
                       <TableCell className="pl-4 py-4">
                         <div className="flex items-center space-x-3">
-                          <img
-                            src={c.profilePicture || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100"}
-                            alt={c.name}
-                            className="h-10 w-10 rounded-full object-cover border border-slate-200 shrink-0"
-                          />
+                          {c.profilePicture && (
+                            <img
+                              src={c.profilePicture}
+                              alt={c.name}
+                              className="h-10 w-10 rounded-full object-cover border border-slate-200 shrink-0"
+                            />
+                          )}
                           <div>
                             <div className="flex items-center space-x-2">
                               <span className="text-xs font-extrabold text-[#2d4a36]">{c.name}</span>
@@ -3693,11 +3702,13 @@ function CustomersView({ sellerId }: { sellerId: string }) {
           <Card className="relative w-full max-w-lg p-6 bg-white border border-slate-200 rounded-3xl shadow-2xl z-10 space-y-5 text-left">
             <div className="flex justify-between items-start pb-3 border-b border-slate-100">
               <div className="flex items-center space-x-4">
-                <img
-                  src={selectedCustomer.profilePicture || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200"}
-                  alt={selectedCustomer.name}
-                  className="h-16 w-16 rounded-full object-cover border-2 border-[#2d4a36] shadow-sm shrink-0"
-                />
+                {selectedCustomer.profilePicture && (
+                  <img
+                    src={selectedCustomer.profilePicture}
+                    alt={selectedCustomer.name}
+                    className="h-16 w-16 rounded-full object-cover border-2 border-[#2d4a36] shadow-sm shrink-0"
+                  />
+                )}
                 <div>
                   <div className="flex items-center space-x-2">
                     <h2 className="text-lg font-black text-slate-900">{selectedCustomer.name}</h2>

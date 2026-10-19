@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useWishlist } from "@/context/WishlistContext";
 import { Input, Textarea, Button } from "@/components/ui/shared";
-import { ProductItem, getProducts, addProductReview, checkReviewEligibility } from "@/actions/products";
+import { ProductItem, ProductReviewItem, getProducts, getVerifiedProductReviews, addProductReview, checkReviewEligibility } from "@/actions/products";
 import { createEnquiry } from "@/actions/enquiries";
 import { SellerLogo } from "@/components/SellerLogo";
 import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice, isIndividualDiscountActive, isTierDiscountActive, getProductTiers } from "@/lib/offers";
@@ -37,6 +38,7 @@ interface ProductClientViewProps {
 }
 
 export default function ProductClientView({ product }: ProductClientViewProps) {
+  const router = useRouter();
   const { addToCart } = useCart();
   const { user } = useAuth();
   const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
@@ -178,34 +180,10 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   }, [user, product.id]);
 
   // Review state
-  const [reviews, setReviews] = useState([
-    {
-      id: "r1",
-      userName: "Siddharth K.",
-      rating: 5,
-      comment:
-        "Absolutely top notch quality. The cutlery is sturdy and well-finished. Packaging was completely plastic-free.",
-      date: "2026-05-12",
-    },
-    {
-      id: "r2",
-      userName: "Maria D.",
-      rating: 4,
-      comment:
-        "Excellent design. The sustainability details really show. Only docked one star because shipping took two days longer.",
-      date: "2026-05-24",
-    },
-    {
-      id: "r3",
-      userName: "Priya M.",
-      rating: 5,
-      comment: "Perfect for our restaurant. We switched to these from plastic cutlery and our customers love the feel.",
-      date: "2026-06-02",
-    },
-  ]);
-  const [newReviewName, setNewReviewName] = useState("");
+  const [reviews, setReviews] = useState<ProductReviewItem[]>(product.reviews || []);
   const [newReviewComment, setNewReviewComment] = useState("");
   const [newReviewRating, setNewReviewRating] = useState(5);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   // Pricing
   const originalPrice = product.originalPrice || (product.price > 500 ? Math.round(product.price * 1.25) : Math.round(product.price * 1.5));
@@ -298,32 +276,33 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !newReviewName || !newReviewComment) return;
+    if (!user || !newReviewComment.trim() || reviewSubmitting) return;
 
-    const res = await addProductReview({
-      userId: user.id,
-      productId: product.id,
-      rating: newReviewRating,
-      comment: newReviewComment,
-    });
+    setReviewSubmitting(true);
+    try {
+      const res = await addProductReview({
+        userId: user.id,
+        productId: product.id,
+        rating: newReviewRating,
+        comment: newReviewComment,
+      });
 
-    if (res.success) {
-      toast.success("Review submitted successfully!");
-      setReviews([
-        {
-          id: `r-${Date.now()}`,
-          userName: newReviewName,
-          rating: newReviewRating,
-          comment: newReviewComment,
-          date: new Date().toISOString().split("T")[0],
-        },
-        ...reviews,
-      ]);
-      setNewReviewName("");
-      setNewReviewComment("");
-      setNewReviewRating(5);
-    } else {
-      toast.error(res.error || "Failed to submit review.");
+      if (res.success) {
+        toast.success("Review submitted successfully!");
+        const refreshedReviews = await getVerifiedProductReviews(product.id, 500);
+        setReviews(refreshedReviews);
+        setIsEligibleToReview(false);
+        setNewReviewComment("");
+        setNewReviewRating(5);
+        router.refresh();
+      } else {
+        toast.error(res.error || "Failed to submit review.");
+      }
+    } catch (error) {
+      console.error("Failed to submit product review:", error);
+      toast.error("Could not submit your review. Please try again.");
+    } finally {
+      setReviewSubmitting(false);
     }
   };
 
@@ -486,13 +465,23 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   <Star
                     key={i}
                     className={`h-4 w-4 ${
-                      i < Math.floor(product.rating)
+                      i < Math.floor(reviews.length
+                        ? reviews.reduce((total, review) => total + review.rating, 0) / reviews.length
+                        : product.rating)
                         ? "fill-amber-400 text-amber-400"
                         : "text-slate-200"
                     }`}
                   />
                 ))}
-                <span className="text-sm font-bold text-slate-800 ml-1">{product.rating.toFixed(1)}</span>
+                {reviews.length > 0 ? (
+                  <span className="text-sm font-bold text-slate-800 ml-1">
+                    {(reviews.length
+                    ? reviews.reduce((total, review) => total + review.rating, 0) / reviews.length
+                      : product.rating).toFixed(1)}
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-500 ml-1">No verified ratings yet</span>
+                )}
                 <span className="text-sm text-[#0F6E56] font-semibold">({product.reviewsCount} reviews)</span>
               </div>
               <div className="flex items-center space-x-1 text-sm text-slate-500">
@@ -890,29 +879,38 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
             {/* Reviews List */}
             <div className="lg:col-span-7 space-y-6">
-              {reviews.map((rev) => (
-                <div key={rev.id} className="border-b border-slate-100 pb-5 last:border-b-0">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{rev.userName}</p>
-                      <div className="flex space-x-0.5 mt-1">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`h-3.5 w-3.5 ${
-                              i < rev.rating
-                                ? "fill-amber-400 text-amber-400"
-                                : "text-slate-200"
-                            }`}
-                          />
-                        ))}
+              {reviews.length === 0 ? (
+                <p className="text-sm text-slate-500">No verified reviews yet. Reviews appear here after a buyer&apos;s order is delivered.</p>
+              ) : (
+                reviews.map((rev) => (
+                  <div key={rev.id} className="border-b border-slate-100 pb-5 last:border-b-0">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-slate-800">{rev.userName}</p>
+                          <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                            Verified purchase
+                          </span>
+                        </div>
+                        <div className="flex space-x-0.5 mt-1">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`h-3.5 w-3.5 ${
+                                i < rev.rating
+                                  ? "fill-amber-400 text-amber-400"
+                                  : "text-slate-200"
+                              }`}
+                            />
+                          ))}
+                        </div>
                       </div>
+                      <span className="text-xs text-slate-400">{rev.date.slice(0, 10)}</span>
                     </div>
-                    <span className="text-xs text-slate-400">{rev.date}</span>
+                    <p className="text-sm text-slate-600 mt-3 leading-relaxed">{rev.comment}</p>
                   </div>
-                  <p className="text-sm text-slate-600 mt-3 leading-relaxed">{rev.comment}</p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             {/* Review Form */}
@@ -928,21 +926,11 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   <ShieldCheck className="h-5 w-5 text-amber-600 mx-auto" />
                   <p className="text-xs font-bold text-slate-700">Verified Purchase Required</p>
                   <p className="text-[10px] text-slate-500 leading-relaxed">
-                    Only customers who have purchased and received this product can write a review.
+                    One review is allowed per account after a completed order is delivered.
                   </p>
                 </div>
               ) : (
                 <form onSubmit={handleReviewSubmit} className="space-y-4">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Your Name</span>
-                    <Input
-                      placeholder="e.g. Priya Sharma"
-                      value={newReviewName}
-                      onChange={(e) => setNewReviewName(e.target.value)}
-                      required
-                      className="text-xs bg-white border-slate-200"
-                    />
-                  </div>
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Rating</span>
                     <div className="flex space-x-1">
@@ -976,9 +964,10 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   </div>
                   <button suppressHydrationWarning
                     type="submit"
+                    disabled={reviewSubmitting}
                     className="w-full h-10 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl transition-colors cursor-pointer border-none"
                   >
-                    Submit Review
+                    {reviewSubmitting ? "Submitting..." : "Submit Review"}
                   </button>
                 </form>
               )}

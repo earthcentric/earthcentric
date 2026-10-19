@@ -212,9 +212,15 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
 
           {/* Stars & Reviews */}
           <div className="flex items-center space-x-1 text-xs font-semibold text-slate-800">
-            <Star className="h-3.5 w-3.5 fill-[#EAB308] stroke-none" />
-            <span>{product.rating.toFixed(1)}</span>
-            <span className="text-slate-400 font-medium">({product.reviewsCount} reviews)</span>
+            {product.reviewsCount > 0 ? (
+              <>
+                <Star className="h-3.5 w-3.5 fill-[#EAB308] stroke-none" />
+                <span>{product.rating.toFixed(1)}</span>
+                <span className="text-slate-400 font-medium">({product.reviewsCount} reviews)</span>
+              </>
+            ) : (
+              <span className="text-slate-400 font-medium">No reviews yet</span>
+            )}
           </div>
         </div>
       </div>

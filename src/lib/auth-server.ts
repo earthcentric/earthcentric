@@ -2,12 +2,67 @@ import db from "@/lib/db";
 import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import { isSuperAdminEmail } from "@/lib/account-roles";
+import { verifyEarthcentricSession } from "@/lib/session-token";
 
 export interface AdminAuthResult {
   authorized: boolean;
   email: string;
   userId?: string;
   error?: string;
+}
+
+export interface AuthenticatedUserResult {
+  authorized: boolean;
+  userId?: string;
+  email?: string;
+  role?: string;
+  sellerId?: string;
+}
+
+export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult> {
+  try {
+    const clerkAuth = await auth();
+    if (clerkAuth?.userId) {
+      const user = await db.user.findUnique({
+        where: { id: clerkAuth.userId },
+        select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+      });
+      if (user) {
+        return {
+          authorized: true,
+          userId: user.id,
+          email: user.email,
+          role: user.role,
+          sellerId: user.seller?.id,
+        };
+      }
+      return { authorized: false };
+    }
+
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("earthcentric_session")?.value;
+    if (!sessionCookie) return { authorized: false };
+
+    const session = await verifyEarthcentricSession(sessionCookie);
+    if (!session) return { authorized: false };
+
+    const user = await db.user.findUnique({
+      where: { id: session.id },
+      select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+    });
+    if (!user) return { authorized: false };
+
+    return {
+      authorized: true,
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      sellerId: user.seller?.id,
+    };
+  } catch (error) {
+    console.error("verifyAuthenticatedUser error:", error);
+    return { authorized: false };
+  }
 }
 
 /**
@@ -23,7 +78,7 @@ export async function verifyAdminAuth(): Promise<AdminAuthResult> {
     
     if (sessionCookie) {
       try {
-        const session = JSON.parse(sessionCookie);
+        const session = await verifyEarthcentricSession(sessionCookie);
         if (session && session.id) {
           const user = await db.user.findUnique({
             where: { id: session.id },
@@ -38,8 +93,8 @@ export async function verifyAdminAuth(): Promise<AdminAuthResult> {
             }
           }
         }
-      } catch (cookieErr) {
-        console.warn("Failed to parse earthcentric_session in verifyAdminAuth:", cookieErr);
+      } catch (cookieError) {
+        console.error("Failed to verify earthcentric_session in verifyAdminAuth:", cookieError);
       }
     }
 
@@ -60,14 +115,18 @@ export async function verifyAdminAuth(): Promise<AdminAuthResult> {
           }
         }
       }
-    } catch (clerkErr) {
-      // Clerk auth check might fail in non-Clerk environments
+    } catch (clerkError) {
+      console.error("Clerk admin auth check failed:", clerkError);
     }
 
     return { authorized: false, email: "", error: "Unauthorized: Super Admin credentials required." };
-  } catch (error: any) {
+  } catch (error) {
     console.error("verifyAdminAuth encountered an error:", error);
-    return { authorized: false, email: "", error: error?.message || "Internal authorization error." };
+    return {
+      authorized: false,
+      email: "",
+      error: error instanceof Error ? error.message : "Internal authorization error.",
+    };
   }
 }
 
@@ -80,7 +139,7 @@ export async function verifySellerAuth(sellerId?: string): Promise<{ authorized:
     const sessionCookie = cookieStore.get("earthcentric_session")?.value;
     
     if (sessionCookie) {
-      const session = JSON.parse(sessionCookie);
+      const session = await verifyEarthcentricSession(sessionCookie);
       if (session && session.id) {
         const user = await db.user.findUnique({
           where: { id: session.id },

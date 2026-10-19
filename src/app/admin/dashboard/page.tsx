@@ -6,7 +6,17 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount, getAllProductsForAdminPromotions, updateProductPromotionsByAdmin } from "@/actions/admin";
 import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
-import { getAllOrdersForAdmin, updateOrderStatus, trackOrderById } from "@/actions/orders";
+import {
+  cancelOrderAsAdmin,
+  getAllOrdersForAdmin,
+  getOrderCancellationsForAdmin,
+  refreshOrderCancellationRefund,
+  resumePendingOrderCancellationRefund,
+  retryOrderCancellationRefund,
+  reviewOrderCancellation,
+  updateOrderStatus,
+  trackOrderById,
+} from "@/actions/orders";
 import { SellerProfile } from "@/actions/sellers";
 import { getAdminNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getIntegrationCredentials, updateIntegrationCredential, CredentialItem } from "@/actions/credentials";
@@ -116,8 +126,13 @@ export default function AdminDashboard() {
     const aData = await getAdminAnalyticsTimeSeries();
     setAnalyticsData(aData as AdminAnalyticsData);
 
-    const sellers = await getPendingSellers();
-    setPendingSellers(sellers);
+    try {
+      const sellers = await getPendingSellers();
+      setPendingSellers(sellers);
+    } catch (error) {
+      console.error("Could not refresh seller applications:", error);
+      toast.error(error instanceof Error ? error.message : "Could not load seller applications.");
+    }
 
     const cases = await getDisputes();
     setDisputes(cases);
@@ -131,8 +146,13 @@ export default function AdminDashboard() {
     const uData = await getPlatformUsers();
     setUsersData(uData);
 
-    const pProds = await getPendingProducts();
-    setPendingProducts(pProds);
+    try {
+      const pProds = await getPendingProducts();
+      setPendingProducts(pProds);
+    } catch (error) {
+      console.error("Could not refresh product approval requests:", error);
+      toast.error(error instanceof Error ? error.message : "Could not load product approval requests.");
+    }
 
     const pDisc = await getPendingDiscounts();
     setPendingDiscounts(pDisc);
@@ -794,6 +814,7 @@ function DashboardView({
 // SELLER APPROVALS VIEW
 // --------------------------------------------------------------------------
 function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSearch }: any) {
+  const [refreshing, setRefreshing] = useState(false);
   const displaySellers = globalSearch 
     ? pendingSellers.filter((s: any) => 
         s.companyName?.toLowerCase().includes(globalSearch.toLowerCase()) || 
@@ -802,11 +823,28 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
       ) 
     : pendingSellers;
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } catch (error) {
+      console.error("Could not refresh seller applications:", error);
+      toast.error("Could not refresh seller applications. Try again.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Seller Approvals</h1>
-        <p className="text-sm text-muted-foreground mt-1">Review and manage seller verification records.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-[#1a3321]">Seller Approvals</h1>
+          <p className="text-sm text-muted-foreground mt-1">Review and manage seller verification records.</p>
+        </div>
+        <Button variant="outline" size="sm" disabled={refreshing} onClick={handleRefresh}>
+          {refreshing ? "Refreshing..." : "Refresh applications"}
+        </Button>
       </div>
 
       <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
@@ -1004,6 +1042,7 @@ function UserManagementView({ usersData, onInspectSeller, onInspectBuyer, global
 // PRODUCT APPROVALS VIEW
 // --------------------------------------------------------------------------
 function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday = 0, reload, adminEmail, globalSearch }: { pendingProducts: any[], approvedToday?: number, rejectedToday?: number, reload: () => void, adminEmail?: string, globalSearch?: string }) {
+  const [refreshing, setRefreshing] = useState(false);
   const displayProducts = globalSearch
     ? pendingProducts.filter((p: any) => 
         p.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
@@ -1011,6 +1050,18 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
         p.category?.name?.toLowerCase().includes(globalSearch.toLowerCase())
       )
     : pendingProducts;
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } catch (error) {
+      console.error("Could not refresh product approval requests:", error);
+      toast.error("Could not refresh product approval requests. Try again.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -1071,9 +1122,14 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold text-[#1a3321]">Product Approvals</h1>
-        <p className="text-sm text-muted-foreground mt-1">Review newly submitted catalog items for sustainable verification compliance.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-[#1a3321]">Product Approvals</h1>
+          <p className="text-sm text-muted-foreground mt-1">Review newly submitted catalog items for sustainable verification compliance.</p>
+        </div>
+        <Button variant="outline" size="sm" disabled={refreshing} onClick={handleRefresh}>
+          {refreshing ? "Refreshing..." : "Refresh products"}
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1833,6 +1889,89 @@ function OrderManagementView({
   const [isSearchingTrack, setIsSearchingTrack] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [inspectProductId, setInspectProductId] = useState<string | null>(null);
+  const [cancellationRequests, setCancellationRequests] = useState<any[]>([]);
+  const [processingCancellationId, setProcessingCancellationId] = useState<string | null>(null);
+
+  const loadCancellationRequests = async () => {
+    try {
+      const requests = await getOrderCancellationsForAdmin();
+      setCancellationRequests(requests);
+    } catch (error) {
+      console.error("Failed to load cancellation requests:", error);
+      toast.error("Could not load order cancellation requests.");
+    }
+  };
+
+  useEffect(() => {
+    void loadCancellationRequests();
+  }, []);
+
+  const handleCancellationReview = async (request: any, decision: "APPROVE" | "REJECT") => {
+    const note = window.prompt(
+      decision === "REJECT" ? "Enter the reason for rejecting this cancellation:" : "Optional note for the buyer:"
+    );
+    if (note === null) return;
+    if (decision === "REJECT" && note.trim().length < 8) {
+      toast.error("Please enter a rejection reason of at least 8 characters.");
+      return;
+    }
+    setProcessingCancellationId(request.id);
+    const result = await reviewOrderCancellation(request.id, decision, note);
+    setProcessingCancellationId(null);
+    if (!result.success) {
+      toast.error(result.error || "Could not review this cancellation.");
+      return;
+    }
+    toast.success(
+      decision === "REJECT"
+        ? "Cancellation request rejected."
+        : result.refundStatus === "SUCCESS"
+          ? "Order cancelled and refund completed."
+          : result.refundStatus === "PENDING_PAYMENT"
+            ? "Order cancelled. Refund will be checked if payment completes."
+            : result.refundStatus === "NOT_REQUIRED"
+              ? "Order cancelled. No captured payment was due for refund."
+              : "Order cancelled. Refund is being processed."
+    );
+    await Promise.all([loadCancellationRequests(), onUpdateStatus()]);
+  };
+
+  const handleRefundRefresh = async (request: any) => {
+    setProcessingCancellationId(request.id);
+    const result = await refreshOrderCancellationRefund(request.id);
+    setProcessingCancellationId(null);
+    if (!result.success) {
+      toast.error(result.error || "Could not refresh Cashfree refund status.");
+      return;
+    }
+    toast.success(`Refund status: ${result.status}`);
+    await Promise.all([loadCancellationRequests(), onUpdateStatus()]);
+  };
+
+  const handleRefundResume = async (request: any) => {
+    setProcessingCancellationId(request.id);
+    const result = await resumePendingOrderCancellationRefund(request.id);
+    setProcessingCancellationId(null);
+    if (!result.success) {
+      toast.error(result.error || "Could not safely resume the refund request.");
+      return;
+    }
+    toast.success(`Refund status: ${result.status}`);
+    await Promise.all([loadCancellationRequests(), onUpdateStatus()]);
+  };
+
+  const handleRefundRetry = async (request: any) => {
+    if (!window.confirm("Cashfree marked this refund as failed. Start a new, separately tracked refund attempt?")) return;
+    setProcessingCancellationId(request.id);
+    const result = await retryOrderCancellationRefund(request.id);
+    setProcessingCancellationId(null);
+    if (!result.success) {
+      toast.error(result.error || "Could not retry the refund.");
+      return;
+    }
+    toast.success(`Refund attempt status: ${result.status}`);
+    await Promise.all([loadCancellationRequests(), onUpdateStatus()]);
+  };
 
   // Scalable combobox & filter states
   const [isSellerDropdownOpen, setIsSellerDropdownOpen] = useState(false);
@@ -2103,6 +2242,57 @@ function OrderManagementView({
           </Button>
         )}
       </div>
+
+      <Card className="p-5 bg-white border border-amber-200 rounded-2xl shadow-sm">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-sm font-extrabold text-[#1a3321]">Cancellations &amp; Refunds</h2>
+            <p className="text-[10px] text-slate-500 mt-1">Review seller/buyer requests and verify each Cashfree refund separately from order cancellation.</p>
+          </div>
+          <Badge className="bg-amber-50 text-amber-800 border border-amber-200">{cancellationRequests.filter((item) => item.status === "REQUESTED").length} awaiting review</Badge>
+        </div>
+        {cancellationRequests.length === 0 ? (
+          <p className="text-xs text-slate-500 py-4 text-center">No open cancellation requests or pending refunds.</p>
+        ) : (
+          <div className="space-y-3">
+            {cancellationRequests.map((request) => (
+              <div key={request.id} className="border border-slate-200 rounded-xl p-4 grid gap-3 lg:grid-cols-[1fr_auto]">
+                <div className="space-y-1 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong className="text-[#1a3321]">Order {request.orderId}</strong>
+                    <Badge className={request.status === "REQUESTED" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}>{request.status}</Badge>
+                    {request.status === "APPROVED" && <Badge className="bg-slate-100 text-slate-700">Refund: {request.refundStatus}</Badge>}
+                  </div>
+                  <p className="text-slate-600">Buyer: {request.order.user?.name || "Customer"} ({request.order.user?.email || "no email"}) · Seller: {request.order.seller?.companyName || "Marketplace seller"}</p>
+                  <p className="text-slate-700"><strong>Reason:</strong> {request.reason}</p>
+                  <p className="text-slate-500">Requested by {request.requestedByRole} · {new Date(request.requestedAt).toLocaleString()} · Payment: {request.order.payment?.status || "Not found"}</p>
+                  {request.refundAmount != null && <p className="text-slate-700"><strong>Refund amount:</strong> ₹{request.refundAmount.toLocaleString("en-IN")}</p>}
+                  {(request.cashfreeRefundReference || request.cashfreeRefundId) && <p className="text-slate-500 break-all"><strong>Cashfree refund reference:</strong> {request.cashfreeRefundReference || request.cashfreeRefundId}</p>}
+                  {request.refundArn && <p className="text-slate-500"><strong>Refund ARN:</strong> {request.refundArn}</p>}
+                  {request.refundError && <p className="text-rose-700"><strong>Refund note:</strong> {request.refundError}</p>}
+                </div>
+                <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                  {request.status === "REQUESTED" && (
+                    <>
+                      <Button size="sm" disabled={processingCancellationId === request.id} onClick={() => handleCancellationReview(request, "APPROVE")}>Approve &amp; refund</Button>
+                      <Button size="sm" variant="outline" disabled={processingCancellationId === request.id} onClick={() => handleCancellationReview(request, "REJECT")}>Reject</Button>
+                    </>
+                  )}
+                  {request.status === "APPROVED" && request.refundStatus === "PENDING" && request.cashfreeRefundId && (
+                    <>
+                      <Button size="sm" variant="outline" disabled={processingCancellationId === request.id} onClick={() => handleRefundRefresh(request)}>Refresh refund</Button>
+                      <Button size="sm" variant="outline" disabled={processingCancellationId === request.id} onClick={() => handleRefundResume(request)}>Retry safely</Button>
+                    </>
+                  )}
+                  {request.status === "APPROVED" && request.refundStatus === "FAILED" && (
+                    <Button size="sm" disabled={processingCancellationId === request.id} onClick={() => handleRefundRetry(request)}>Retry failed refund</Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* 3 Executive High-Value KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -2781,12 +2971,19 @@ function OrderManagementView({
                 size="sm" 
                 className="w-full text-rose-500 hover:text-rose-600 hover:bg-rose-50 border-rose-200"
                 onClick={async () => {
-                  await updateOrderStatus(selectedOrder.id, "CANCELLED", "Order cancelled by platform supervisor.");
-                  onUpdateStatus();
+                  const reason = window.prompt("Enter the reason for cancelling this order:");
+                  if (reason === null) return;
+                  const result = await cancelOrderAsAdmin(selectedOrder.id, reason);
+                  if (!result.success) {
+                    toast.error(result.error || "Could not cancel this order.");
+                    return;
+                  }
+                  toast.success(`Order cancelled. Refund status: ${result.refundStatus || "pending review"}.`);
+                  await Promise.all([loadCancellationRequests(), onUpdateStatus()]);
                   setSelectedOrder(null);
                 }}
               >
-                Cancel Order
+                Cancel &amp; refund
               </Button>
               <Button 
                 size="sm" 
@@ -4317,6 +4514,3 @@ function DiscountApprovalView({ pendingDiscounts, reload, adminEmail, globalSear
     </div>
   );
 }
-
-
-

@@ -5,12 +5,13 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Button, Card, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
 import { FadeIn, FadeInStagger, FadeInStaggerItem, ScaleHover } from "@/components/FramerComponents";
-import { ShieldCheck, Award, Leaf, ArrowRight, ArrowUpRight, RefreshCw, ChevronRight, Star, MessageSquare, ShoppingBag, MapPin, CheckCircle } from "lucide-react";
+import { ShieldCheck, Award, Leaf, ArrowRight, ArrowUpRight, RefreshCw, ChevronRight, ShoppingBag, MapPin, CheckCircle } from "lucide-react";
 import DisplayCards from "@/components/ui/display-cards";
 import ScrollGlobe from "@/components/ui/scroll-globe";
 import { useCart } from "@/context/CartContext";
 import { getProducts, ProductItem } from "@/actions/products";
 import { getVerifiedSellers } from "@/actions/sellers";
+import TestimonialsSection from "@/components/marketplace/TestimonialsSection";
 
 const CATEGORIES = [
   {
@@ -313,8 +314,8 @@ export default function Homepage() {
       badges: [],
     },
     certifications: [],
-    rating: 4.8,
-    reviewsCount: 12,
+    rating: 0,
+    reviewsCount: 0,
   }));
 
   const [products, setProducts] = useState<ProductItem[]>(initialProducts);
@@ -978,86 +979,7 @@ export default function Homepage() {
     {
       id: "testimonials",
       badge: "Testimonials",
-      content: (
-        <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 md:py-36 space-y-12">
-          <div className="text-center space-y-2 max-w-xl mx-auto">
-            <div className="inline-flex items-center space-x-1.5 rounded-full bg-accent/20 border border-accent/30 px-3 py-1 text-[10px] font-bold text-primary uppercase tracking-wider">
-              <MessageSquare className="h-3 w-3 text-emerald-600 animate-pulse" />
-              <span>Social Proof &amp; Impact</span>
-            </div>
-            <h2 className="text-3xl font-extrabold text-primary tracking-tight sm:text-4xl">
-              Trusted by Eco Conscious Partners
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              See how verified brands, manufacturers, and buyers are changing the world with EarthCentric.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-4">
-            {[
-              {
-                quote: "Finding verified suppliers who actually possess genuine GOTS and FSC certifications used to take us weeks. EarthCentric has streamlined our entire supply chain verification down to minutes.",
-                author: "Elena Rostova",
-                role: "Sustainability Director, Veda Goods",
-                location: "Germany",
-                avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120",
-                impact: "Saved 4.2 Tons CO₂",
-                rating: 5,
-              },
-              {
-                quote: "The transparency is unmatched. Being able to see the exact eco audit logs and GST registrations of suppliers before placing bulk orders has completely eliminated greenwashing risks for our retail brand.",
-                author: "Marcus Chen",
-                role: "Founder, Loop Apparel",
-                location: "USA",
-                avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120",
-                impact: "Reduced 840 kg Plastic",
-                rating: 5,
-              },
-              {
-                quote: "As a small-scale ethical manufacturer in India, getting noticed was incredibly hard. EarthCentric's verification badge gave us immediate trust and connected us with international buyers looking for organic cotton.",
-                author: "Ananya Iyer",
-                role: "Managing Director, EarthCraft Exports",
-                location: "India",
-                avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=120",
-                impact: "100% Upcycled Sourcing",
-                rating: 5,
-              }
-            ].map((t, idx) => (
-              <div 
-                key={idx}
-                className="glass-card bg-card border border-border/40 rounded-3xl p-6 sm:p-8 flex flex-col justify-between space-y-6 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden"
-              >
-                <div className="space-y-4">
-                  {/* Rating Stars */}
-                  <div className="flex items-center space-x-1">
-                    {[...Array(t.rating)].map((_, i) => (
-                      <Star key={i} className="h-4 w-4 fill-amber-400 stroke-amber-400" />
-                    ))}
-                  </div>
-                  <p className="text-sm italic text-muted-foreground leading-relaxed">
-                    "{t.quote}"
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-4 border-t border-[#d0c6b8]/20 pt-4">
-                  <img 
-                    src={t.avatar} 
-                    alt={t.author} 
-                    className="h-10 w-10 rounded-full object-cover ring-2 ring-emerald-600/10"
-                  />
-                  <div className="text-left">
-                    <h4 className="text-sm font-bold text-primary leading-tight">{t.author}</h4>
-                    <p className="text-[10px] text-muted-foreground">{t.role} ({t.location})</p>
-                    <div className="inline-flex items-center space-x-1 mt-1 bg-emerald-600/10 rounded-full px-2 py-0.5 text-[8px] font-extrabold text-emerald-700 uppercase tracking-wide">
-                      <span>{t.impact}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )
+      content: <TestimonialsSection />,
     },
     {
       id: "vision-cta",
@@ -1084,25 +1006,9 @@ export default function Homepage() {
                 Join thousands of conscious consumers and verified suppliers shifting to carbon-neutral purchasing today.
               </p>
 
-              {/* Visual Social Proof Element */}
-              <div className="flex flex-col items-center space-y-2 mt-2">
-                <div className="flex -space-x-2 overflow-hidden">
-                  <img className="inline-block h-8 w-8 rounded-full ring-2 ring-card object-cover" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80" alt="User" />
-                  <img className="inline-block h-8 w-8 rounded-full ring-2 ring-card object-cover" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80" alt="User" />
-                  <img className="inline-block h-8 w-8 rounded-full ring-2 ring-card object-cover" src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=80" alt="User" />
-                  <img className="inline-block h-8 w-8 rounded-full ring-2 ring-card object-cover" src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80" alt="User" />
-                </div>
-                <div className="flex items-center space-x-1.5 text-xs">
-                  <div className="flex text-amber-500">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} className="h-3.5 w-3.5 fill-current text-amber-500" />
-                    ))}
-                  </div>
-                  <span className="text-muted-foreground font-semibold">
-                    4.9/5 stars from 2,300+ verified buyers & suppliers
-                  </span>
-                </div>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Product reviews are shown only after a verified delivery.
+              </p>
               <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
                 <Link href="/marketplace">
                   <LiquidButton size="lg" className="w-full sm:w-auto">

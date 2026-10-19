@@ -33,6 +33,11 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
       return sellers.filter((s) => s.verificationStatus === "PENDING");
     }
 
+    const adminAuth = await verifyAdminAuth();
+    if (!adminAuth.authorized) {
+      throw new Error("Unauthorized: Super Admin access is required to load seller applications.");
+    }
+
     const sellers = await db.seller.findMany({
       where: {
         verificationStatus: {
@@ -72,9 +77,9 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
         fileUrl: getUrlFromDb(d.fileUrl),
       })),
     }));
-  } catch (e) {
-    const sellers = await getMockSellersInternal();
-    return sellers.filter((s) => s.verificationStatus === "PENDING");
+  } catch (error) {
+    console.error("Failed to load seller verification records:", error);
+    throw new Error("Could not load seller applications. Refresh and try again.");
   }
 }
 
@@ -273,7 +278,12 @@ export async function getPlatformStats(
 
     const whereDate = dateFilter ? { createdAt: dateFilter } : {};
 
-    const totalOrders = await db.order.count({ where: whereDate });
+    const totalOrders = await db.order.count({
+      where: {
+        ...whereDate,
+        payment: { is: { status: "COMPLETED" } },
+      },
+    });
     const totalSellers = await db.seller.count({ where: whereDate });
     const totalProducts = await db.product.count({ where: { isArchived: false, ...whereDate } });
     const totalBuyers = await db.user.count({ where: { role: "BUYER", ...whereDate } });
@@ -297,8 +307,8 @@ export async function getPlatformStats(
     const monthlyMap: Record<string, number> = {};
     payments.forEach((pay) => {
       const date = pay.order?.createdAt || pay.createdAt;
-      const monthStr = date.toLocaleString("en-US", { month: "short" });
-      monthlyMap[monthStr] = (monthlyMap[monthStr] || 0) + pay.amount;
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      monthlyMap[monthKey] = (monthlyMap[monthKey] || 0) + pay.amount;
     });
 
     // Generate last 5 months dynamically
@@ -308,8 +318,8 @@ export async function getPlatformStats(
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const mName = d.toLocaleString("en-US", { month: "short" });
       revenueByMonth.push({
-        month: mName,
-        amount: monthlyMap[mName] || 0,
+        month: `${mName} ${d.getFullYear()}`,
+        amount: monthlyMap[`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`] || 0,
       });
     }
 
@@ -542,10 +552,13 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     });
 
     const now = new Date();
-    const months: string[] = [];
+    const months: { key: string; label: string }[] = [];
     for (let i = 4; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push(d.toLocaleString("en-US", { month: "short" }));
+      months.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+      });
     }
 
     const sellerMap: Record<string, { total: number; monthly: Record<string, number> }> = {};
@@ -553,14 +566,14 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     orderItems.forEach((item) => {
       const sId = item.product.sellerId;
       const date = item.order.createdAt;
-      const monthStr = date.toLocaleString("en-US", { month: "short" });
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
       const amount = item.price * item.quantity;
 
       if (!sellerMap[sId]) {
         sellerMap[sId] = { total: 0, monthly: {} };
       }
       sellerMap[sId].total += amount;
-      sellerMap[sId].monthly[monthStr] = (sellerMap[sId].monthly[monthStr] || 0) + amount;
+      sellerMap[sId].monthly[monthKey] = (sellerMap[sId].monthly[monthKey] || 0) + amount;
     });
 
     return sellers.map((s) => {
@@ -571,9 +584,9 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
         businessType: s.businessType,
         verificationStatus: s.verificationStatus,
         totalRevenue: stats.total,
-        monthlyRevenue: months.map((m) => ({
-          month: m,
-          amount: stats.monthly[m] || 0,
+        monthlyRevenue: months.map((month) => ({
+          month: month.label,
+          amount: stats.monthly[month.key] || 0,
         })),
       };
     });
@@ -865,6 +878,11 @@ export async function getPendingProducts(): Promise<any[]> {
       const dynamicPending = dynProds.filter(p => !p.isApproved && p.status !== "REJECTED");
       return [...mockPending, ...dynamicPending];
     }
+    const adminAuth = await verifyAdminAuth();
+    if (!adminAuth.authorized) {
+      throw new Error("Unauthorized: Super Admin access is required to load product applications.");
+    }
+
     const dbProducts = await db.product.findMany({
       where: { 
         isApproved: false, 
@@ -910,9 +928,9 @@ export async function getPendingProducts(): Promise<any[]> {
         reviewsCount: p.reviews.length
       };
     });
-  } catch (e) {
-    console.error("getPendingProducts failed, using mock:", e);
-    return mockPendingProducts.filter(p => !p.isApproved && !p.isArchived);
+  } catch (error) {
+    console.error("Failed to load product approval queue:", error);
+    throw new Error("Could not load product approval requests. Refresh and try again.");
   }
 }
 
@@ -929,6 +947,12 @@ export async function approveProduct(productId: string, adminEmail: string, cate
       return true;
     }
 
+    const adminAuth = await verifyAdminAuth();
+    if (!adminAuth.authorized) {
+      console.error("Unauthorized attempt to approve a product.");
+      return false;
+    }
+
     const updateData: any = { 
       isApproved: true, 
       status: "APPROVED",
@@ -937,28 +961,34 @@ export async function approveProduct(productId: string, adminEmail: string, cate
     };
     if (categoryId) updateData.categoryId = categoryId;
 
-    const product = await db.product.update({
-      where: { id: productId },
-      data: updateData,
-      include: { seller: true }
-    });
+    await db.$transaction(async (tx) => {
+      const updatedProduct = await tx.product.update({
+        where: { id: productId },
+        data: updateData,
+        include: { seller: true }
+      });
 
-    await db.auditLog.create({
-      data: {
-        action: "APPROVE_PRODUCT",
-        adminEmail,
-        details: `Approved product "${product.name}" (${productId})${categoryId ? ` with category ${categoryId}` : ""}`
+      await tx.auditLog.create({
+        data: {
+          action: "APPROVE_PRODUCT",
+          adminEmail: adminAuth.email,
+          details: `Approved product "${updatedProduct.name}" (${productId})${categoryId ? ` with category ${categoryId}` : ""}`
+        }
+      });
+
+      if (updatedProduct.seller?.userId) {
+        await tx.notification.create({
+          data: {
+            userId: updatedProduct.seller.userId,
+            title: "Product Approved 🎉",
+            message: `Your product "${updatedProduct.name}" has been approved by Super Admin and is now live on the marketplace!`,
+            actionUrl: "/seller/dashboard",
+          },
+        });
       }
-    });
 
-    if (product.seller?.userId) {
-      await createNotification(
-        product.seller.userId,
-        "Product Approved 🎉",
-        `Your product "${product.name}" has been approved by Super Admin and is now live on the marketplace!`,
-        "/seller/dashboard"
-      ).catch(() => {});
-    }
+      return updatedProduct;
+    });
 
     try {
       revalidatePath("/");
@@ -971,13 +1001,7 @@ export async function approveProduct(productId: string, adminEmail: string, cate
     return true;
   } catch (e) {
     console.error("approveProduct failed:", e);
-    mockPendingProducts = mockPendingProducts.map(p => {
-      if (p.id === productId) {
-        return { ...p, isApproved: true };
-      }
-      return p;
-    });
-    return true;
+    return false;
   }
 }
 
@@ -991,36 +1015,62 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
         return p;
       });
       await rejectDynamicProduct(productId);
+      const rejected = [...mockPendingProducts, ...(await getDynamicProducts())].find((p) => p.id === productId);
+      const mockSellers = await getMockSellersInternal();
+      const sellerUserId = mockSellers.find(
+        (seller) => seller.id === rejected?.seller?.id || seller.userId === rejected?.seller?.id
+      )?.userId;
+      if (rejected && sellerUserId) {
+        await createNotification(
+          sellerUserId,
+          "Product Listing Rejected ❌",
+          `Your product "${rejected.name}" could not be approved. Reason: ${reason || "Does not comply with sustainable guidelines."}`,
+          "/seller/dashboard"
+        );
+      }
       return true;
     }
 
-    const product = await db.product.update({
-      where: { id: productId },
-      data: { 
-        isApproved: false, 
-        status: "REJECTED", 
-        rejectionReason: reason || "Product claims do not meet sustainable standards.",
-        isArchived: false,
-      },
-      include: { seller: true }
-    });
-
-    await db.auditLog.create({
-      data: {
-        action: "REJECT_PRODUCT",
-        adminEmail,
-        details: `Rejected product "${product.name}" (${productId}). Reason: ${reason}`
-      }
-    });
-
-    if (product.seller?.userId) {
-      await createNotification(
-        product.seller.userId,
-        "Product Listing Rejected ❌",
-        `Your product "${product.name}" could not be approved. Reason: ${reason || "Does not comply with sustainable guidelines."}`,
-        "/seller/dashboard"
-      ).catch(() => {});
+    const adminAuth = await verifyAdminAuth();
+    if (!adminAuth.authorized) {
+      console.error("Unauthorized attempt to reject a product.");
+      return false;
     }
+
+    const rejectionReason = reason || "Product claims do not meet sustainable standards.";
+    await db.$transaction(async (tx) => {
+      const updatedProduct = await tx.product.update({
+        where: { id: productId },
+        data: {
+          isApproved: false,
+          status: "REJECTED",
+          rejectionReason,
+          isArchived: false,
+        },
+        include: { seller: true }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: "REJECT_PRODUCT",
+          adminEmail: adminAuth.email,
+          details: `Rejected product "${updatedProduct.name}" (${productId}). Reason: ${rejectionReason}`
+        }
+      });
+
+      if (updatedProduct.seller?.userId) {
+        await tx.notification.create({
+          data: {
+            userId: updatedProduct.seller.userId,
+            title: "Product Listing Rejected ❌",
+            message: `Your product "${updatedProduct.name}" could not be approved. Reason: ${rejectionReason}`,
+            actionUrl: "/seller/dashboard",
+          },
+        });
+      }
+
+      return updatedProduct;
+    });
 
     try {
       revalidatePath("/");
@@ -1033,13 +1083,7 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
     return true;
   } catch (e) {
     console.error("rejectProduct failed:", e);
-    mockPendingProducts = mockPendingProducts.map(p => {
-      if (p.id === productId) {
-        return { ...p, isApproved: false, status: "REJECTED" };
-      }
-      return p;
-    });
-    return true;
+    return false;
   }
 }
 
@@ -1051,6 +1095,7 @@ export async function uploadCategoryImage(base64Image: string): Promise<string> 
 export async function getAdminTransactions() {
   try {
     const payments = await db.payment.findMany({
+      where: { status: "COMPLETED" },
       orderBy: { createdAt: "desc" },
       include: {
         order: {
@@ -1216,13 +1261,26 @@ export async function getBuyerProfileById(buyerId: string) {
 
 export async function updateSellerVerificationStatus(
   sellerId: string,
-  status: string,
+  status: SellerProfile["verificationStatus"],
   badges?: string[],
   reason?: string,
   adminEmail?: string
 ) {
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+    if (!isMock) {
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        console.error("Unauthorized attempt to update seller verification status.");
+        return false;
+      }
+    }
+
+    if (!["APPROVED", "REJECTED", "NEED_MORE_DOCS", "SUSPENDED", "PENDING", "UNDER_REVIEW"].includes(status)) {
+      console.error("Invalid seller verification status requested:", status);
+      return false;
+    }
 
     if (!isMock) {
       // Find the seller using either seller profile ID or user ID
@@ -1244,22 +1302,22 @@ export async function updateSellerVerificationStatus(
       await db.seller.update({
         where: { id: seller.id },
         data: {
-          verificationStatus: status as any,
+          verificationStatus: status,
           rejectionReason: reason || null,
           ...(badges ? { badges } : {})
         }
       });
 
       // Update the User table role: if approved, ensure their role is SELLER; if rejected/suspended, they revert to BUYER
-      let finalRole = "BUYER";
-      if (status === "APPROVED" || status === "UNDER_REVIEW" || status === "PENDING") {
+      let finalRole: "BUYER" | "SELLER" = "BUYER";
+      if (status === "APPROVED" || status === "UNDER_REVIEW" || status === "NEED_MORE_DOCS" || status === "PENDING") {
         finalRole = "SELLER";
       }
 
       await db.user.update({
         where: { id: seller.userId },
         data: {
-          role: finalRole as any
+          role: finalRole
         }
       });
       
@@ -1317,7 +1375,7 @@ export async function updateSellerVerificationStatus(
       }
       
       // Call mock update
-      await updateMockSellerStatusInternal(targetUserId, status as any, badges || [], reason);
+      await updateMockSellerStatusInternal(targetUserId, status, badges || [], reason);
       if (status === "APPROVED") {
         await approveAllSellerProductsBySellerId(targetUserId);
         await approveAllSellerProductsBySellerId(sellerId);
@@ -1623,5 +1681,3 @@ export async function updateProductPromotionsByAdmin(
     return false;
   }
 }
-
-

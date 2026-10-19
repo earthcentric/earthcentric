@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { getOrdersByUser, OrderDetail } from "@/actions/orders";
-import { addProductReview } from "@/actions/products";
+import { cancelOrder, getOrdersByUser, OrderDetail } from "@/actions/orders";
+import { addProductReview, getReviewedProductIds } from "@/actions/products";
 import { toast } from "sonner";
 import { Card, Badge, Button, Textarea } from "@/components/ui/shared";
 import { 
@@ -36,6 +36,33 @@ export default function UserOrdersPage() {
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState<string>("");
   const [submittingReview, setSubmittingReview] = useState<boolean>(false);
+  const [reviewedProductStatus, setReviewedProductStatus] = useState<{
+    userId: string | null;
+    productIds: Set<string>;
+  }>({ userId: null, productIds: new Set() });
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+
+  const handleCancellationRequest = async (order: OrderDetail) => {
+    if (!user) return;
+    const reason = window.prompt("Why do you want to cancel this order? (8–500 characters)");
+    if (reason === null) return;
+    setCancellingOrderId(order.id);
+    try {
+      const result = await cancelOrder(order.id, user.id, reason);
+      if (!result.success) {
+        toast.error(result.error || "Could not submit the cancellation request.");
+        return;
+      }
+      toast.success("Cancellation request sent to the Super Admin for review.");
+      const data = await getOrdersByUser(user.id);
+      setOrders(data.filter((item) => item.paymentStatus === "COMPLETED"));
+    } catch (requestError) {
+      console.error("Failed to request order cancellation:", requestError);
+      toast.error("Could not submit the cancellation request. Please try again.");
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -47,7 +74,7 @@ export default function UserOrdersPage() {
 
     let isMounted = true;
 
-    const loadPaidOrders = async () => {
+    const loadPaidOrders = async (includeReviewStatus = false) => {
       try {
         setError(null);
         const data = await getOrdersByUser(user.id);
@@ -55,6 +82,11 @@ export default function UserOrdersPage() {
         // Strictly filter to only display orders where payment is successful/done
         const paidOnly = data.filter((o) => o.paymentStatus === "COMPLETED");
         setOrders(paidOnly);
+        if (includeReviewStatus) {
+          const productIds = [...new Set(paidOnly.flatMap((order) => order.items.map((item) => item.productId)))];
+          const reviewedIds = await getReviewedProductIds(user.id, productIds);
+          if (isMounted) setReviewedProductStatus({ userId: user.id, productIds: new Set(reviewedIds) });
+        }
       } catch (err: any) {
         if (!isMounted) return;
         console.error("Failed to load user orders:", err);
@@ -64,10 +96,10 @@ export default function UserOrdersPage() {
       }
     };
 
-    loadPaidOrders();
+    loadPaidOrders(true);
 
     // Poll periodically so when seller updates the order tracking, it immediately reflects on buyer portal
-    const interval = setInterval(loadPaidOrders, 5000);
+    const interval = setInterval(() => loadPaidOrders(), 5000);
 
     return () => {
       isMounted = false;
@@ -112,6 +144,12 @@ export default function UserOrdersPage() {
         return (
           <Badge variant="danger" className="gap-1.5 py-1">
             <XCircle className="w-3.5 h-3.5 text-red-600" /> Cancelled
+          </Badge>
+        );
+      case "REFUNDED":
+        return (
+          <Badge variant="success" className="gap-1.5 py-1">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Refunded
           </Badge>
         );
       default:
@@ -235,6 +273,32 @@ export default function UserOrdersPage() {
                 </div>
               </div>
 
+              {order.cancellation && (
+                <div className="px-6 py-4 bg-amber-50 border-b border-amber-100 text-xs space-y-1.5">
+                  <p className="font-bold text-amber-950">
+                    Cancellation {order.cancellation.status.toLowerCase()}
+                    {order.cancellation.status === "REQUESTED" && " — awaiting Super Admin review"}
+                  </p>
+                  <p className="text-amber-900"><strong>Reason:</strong> {order.cancellation.reason}</p>
+                  {order.cancellation.adminNote && (
+                    <p className="text-amber-900"><strong>Admin update:</strong> {order.cancellation.adminNote}</p>
+                  )}
+                  {order.cancellation.status === "APPROVED" && (
+                    <div className="text-slate-700 space-y-1">
+                      <p><strong>Refund:</strong> {order.cancellation.refundStatus.replaceAll("_", " ")}
+                        {order.cancellation.refundAmount != null && ` · ₹${order.cancellation.refundAmount.toLocaleString("en-IN")}`}
+                      </p>
+                      {order.cancellation.refundStatus === "PENDING_PAYMENT" && <p>Payment has not yet been captured. If it completes, the refund will be checked automatically.</p>}
+                      {order.cancellation.refundStatus === "PENDING" && <p>Cashfree is processing or confirming this refund. Bank posting time can vary.</p>}
+                      {order.cancellation.refundStatus === "NOT_REQUIRED" && <p>No captured payment was found when the cancellation was approved.</p>}
+                      {order.cancellation.cashfreeRefundReference && <p><strong>Cashfree reference:</strong> {order.cancellation.cashfreeRefundReference}</p>}
+                      {order.cancellation.refundArn && <p><strong>Refund ARN:</strong> {order.cancellation.refundArn}</p>}
+                      {order.cancellation.refundError && <p className="text-rose-700">{order.cancellation.refundError}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Order Items */}
               <div className="p-6 divide-y divide-border/30">
                 {order.items.map((item, index) => (
@@ -260,7 +324,11 @@ export default function UserOrdersPage() {
                     </div>
 
                     {/* Review Button for Delivered Products Only */}
-                    {order.status === "DELIVERED" && (
+                    {order.status === "DELIVERED" &&
+                    reviewedProductStatus.userId === user?.id &&
+                    reviewedProductStatus.productIds.has(item.productId) ? (
+                      <span className="text-emerald-700 text-xs font-semibold">Review submitted</span>
+                    ) : order.status === "DELIVERED" ? (
                       <button
                         onClick={() => {
                           setReviewModalProduct({ id: item.productId, name: item.name, image: item.image || "" });
@@ -272,10 +340,24 @@ export default function UserOrdersPage() {
                         <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                         <span>Write Review</span>
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 ))}
               </div>
+
+              {["PLACED", "CONFIRMED", "PACKED"].includes(order.status) &&
+                (!order.cancellation || order.cancellation.status === "REJECTED") && (
+                  <div className="px-6 pb-5 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={cancellingOrderId === order.id}
+                      onClick={() => void handleCancellationRequest(order)}
+                    >
+                      {cancellingOrderId === order.id ? "Submitting..." : "Request cancellation"}
+                    </Button>
+                  </div>
+                )}
 
               {/* Action Footer */}
               <div className="bg-slate-50/50 border-t border-border/20 px-6 py-3.5 flex justify-end">
@@ -322,18 +404,30 @@ export default function UserOrdersPage() {
                 e.preventDefault();
                 if (!user?.id || !reviewComment.trim()) return;
                 setSubmittingReview(true);
-                const res = await addProductReview({
-                  userId: user.id,
-                  productId: reviewModalProduct.id,
-                  rating: reviewRating,
-                  comment: reviewComment,
-                });
-                setSubmittingReview(false);
-                if (res.success) {
-                  toast.success("Thank you! Your verified purchase review has been submitted. ⭐");
-                  setReviewModalProduct(null);
-                } else {
-                  toast.error(res.error || "Failed to submit review.");
+                try {
+                  const res = await addProductReview({
+                    userId: user.id,
+                    productId: reviewModalProduct.id,
+                    rating: reviewRating,
+                    comment: reviewComment,
+                  });
+                  if (res.success) {
+                    toast.success("Thank you! Your verified purchase review has been submitted. ⭐");
+                    setReviewedProductStatus((current) => ({
+                      userId: user.id,
+                      productIds: new Set(
+                        current.userId === user.id ? current.productIds : []
+                      ).add(reviewModalProduct.id),
+                    }));
+                    setReviewModalProduct(null);
+                  } else {
+                    toast.error(res.error || "Failed to submit review.");
+                  }
+                } catch (error) {
+                  console.error("Failed to submit review from order history:", error);
+                  toast.error("Could not submit your review. Please try again.");
+                } finally {
+                  setSubmittingReview(false);
                 }
               }}
               className="space-y-4"

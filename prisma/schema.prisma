@@ -65,29 +65,29 @@ model User {
   password      String? // Hashed password for credentials login
   emailVerified DateTime?
   image         String?
-  phone         String?   // Buyer phone number collected during registration
+  phone         String? // Buyer phone number collected during registration
   role          Role      @default(BUYER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  seller        Seller?
-  addresses     Address[]
-  cart          Cart?
-  orders        Order[]
-  reviews       Review[]
-  notifications Notification[]
-  wishlist      Wishlist?
-  enquiries     Enquiry[]
-  complaints    Complaint[]
-  sentMessages  Message[] @relation("SentMessages")
-  receivedMessages Message[] @relation("ReceivedMessages")
+  seller           Seller?
+  addresses        Address[]
+  cart             Cart?
+  orders           Order[]
+  reviews          Review[]
+  notifications    Notification[]
+  wishlist         Wishlist?
+  enquiries        Enquiry[]
+  complaints       Complaint[]
+  sentMessages     Message[]      @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
 }
 
 // Temporary OTP storage for buyer email verification during registration
 model OtpVerification {
   id           String    @id @default(cuid())
   email        String    @unique
-  otpHash      String    // SHA-256 hashed OTP for security
+  otpHash      String // SHA-256 hashed OTP for security
   expiresAt    DateTime
   verified     Boolean   @default(false)
   attempts     Int       @default(0)
@@ -126,11 +126,11 @@ model Seller {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  documents      SellerDocument[]
-  products       Product[]
-  reviews        Review[] // Direct reviews of the seller
-  payoutRequests PayoutRequest[]
-  orders         Order[]
+  documents        SellerDocument[]
+  products         Product[]
+  reviews          Review[] // Direct reviews of the seller
+  payoutRequests   PayoutRequest[]
+  orders           Order[]
   discountRequests DiscountApprovalRequest[]
 }
 
@@ -162,49 +162,49 @@ model Category {
 }
 
 model Product {
-  id                   String   @id @default(cuid())
+  id                   String        @id @default(cuid())
   sellerId             String
-  seller               Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  seller               Seller        @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   categoryId           String
-  category             Category @relation(fields: [categoryId], references: [id])
+  category             Category      @relation(fields: [categoryId], references: [id])
   name                 String
-  slug                 String   @unique
+  slug                 String        @unique
   description          String
   shortDescription     String?
   price                Float
   wholesalePrice       Float?
   originalPrice        Float?
-  moq                  Int      @default(1)
-  unit                 String   @default("piece") // e.g. piece, kg, box
-  bulkPriceSlabs       Json?    // [{min: 100, price: 150}]
-  tierDiscounts        Json?    // [{minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15}]
-  individualDiscount   Json?    // {enabled: true, discountType: "PERCENTAGE", discountValue: 10, startDate: "2026-07-01", endDate: "2026-12-31", status: "APPROVED"}
-  buyXGetYOffer        Json?    // {enabled: true, buyQuantity: 2, getQuantity: 1, maxFreeQuantity: 5, startDate: "2026-07-01", endDate: "2026-12-31"}
-  bulkOrderQuantity    Int?     // Seller-defined default bulk order quantity (e.g. 100 units)
-  bulkOrderPrice       Float?   // Seller-defined total price for the default bulk quantity (e.g. ₹100 for 100 units)
+  moq                  Int           @default(1)
+  unit                 String        @default("piece") // e.g. piece, kg, box
+  bulkPriceSlabs       Json? // [{min: 100, price: 150}]
+  tierDiscounts        Json? // [{minQuantity: 10, discountType: "PERCENTAGE", discountValue: 15}]
+  individualDiscount   Json? // {enabled: true, discountType: "PERCENTAGE", discountValue: 10, startDate: "2026-07-01", endDate: "2026-12-31", status: "APPROVED"}
+  buyXGetYOffer        Json? // {enabled: true, buyQuantity: 2, getQuantity: 1, maxFreeQuantity: 5, startDate: "2026-07-01", endDate: "2026-12-31"}
+  bulkOrderQuantity    Int? // Seller-defined default bulk order quantity (e.g. 100 units)
+  bulkOrderPrice       Float? // Seller-defined total price for the default bulk quantity (e.g. ₹100 for 100 units)
   highlights           String[] // Key product selling points set by seller
   technicalSpecs       String[] // Technical specifications set by seller
   materialUsed         String?
   deliveryTime         String?
   returnEligibility    String?
-  stock                Int      @default(0)
-  productDate          DateTime @default(now())
-  sustainabilityScore  Int      @default(85)
+  stock                Int           @default(0)
+  productDate          DateTime      @default(now())
+  sustainabilityScore  Int           @default(85)
   sustainabilityDetail String?
   rejectionReason      String?
   status               ProductStatus @default(PENDING_APPROVAL)
-  isApproved           Boolean  @default(false)
-  isArchived           Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  isApproved           Boolean       @default(false)
+  isArchived           Boolean       @default(false)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
-  images         ProductImage[]
-  certifications ProductCertification[]
-  orderItems     OrderItem[]
-  cartItems      CartItem[]
-  wishlistItems  WishlistItem[]
-  reviews        Review[]
-  enquiries      Enquiry[]
+  images           ProductImage[]
+  certifications   ProductCertification[]
+  orderItems       OrderItem[]
+  cartItems        CartItem[]
+  wishlistItems    WishlistItem[]
+  reviews          Review[]
+  enquiries        Enquiry[]
   discountRequests DiscountApprovalRequest[]
 }
 
@@ -227,23 +227,24 @@ model ProductImage {
 }
 
 model Order {
-  id          String      @id @default(cuid())
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
-  sellerId    String?
-  seller      Seller?     @relation(fields: [sellerId], references: [id])
-  addressId   String
-  address     Address     @relation(fields: [addressId], references: [id])
-  totalAmount Float
-  paymentGroupId String?  // To group orders from different sellers paid together
-  status      OrderStatus @default(PLACED)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  sellerId       String?
+  seller         Seller?     @relation(fields: [sellerId], references: [id])
+  addressId      String
+  address        Address     @relation(fields: [addressId], references: [id])
+  totalAmount    Float
+  paymentGroupId String? // To group orders from different sellers paid together
+  status         OrderStatus @default(PLACED)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-  items      OrderItem[]
-  payment    Payment?
-  timeline   OrderTimeline[]
-  complaints Complaint[]
+  items         OrderItem[]
+  payment       Payment?
+  timeline      OrderTimeline[]
+  complaints    Complaint[]
+  cancellations OrderCancellation[]
 }
 
 model OrderTimeline {
@@ -253,6 +254,35 @@ model OrderTimeline {
   status      OrderStatus
   description String
   createdAt   DateTime    @default(now())
+}
+
+model OrderCancellation {
+  id                      String    @id @default(cuid())
+  orderId                 String
+  order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  activeOrderId           String?   @unique
+  requestedByUserId       String
+  requestedByEmail        String
+  requestedByRole         String
+  reason                  String
+  status                  String    @default("REQUESTED")
+  adminNote               String?
+  requestedAt             DateTime  @default(now())
+  reviewedAt              DateTime?
+  reviewedByUserId        String?
+  reviewedByEmail         String?
+  refundStatus            String    @default("NOT_REQUIRED")
+  refundAmount            Float?
+  cashfreeOrderId         String?
+  cashfreeRefundId        String?   @unique
+  cashfreeRefundReference String?
+  refundArn               String?
+  refundError             String?
+  refundAttempt           Int       @default(0)
+  refundUpdatedAt         DateTime?
+
+  @@index([status, requestedAt])
+  @@index([orderId, requestedAt])
 }
 
 model OrderItem {
@@ -401,16 +431,16 @@ model PayoutRequest {
 }
 
 model Enquiry {
-  id           String    @id @default(cuid())
-  productId    String
-  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  buyerId      String?
-  buyer        User?     @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  id                        String    @id @default(cuid())
+  productId                 String
+  product                   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  buyerId                   String?
+  buyer                     User?     @relation(fields: [buyerId], references: [id], onDelete: SetNull)
   quantity                  Int
-  targetPrice               Float?   // Legacy field – now auto-calculated from seller's wholesale config
-  calculatedWholesaleAmount Float?   // System-calculated total: (customerQty / sellerBulkQty) * sellerBulkPrice
-  bulkOrderQuantitySnapshot Int?     // Snapshot of seller's bulk order quantity at time of enquiry
-  bulkOrderPriceSnapshot    Float?   // Snapshot of seller's bulk order price at time of enquiry
+  targetPrice               Float? // Legacy field – now auto-calculated from seller's wholesale config
+  calculatedWholesaleAmount Float? // System-calculated total: (customerQty / sellerBulkQty) * sellerBulkPrice
+  bulkOrderQuantitySnapshot Int? // Snapshot of seller's bulk order quantity at time of enquiry
+  bulkOrderPriceSnapshot    Float? // Snapshot of seller's bulk order price at time of enquiry
   location                  String
   expectedDate              DateTime?
   name                      String
@@ -487,14 +517,14 @@ model DiscountApprovalRequest {
   seller          Seller                  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   productId       String
   product         Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
-  discountType    DiscountType            // INDIVIDUAL, TIER, BUY_X_GET_Y
+  discountType    DiscountType // INDIVIDUAL, TIER, BUY_X_GET_Y
   requestedAction DiscountRequestedAction // ACTIVATE, DEACTIVATE, UPDATE
   status          DiscountApprovalStatus  @default(PENDING) // PENDING, APPROVED, REJECTED
-  proposedConfig  Json                    // The proposed discount configuration
-  currentConfig   Json?                   // Snapshot of current configuration at request time
+  proposedConfig  Json // The proposed discount configuration
+  currentConfig   Json? // Snapshot of current configuration at request time
   rejectionReason String?
-  requestedBy     String?                 // seller user id or email
-  reviewedBy      String?                 // admin user id or email
+  requestedBy     String? // seller user id or email
+  reviewedBy      String? // admin user id or email
   requestedAt     DateTime                @default(now())
   reviewedAt      DateTime?
   createdAt       DateTime                @default(now())
@@ -504,5 +534,3 @@ model DiscountApprovalRequest {
   @@index([productId])
   @@index([status])
 }
-
-

@@ -10,6 +10,16 @@ export interface CashfreeOrderSession {
   mode: CashfreeMode;
 }
 
+export interface CashfreeRefundResult {
+  order_id?: string;
+  refund_id?: string;
+  cf_refund_id?: string | number;
+  refund_amount?: number;
+  refund_status?: string;
+  refund_arn?: string;
+  status_description?: string;
+}
+
 let cashfreeClient: Cashfree | null = null;
 
 export function getCashfreeMode(): Exclude<CashfreeMode, "MOCK"> {
@@ -174,6 +184,64 @@ export async function verifyPaymentSignature(orderId: string): Promise<boolean> 
   } catch (error: any) {
     console.error("Failed to verify Cashfree payment:", error?.response?.data || error);
     return false;
+  }
+}
+
+export async function createCashfreeRefund(options: {
+  orderId: string;
+  refundId: string;
+  idempotencyKey: string;
+  amount: number;
+  note: string;
+}): Promise<CashfreeRefundResult> {
+  if (!Number.isFinite(options.amount) || options.amount <= 0) {
+    throw new Error("Refund amount must be greater than zero.");
+  }
+  if (!options.orderId || !options.refundId || !options.idempotencyKey) {
+    throw new Error("Cashfree refund identifiers are required.");
+  }
+
+  const client = await getCashfreeClient();
+  const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  if (!client || isMockDatabase) {
+    throw new Error("Cashfree refunds are unavailable in mock mode.");
+  }
+
+  try {
+    const response = await client.PGOrderCreateRefund(
+      options.orderId,
+      {
+        refund_amount: Math.round(options.amount * 100) / 100,
+        refund_id: options.refundId,
+        refund_note: options.note.slice(0, 80),
+        refund_speed: "STANDARD",
+      },
+      crypto.randomUUID(),
+      options.idempotencyKey
+    );
+    return response.data;
+  } catch {
+    console.error("Cashfree refund creation failed.");
+    throw new Error("Cashfree could not initiate the refund. Review the payment and try again.");
+  }
+}
+
+export async function fetchCashfreeRefund(
+  orderId: string,
+  refundId: string
+): Promise<CashfreeRefundResult> {
+  const client = await getCashfreeClient();
+  const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  if (!client || isMockDatabase) {
+    throw new Error("Cashfree refund status is unavailable in mock mode.");
+  }
+
+  try {
+    const response = await client.PGOrderFetchRefund(orderId, refundId);
+    return response.data;
+  } catch {
+    console.error("Cashfree refund status lookup failed.");
+    throw new Error("Cashfree could not retrieve the refund status.");
   }
 }
 

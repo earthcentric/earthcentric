@@ -4,6 +4,7 @@ export async function getVerifiedClerkIdentity(): Promise<{
   id: string;
   email: string;
   name: string;
+  image: string | null;
 } | null> {
   const { userId } = await auth();
   if (!userId) return null;
@@ -26,5 +27,6 @@ export async function getVerifiedClerkIdentity(): Promise<{
     name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") ||
       clerkUser.username ||
       "Conscious Buyer",
+    image: clerkUser.imageUrl || null,
   };
 }

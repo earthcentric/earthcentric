@@ -47,6 +47,29 @@ export default async function OrderTrackingPage({ params }: PageProps) {
         </Link>
       </div>
 
+      {order.cancellation && (
+        <Card className="border-amber-200 bg-amber-50 p-5 space-y-2">
+          <h2 className="font-bold text-sm text-amber-950">
+            Cancellation {order.cancellation.status.toLowerCase()}
+            {order.cancellation.status === "REQUESTED" && " — awaiting Super Admin review"}
+          </h2>
+          <p className="text-xs text-amber-900"><strong>Reason:</strong> {order.cancellation.reason}</p>
+          {order.cancellation.adminNote && <p className="text-xs text-amber-900"><strong>Admin update:</strong> {order.cancellation.adminNote}</p>}
+          {order.cancellation.status === "APPROVED" && (
+            <div className="text-xs text-slate-700 space-y-1">
+              <p><strong>Refund status:</strong> {order.cancellation.refundStatus.replaceAll("_", " ")}</p>
+              {order.cancellation.refundAmount != null && <p><strong>Refund amount:</strong> ₹{order.cancellation.refundAmount.toLocaleString("en-IN")}</p>}
+              {order.cancellation.refundStatus === "PENDING_PAYMENT" && <p>Payment is not yet captured. If it completes, the refund will be checked automatically.</p>}
+              {order.cancellation.refundStatus === "PENDING" && <p>Cashfree is processing or confirming the refund. Bank posting time can vary.</p>}
+              {order.cancellation.refundStatus === "NOT_REQUIRED" && <p>No captured payment was found when the cancellation was approved.</p>}
+              {order.cancellation.cashfreeRefundReference && <p><strong>Cashfree reference:</strong> {order.cancellation.cashfreeRefundReference}</p>}
+              {order.cancellation.refundArn && <p><strong>Refund ARN:</strong> {order.cancellation.refundArn}</p>}
+              {order.cancellation.refundError && <p className="text-rose-700">{order.cancellation.refundError}</p>}
+            </div>
+          )}
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
         {/* Timeline Status Panel (Apple/Linear alignment) */}
         <div className="md:col-span-8 space-y-6">
@@ -106,6 +129,20 @@ export default async function OrderTrackingPage({ params }: PageProps) {
               })}
             </div>
           </Card>
+          {order.timeline.length > 0 && (
+            <Card className="border-border/40 p-5 space-y-3 bg-card">
+              <h3 className="font-bold text-xs text-primary uppercase tracking-wider">Order activity</h3>
+              <div className="space-y-3">
+                {order.timeline.map((event, index) => (
+                  <div key={`${event.status}-${index}`} className="border-l-2 border-emerald-200 pl-3 text-xs">
+                    <p className="font-semibold text-slate-800">{event.status}</p>
+                    <p className="text-slate-600">{event.description}</p>
+                    <p className="text-[10px] text-slate-400">{new Date(event.createdAt).toLocaleString("en-IN")}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* Address and metadata Panel */}

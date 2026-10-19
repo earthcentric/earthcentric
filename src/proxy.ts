@@ -1,5 +1,6 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from 'next/server';
+import { verifyEarthcentricSession } from "@/lib/session-token";
 
 export default clerkMiddleware(async (auth, request) => {
   const { pathname } = request.nextUrl;
@@ -36,19 +37,9 @@ export default clerkMiddleware(async (auth, request) => {
 
   // Check custom session cookie for role-based access
   const sessionCookie = request.cookies.get('earthcentric_session')?.value;
-  let session: { id?: string; role?: string; sellerStatus?: string } | null = null;
-
-  if (sessionCookie) {
-    try {
-      session = JSON.parse(decodeURIComponent(sessionCookie));
-    } catch (e) {
-      try {
-        session = JSON.parse(sessionCookie);
-      } catch (e2) {
-        console.error('Invalid session cookie format');
-      }
-    }
-  }
+  const session = sessionCookie
+    ? await verifyEarthcentricSession(sessionCookie)
+    : null;
 
   // Also check Clerk auth status
   const clerkAuth = await auth();
@@ -103,4 +94,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
-

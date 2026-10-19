@@ -5,8 +5,8 @@ import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib
 import { createAdminNotification } from "@/actions/notifications";
 import { createProduct } from "./products";
 import { getOrdersBySeller } from "./orders";
-import { cookies } from "next/headers";
 import { encrypt, decrypt } from "@/lib/encryption";
+import { setEarthcentricSessionCookie } from "@/lib/session";
 
 export interface SellerProfile {
   id: string;
@@ -228,18 +228,17 @@ export async function submitSellerVerification(data: {
   }
 
   const sellerId = `sel-${Math.random().toString(36).substring(2, 9)}`;
-
-  // Set the session cookie to update the user's role to SELLER and status to PENDING
-  try {
-    const cookieStore = await cookies();
-    cookieStore.set('earthcentric_session', JSON.stringify({
-      id: data.userId,
-      role: 'SELLER',
-      sellerStatus: 'PENDING'
-    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
-  } catch (cookieErr) {
-    console.warn("Failed to set session cookie inside submitSellerVerification:", cookieErr);
-  }
+  const setPendingSellerSession = async () => {
+    try {
+      await setEarthcentricSessionCookie({
+        id: data.userId,
+        role: "SELLER",
+        sellerStatus: "PENDING",
+      });
+    } catch (cookieError) {
+      console.warn("Could not refresh the seller session after application submission:", cookieError);
+    }
+  };
 
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
@@ -268,6 +267,7 @@ export async function submitSellerVerification(data: {
           fileName: doc.fileName,
           fileUrl: doc.fileUrl,
         }));
+        await setPendingSellerSession();
         return {
           ...existing,
           documents: existing.documents.map(doc => ({ ...doc, fileUrl: getUrlFromDb(doc.fileUrl) }))
@@ -295,6 +295,7 @@ export async function submitSellerVerification(data: {
         })),
       };
       mockSellers.push(newSeller);
+      await setPendingSellerSession();
       return {
         ...newSeller,
         documents: newSeller.documents.map(doc => ({ ...doc, fileUrl: getUrlFromDb(doc.fileUrl) }))
@@ -403,6 +404,8 @@ export async function submitSellerVerification(data: {
       "sellers"
     );
 
+    await setPendingSellerSession();
+
     return {
       id: seller.id,
       userId: seller.userId,
@@ -434,29 +437,8 @@ export async function submitSellerVerification(data: {
       })),
     };
   } catch (error) {
-    console.error("Prisma seller verification submission failed, executing mock fallback:", error);
-    const newSeller: SellerProfile = {
-      id: sellerId,
-      userId: data.userId,
-      companyName: data.companyName,
-      businessType: data.businessType,
-      description: data.description,
-      ...(uploadedLogoUrl ? { logoUrl: uploadedLogoUrl } : {}),
-      ...(uploadedLogoUrl ? { companyLogo: uploadedLogoUrl } : {}),
-      website: data.website,
-      gstNumber: data.gstNumber,
-      panNumber: data.panNumber,
-      verificationStatus: "PENDING",
-      badges: [],
-      documents: uploadedDocs.map((doc, index) => ({
-        id: `doc-${index}-${Math.random().toString(36).substring(2, 6)}`,
-        type: doc.type,
-        fileName: doc.fileName,
-        fileUrl: doc.fileUrl,
-      })),
-    };
-    mockSellers.push(newSeller);
-    return newSeller;
+    console.error("Seller verification submission failed:", error);
+    throw new Error("Could not save your seller application. Please retry or contact support.");
   }
 }
 
@@ -755,7 +737,7 @@ export async function getMockSellersInternal() {
   return mockSellers;
 }
 
-export async function updateMockSellerStatusInternal(userId: string, status: "APPROVED" | "REJECTED", badges: string[], reason?: string) {
+export async function updateMockSellerStatusInternal(userId: string, status: SellerProfile["verificationStatus"], badges: string[], reason?: string) {
   mockSellers = mockSellers.map((s) => {
     if (s.userId === userId) {
       return {
@@ -1172,8 +1154,10 @@ export async function getSellerCustomers(sellerId: string): Promise<SellerCustom
     const customerMap = new Map<string, SellerCustomer>();
 
     orders.forEach((o) => {
-      const email = o.user?.email || "customer@earthcentric.com";
-      const key = email.toLowerCase();
+      const email = o.user?.email?.trim().toLowerCase();
+      if (!o.userId || !email || !o.user?.emailVerified) return;
+
+      const key = o.userId;
       const existing = customerMap.get(key);
 
       const phoneNum = o.user?.phone && o.user.phone.trim() ? o.user.phone : "Not Available";
@@ -1196,12 +1180,12 @@ export async function getSellerCustomers(sellerId: string): Promise<SellerCustom
         }
       } else {
         const customer: SellerCustomer = {
-          id: o.userId || `cust-${Math.random().toString(36).substring(2, 7)}`,
+          id: o.userId,
           name: o.user?.name || "Customer",
-          email: o.user?.email || "customer@earthcentric.com",
+          email,
           phone: phoneNum,
           countryCode: "+91",
-          profilePicture: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80`,
+          ...(o.user.image ? { profilePicture: o.user.image } : {}),
           registrationDate: orderDateStr,
           totalOrders: 1,
           totalSpending: o.totalAmount,
@@ -1212,76 +1196,9 @@ export async function getSellerCustomers(sellerId: string): Promise<SellerCustom
       }
     });
 
-    const list = Array.from(customerMap.values());
-
-    // Provide default rich mock customer set if list is small for testing demo
-    if (list.length < 3) {
-      const demoCustomers: SellerCustomer[] = [
-        {
-          id: "cust-1",
-          name: "Harshavardhan Sharma",
-          email: "harsha.sharma@gmail.com",
-          phone: "+91 98765 43210",
-          countryCode: "+91",
-          profilePicture: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80",
-          registrationDate: "2025-11-14",
-          totalOrders: 6,
-          totalSpending: 8450,
-          lastOrderDate: "2026-07-28",
-          status: "VIP",
-        },
-        {
-          id: "cust-2",
-          name: "Aarav Patel",
-          email: "aarav.patel@yahoo.com",
-          phone: "+91 98123 45678",
-          countryCode: "+91",
-          profilePicture: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=200&auto=format&fit=crop&q=80",
-          registrationDate: "2026-01-20",
-          totalOrders: 2,
-          totalSpending: 2199,
-          lastOrderDate: "2026-06-15",
-          status: "ACTIVE",
-        },
-        {
-          id: "cust-3",
-          name: "Ananya Deshmukh",
-          email: "ananya.d@hotmail.com",
-          phone: "+91 98987 65432",
-          countryCode: "+91",
-          profilePicture: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80",
-          registrationDate: "2026-03-05",
-          totalOrders: 4,
-          totalSpending: 6200,
-          lastOrderDate: "2026-07-22",
-          status: "VIP",
-        },
-        {
-          id: "cust-4",
-          name: "Rohan Kapoor",
-          email: "rohan.k@gmail.com",
-          phone: "Not Available",
-          countryCode: "+91",
-          profilePicture: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80",
-          registrationDate: "2025-08-10",
-          totalOrders: 1,
-          totalSpending: 699,
-          lastOrderDate: "2025-08-10",
-          status: "INACTIVE",
-        },
-      ];
-
-      demoCustomers.forEach((c) => {
-        if (!customerMap.has(c.email.toLowerCase())) {
-          list.push(c);
-        }
-      });
-    }
-
-    return list;
+    return Array.from(customerMap.values());
   } catch (e) {
     console.error("getSellerCustomers error:", e);
     return [];
   }
 }
-

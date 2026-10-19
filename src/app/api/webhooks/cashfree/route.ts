@@ -3,6 +3,7 @@ import { verifyCashfreeWebhookSignature } from "@/lib/cashfree";
 import db from "@/lib/db";
 import { createNotification } from "@/actions/notifications";
 import { sendOrderConfirmationEmail } from "@/lib/email";
+import { applyCashfreeRefundWebhook } from "@/lib/order-cancellations";
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,11 +41,28 @@ export async function POST(req: NextRequest) {
     const eventType = payload.type || "";
     const orderData = payload.data?.order || payload.order || {};
     const paymentData = payload.data?.payment || payload.payment || {};
-    const cashfreeOrderId = orderData.order_id || payload.order_id;
+    const refundData = payload.data?.refund || payload.refund || {};
+    const cashfreeOrderId = orderData.order_id || payload.order_id || refundData.order_id;
     const cashfreePaymentId = paymentData.cf_payment_id || payload.cf_payment_id || String(paymentData.payment_id || "");
     const paymentStatus = paymentData.payment_status || orderData.order_status || "";
 
     console.log(`[Cashfree Webhook] Verified event ${eventType} for order: ${cashfreeOrderId}, status: ${paymentStatus}`);
+
+    if (eventType.includes("REFUND") && cashfreeOrderId && refundData.refund_id && refundData.refund_status) {
+      if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+        await applyCashfreeRefundWebhook({
+          orderId: cashfreeOrderId,
+          refundId: refundData.refund_id,
+          status: refundData.refund_status,
+          refundReference:
+            refundData.cf_refund_id == null ? undefined : String(refundData.cf_refund_id),
+          refundArn: refundData.refund_arn,
+          amount: refundData.refund_amount,
+          description: refundData.status_description,
+        });
+      }
+      return NextResponse.json({ status: "SUCCESS", message: "Refund webhook processed." });
+    }
 
     // Process payment success events
     const isSuccess =
@@ -78,10 +96,24 @@ export async function POST(req: NextRequest) {
           });
 
           for (const order of dbOrders) {
-            await db.order.update({
-              where: { id: order.id },
+            if (order.status === "CANCELLED" || order.status === "REFUNDED") {
+              const approvedCancellation = await db.orderCancellation.findFirst({
+                where: { orderId: order.id, status: "APPROVED" },
+                orderBy: { requestedAt: "desc" },
+                select: { id: true },
+              });
+              if (approvedCancellation) {
+                const { startCancellationRefund } = await import("@/lib/order-cancellations");
+                await startCancellationRefund(approvedCancellation.id);
+              }
+              continue;
+            }
+
+            const changed = await db.order.updateMany({
+              where: { id: order.id, status: { notIn: ["CANCELLED", "REFUNDED"] } },
               data: { status: "CONFIRMED" },
             });
+            if (changed.count === 0) continue;
 
             await db.orderTimeline.create({
               data: {

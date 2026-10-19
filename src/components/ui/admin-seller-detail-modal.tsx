@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { getSellerProfileById, getSellerDashboardStats, getSellerAnalyticsTimeSeries, SellerProfile } from "@/actions/sellers";
 import { approveSeller, updateSellerVerificationStatus, updateSellerTrustScore, getSellerInitialProductForAdmin } from "@/actions/admin";
 import { getSellerPayoutStats } from "@/actions/payouts";
@@ -16,7 +17,7 @@ export interface AdminSellerDetailModalProps {
   sellerId: string;
   onClose: () => void;
   adminEmail?: string;
-  onActionComplete?: () => void;
+  onActionComplete?: () => void | Promise<void>;
   onViewOrders?: (sellerId: string) => void;
 }
 
@@ -32,6 +33,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
   const [rejectReason, setRejectReason] = useState("");
   const [trustScore, setTrustScore] = useState<number>(0);
   const [updatingTrust, setUpdatingTrust] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [inspectProductId, setInspectProductId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,43 +57,44 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
     }
   };
 
-  const handleApprove = async () => {
-    try {
-      await updateSellerVerificationStatus(profile?.userId || sellerId, "APPROVED", badges, "", adminEmail);
-      if (onActionComplete) onActionComplete();
-      onClose();
-    } catch (err) {
-      console.error("Failed to approve seller:", err);
+  const handleUpdateVerificationStatus = async (
+    status: "APPROVED" | "REJECTED" | "NEED_MORE_DOCS" | "SUSPENDED",
+    nextBadges: string[] = [],
+    reason = ""
+  ) => {
+    if (!profile) {
+      toast.error("Seller details are still loading. Try again.");
+      return;
     }
-  };
 
-  const handleReject = async () => {
+    setUpdatingStatus(true);
     try {
-      await updateSellerVerificationStatus(profile?.userId || sellerId, "REJECTED", [], rejectReason || "Documents incomplete or invalid.", adminEmail);
-      if (onActionComplete) onActionComplete();
+      const updated = await updateSellerVerificationStatus(profile.userId || sellerId, status, nextBadges, reason, adminEmail);
+      if (!updated) {
+        toast.error("Could not update this seller application. Check your access and try again.");
+        return;
+      }
+
+      toast.success(
+        status === "APPROVED" ? "Seller application approved." :
+        status === "REJECTED" ? "Seller application rejected." :
+        status === "NEED_MORE_DOCS" ? "Additional documents requested." :
+        "Seller account suspended."
+      );
+      if (onActionComplete) {
+        void Promise.resolve()
+          .then(onActionComplete)
+          .catch((error) => {
+            console.error("Seller status updated, but the admin list did not refresh:", error);
+            toast.error("Seller status was updated, but the application list could not refresh.");
+          });
+      }
       onClose();
     } catch (err) {
-      console.error("Failed to reject seller:", err);
-    }
-  };
-
-  const handleNeedMoreDocs = async () => {
-    try {
-      await updateSellerVerificationStatus(profile?.userId || sellerId, "NEED_MORE_DOCS", [], rejectReason || "Please upload clear documents.", adminEmail);
-      if (onActionComplete) onActionComplete();
-      onClose();
-    } catch (err) {
-      console.error("Failed to request docs:", err);
-    }
-  };
-
-  const handleSuspend = async () => {
-    try {
-      await updateSellerVerificationStatus(profile?.userId || sellerId, "SUSPENDED", [], rejectReason || "Violation of terms.", adminEmail);
-      if (onActionComplete) onActionComplete();
-      onClose();
-    } catch (err) {
-      console.error("Failed to suspend seller:", err);
+      console.error(`Failed to update seller status to ${status}:`, err);
+      toast.error("Could not update this seller application. Try again.");
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -653,20 +656,23 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                   <Button
                     variant="ghost"
                     className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
-                    onClick={handleReject}
+                    disabled={updatingStatus}
+                    onClick={() => handleUpdateVerificationStatus("REJECTED", [], rejectReason || "Documents incomplete or invalid.")}
                   >
                     Reject
                   </Button>
                   <Button
                     variant="outline"
                     className="text-amber-600 border-amber-200 hover:bg-amber-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
-                    onClick={handleNeedMoreDocs}
+                    disabled={updatingStatus}
+                    onClick={() => handleUpdateVerificationStatus("NEED_MORE_DOCS", [], rejectReason || "Please upload clear documents.")}
                   >
                     Need More Docs
                   </Button>
                   <Button
                     className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
-                    onClick={handleApprove}
+                    disabled={updatingStatus}
+                    onClick={() => handleUpdateVerificationStatus("APPROVED", badges)}
                   >
                     Approve
                   </Button>
@@ -678,13 +684,15 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                   <Button
                     variant="outline"
                     className="text-rose-600 border-rose-200 hover:bg-rose-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
-                    onClick={handleSuspend}
+                    disabled={updatingStatus}
+                    onClick={() => handleUpdateVerificationStatus("SUSPENDED", [], rejectReason || "Violation of terms.")}
                   >
                     Suspend Seller
                   </Button>
                   <Button
                     className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
-                    onClick={handleApprove}
+                    disabled={updatingStatus}
+                    onClick={() => handleUpdateVerificationStatus("APPROVED", badges)}
                   >
                     Update Badges
                   </Button>
@@ -694,7 +702,8 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
               {(profile.verificationStatus as string) === "SUSPENDED" && (
                  <Button
                     className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"
-                    onClick={handleApprove}
+                    disabled={updatingStatus}
+                    onClick={() => handleUpdateVerificationStatus("APPROVED", badges)}
                  >
                     Reinstate Seller
                  </Button>

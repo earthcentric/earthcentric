@@ -4,6 +4,7 @@ import db from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { createAdminNotification } from "@/actions/notifications";
+import { verifyAuthenticatedUser } from "@/lib/auth-server";
 
 export interface ProductFilter {
   category?: string;
@@ -76,6 +77,7 @@ export interface ProductItem {
   certifications: string[];
   rating: number;
   reviewsCount: number;
+  reviews?: ProductReviewItem[];
   badgeType?: "verified" | "bestseller" | "eco";
   moq?: number;
   wholesalePrice?: number;
@@ -92,6 +94,30 @@ export interface ProductItem {
   rejectionReason?: string | null;
   productDate?: Date | string;
   createdAt?: Date;
+}
+
+export interface ProductReviewItem {
+  id: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  date: string;
+  productName?: string;
+}
+
+function keepEarliestReviewPerBuyer<T extends { userId: string; productId: string | null; createdAt: Date }>(
+  reviews: T[]
+): T[] {
+  const seen = new Set<string>();
+  return [...reviews]
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .filter((review) => {
+      if (!review.productId) return false;
+      const key = `${review.userId}:${review.productId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 // Global mock items for fallback mode
@@ -1996,6 +2022,7 @@ export async function approveDynamicProduct(productId: string): Promise<void> {
   const prod = dynamicProducts.find((p) => p.id === productId);
   if (prod) {
     prod.isApproved = true;
+    prod.status = "APPROVED";
   }
 }
 
@@ -2003,6 +2030,7 @@ export async function rejectDynamicProduct(productId: string): Promise<void> {
   const prod = dynamicProducts.find((p) => p.id === productId);
   if (prod) {
     prod.isApproved = false;
+    prod.status = "REJECTED";
   }
 }
 
@@ -2255,12 +2283,42 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       orderBy,
     });
 
+    const productIds = dbProducts.map((product) => product.id);
+    const userIds = [...new Set(dbProducts.flatMap((product) => product.reviews.map((review) => review.userId)))];
+    const deliveredItems = productIds.length > 0 && userIds.length > 0
+      ? await db.orderItem.findMany({
+          where: {
+            productId: { in: productIds },
+            order: {
+              userId: { in: userIds },
+              status: "DELIVERED",
+              payment: { is: { status: "COMPLETED" } },
+            },
+          },
+          select: {
+            productId: true,
+            order: { select: { userId: true } },
+          },
+        })
+      : [];
+    const deliveredPurchasePairs = new Set(
+      deliveredItems.map((item) => `${item.order.userId}:${item.productId}`)
+    );
+
     // Map Prisma models to unified ProductItem output
-    return dbProducts.map((p) => {
+    const mappedProducts = dbProducts.map((p) => {
+      const verifiedReviews = keepEarliestReviewPerBuyer(
+        p.reviews.filter(
+          (review) =>
+            review.productId === p.id &&
+            review.sellerId === null &&
+            deliveredPurchasePairs.has(`${review.userId}:${p.id}`)
+        )
+      );
       const rating =
-        p.reviews.length > 0
-          ? p.reviews.reduce((acc, curr) => acc + curr.rating, 0) / p.reviews.length
-          : 4.5; // fallback default
+        verifiedReviews.length > 0
+          ? verifiedReviews.reduce((acc, curr) => acc + curr.rating, 0) / verifiedReviews.length
+          : 0;
       return {
         id: p.id,
         name: p.name,
@@ -2286,7 +2344,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         },
         certifications: [], // dynamically loaded
         rating,
-        reviewsCount: p.reviews.length,
+        reviewsCount: verifiedReviews.length,
         moq: p.moq ?? 1,
         wholesalePrice: p.wholesalePrice ?? (p.bulkOrderPrice && p.bulkOrderQuantity ? p.bulkOrderPrice / p.bulkOrderQuantity : undefined),
         ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
@@ -2302,6 +2360,13 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         createdAt: p.createdAt,
       };
     });
+
+    if (filters.sortBy === "rating") {
+      mappedProducts.sort((a, b) => b.rating - a.rating);
+    } else if (filters.sortBy === "popular") {
+      mappedProducts.sort((a, b) => b.reviewsCount - a.reviewsCount);
+    }
+    return mappedProducts;
   } catch (error) {
     console.warn("Database getProducts failed, falling back to mock:", error);
     return getMockProductsFiltered(filters);
@@ -2312,9 +2377,9 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const dyn = dynamicProducts.find((p) => p.id === id);
-      if (dyn) return { ...dyn, status: dyn.status || (dyn.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
+      if (dyn) return { ...dyn, rating: 0, reviewsCount: 0, reviews: [], status: dyn.status || (dyn.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
       const mock = MOCK_PRODUCTS.find((p) => p.id === id);
-      if (mock) return { ...mock, status: mock.status || (mock.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
+      if (mock) return { ...mock, rating: 0, reviewsCount: 0, reviews: [], status: mock.status || (mock.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
       return null;
     }
 
@@ -2325,19 +2390,33 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
         images: true,
         seller: true,
         reviews: {
-          include: {
-            user: true,
+          where: {
+            sellerId: null,
+            user: {
+              orders: {
+                some: {
+                  status: "DELIVERED",
+                  payment: { is: { status: "COMPLETED" } },
+                  items: { some: { productId: id } },
+                },
+              },
+            },
           },
+          include: {
+            user: { select: { name: true } },
+          },
+          orderBy: { createdAt: "desc" },
         },
       },
     });
 
     if (!p) return null;
 
+    const verifiedReviews = keepEarliestReviewPerBuyer(p.reviews);
     const rating =
-      p.reviews.length > 0
-        ? p.reviews.reduce((acc, curr) => acc + curr.rating, 0) / p.reviews.length
-        : 4.5;
+      verifiedReviews.length > 0
+        ? verifiedReviews.reduce((acc, curr) => acc + curr.rating, 0) / verifiedReviews.length
+        : 0;
 
     return {
       id: p.id,
@@ -2364,7 +2443,14 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       },
       certifications: [],
       rating,
-      reviewsCount: p.reviews.length,
+      reviewsCount: verifiedReviews.length,
+      reviews: verifiedReviews.map((review) => ({
+        id: review.id,
+        userName: review.user.name?.trim() || "Verified buyer",
+        rating: review.rating,
+        comment: review.comment || "",
+        date: review.createdAt.toISOString(),
+      })),
       ...(p.moq ? { moq: p.moq } : {}),
       ...(p.wholesalePrice ? { wholesalePrice: p.wholesalePrice } : {}),
       ...(p.originalPrice ? { originalPrice: p.originalPrice } : {}),
@@ -2381,7 +2467,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
     };
   } catch (error) {
     console.warn("Database getProductById failed, using mock:", error);
-    return [...MOCK_PRODUCTS, ...dynamicProducts].find((p) => p.id === id) || null;
+    const fallback = [...MOCK_PRODUCTS, ...dynamicProducts].find((p) => p.id === id);
+    return fallback ? { ...fallback, rating: 0, reviewsCount: 0, reviews: [] } : null;
   }
 }
 
@@ -2689,7 +2776,9 @@ export async function createProduct(data: {
       "Product Approval Required",
       `Seller "${p.seller.companyName}" added a new product "${p.name}" which requires Super Admin approval.`,
       "products"
-    ).catch(() => {});
+    ).catch((error) => {
+      console.error("Product was saved, but the Super Admin notification failed:", error);
+    });
 
     try {
       revalidatePath("/");
@@ -3066,7 +3155,12 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
   const map = new Map<string, ProductItem>();
   MOCK_PRODUCTS.forEach((p) => map.set(p.id, p));
   dynamicProducts.forEach((p) => map.set(p.id, p));
-  let list = Array.from(map.values());
+  let list = Array.from(map.values()).map((product) => ({
+    ...product,
+    rating: 0,
+    reviewsCount: 0,
+    reviews: [],
+  }));
 
   if (!filters.includeUnapproved) {
     list = list.filter((p) => p.isApproved && (p.status === "APPROVED" || !p.status));
@@ -3153,6 +3247,9 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
 
   return list.map(p => ({
     ...p,
+    rating: 0,
+    reviewsCount: 0,
+    reviews: [],
     seller: {
       ...p.seller,
       ...(p.seller.logoUrl ? { companyLogo: p.seller.logoUrl } : {}),
@@ -3168,37 +3265,54 @@ export async function addProductReview(data: {
   imageUrls?: string[];
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const isEligible = await checkReviewEligibility(data.userId, data.productId);
-    if (!isEligible) {
-      return {
-        success: false,
-        error: "Only verified buyers who have received delivery of this item can leave a review.",
-      };
+    const authenticatedUser = await verifyAuthenticatedUser();
+    if (!authenticatedUser.authorized || authenticatedUser.userId !== data.userId) {
+      return { success: false, error: "Please sign in with the account that placed the order." };
+    }
+
+    const comment = typeof data.comment === "string" ? data.comment.trim() : "";
+    if (
+      typeof data.productId !== "string" ||
+      !data.productId.trim() ||
+      !Number.isInteger(data.rating) ||
+      data.rating < 1 ||
+      data.rating > 5 ||
+      comment.length < 1 ||
+      comment.length > 2000
+    ) {
+      return { success: false, error: "Enter a rating from 1 to 5 and a review of up to 2,000 characters." };
     }
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const p = MOCK_PRODUCTS.find((mp) => mp.id === data.productId);
-      if (p) {
-        const totalRating = p.rating * p.reviewsCount + Number(data.rating);
-        p.reviewsCount += 1;
-        p.rating = totalRating / p.reviewsCount;
-      }
-      return { success: true };
+      return { success: false, error: "Verified reviews are unavailable until the database is connected." };
     }
 
-    // Create the review in DB
+    const isEligible = await isProductReviewEligible(authenticatedUser.userId, data.productId);
+    if (!isEligible) {
+      return {
+        success: false,
+        error: "Only verified buyers who have received this item can leave one review per product.",
+      };
+    }
+
     await db.review.create({
       data: {
-        userId: data.userId,
+        userId: authenticatedUser.userId,
         productId: data.productId,
-        rating: Number(data.rating),
-        comment: data.comment,
+        rating: data.rating,
+        comment,
         imageUrls: data.imageUrls || [],
       },
     });
 
+    revalidatePath(`/products/${data.productId}`);
+    revalidatePath("/");
+    revalidatePath("/marketplace");
     return { success: true };
   } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "P2002") {
+      return { success: false, error: "You have already reviewed this product." };
+    }
     console.error("Failed to submit review:", error);
     return { success: false, error: "An unexpected error occurred while saving your review." };
   }
@@ -3206,32 +3320,138 @@ export async function addProductReview(data: {
 
 export async function checkReviewEligibility(userId: string, productId: string): Promise<boolean> {
   try {
+    const authenticatedUser = await verifyAuthenticatedUser();
+    if (!authenticatedUser.authorized || authenticatedUser.userId !== userId) return false;
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const { getOrdersByUser } = await import("@/actions/orders");
-      const userOrders = await getOrdersByUser(userId);
-      const hasDelivered = userOrders.some(
-        (o) =>
-          o.status === "DELIVERED" &&
-          o.items.some((i) => i.productId === productId || productId.includes(i.productId))
-      );
-      return hasDelivered;
+      return false;
     }
 
-    const deliveredOrders = await db.order.findMany({
+    return isProductReviewEligible(userId, productId);
+  } catch (error) {
+    console.error("Failed to check review eligibility:", error);
+    return false;
+  }
+}
+
+async function isProductReviewEligible(userId: string, productId: string): Promise<boolean> {
+  const [deliveredOrder, existingReview] = await Promise.all([
+    db.order.findFirst({
       where: {
         userId,
         status: "DELIVERED",
+        payment: { is: { status: "COMPLETED" } },
         items: {
           some: {
             productId,
           },
         },
       },
+      select: { id: true },
+    }),
+    db.review.findFirst({
+      where: { userId, productId, sellerId: null },
+      select: { id: true },
+    }),
+  ]);
+
+  return Boolean(deliveredOrder && !existingReview);
+}
+
+export async function getVerifiedProductReviews(
+  productId?: string,
+  requestedLimit = 6
+): Promise<ProductReviewItem[]> {
+  try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) return [];
+    const maxLimit = productId ? 500 : 12;
+    const limit = Number.isInteger(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), maxLimit)
+      : 6;
+    const reviews = await db.review.findMany({
+      where: {
+        productId: productId || { not: null },
+        sellerId: null,
+        ...(productId
+          ? {
+              user: {
+                orders: {
+                  some: {
+                    status: "DELIVERED",
+                    payment: { is: { status: "COMPLETED" } },
+                    items: { some: { productId } },
+                  },
+                },
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        userId: true,
+        productId: true,
+        rating: true,
+        comment: true,
+        createdAt: true,
+        user: { select: { name: true } },
+        product: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      ...(productId ? {} : { take: 500 }),
     });
 
-    return deliveredOrders.length > 0;
+    let verifiedReviews = reviews;
+    if (!productId && reviews.length > 0) {
+      const productIds = [...new Set(reviews.map((review) => review.productId).filter((id): id is string => Boolean(id)))];
+      const userIds = [...new Set(reviews.map((review) => review.userId))];
+      const deliveredItems = await db.orderItem.findMany({
+        where: {
+          productId: { in: productIds },
+          order: {
+            userId: { in: userIds },
+            status: "DELIVERED",
+            payment: { is: { status: "COMPLETED" } },
+          },
+        },
+        select: {
+          productId: true,
+          order: { select: { userId: true } },
+        },
+      });
+      const deliveredPairs = new Set(deliveredItems.map((item) => `${item.order.userId}:${item.productId}`));
+      verifiedReviews = reviews.filter(
+        (review) => review.productId && deliveredPairs.has(`${review.userId}:${review.productId}`)
+      );
+    }
+
+    const uniqueVerifiedReviews = keepEarliestReviewPerBuyer(verifiedReviews)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return uniqueVerifiedReviews.slice(0, limit).map((review) => ({
+      id: review.id,
+      userName: review.user.name?.trim() || "Verified buyer",
+      rating: review.rating,
+      comment: review.comment || "",
+      date: review.createdAt.toISOString(),
+      ...(review.product ? { productName: review.product.name } : {}),
+    }));
   } catch (error) {
-    console.error("Failed to check review eligibility:", error);
-    return false;
+    console.error("Failed to load verified product reviews:", error);
+    return [];
+  }
+}
+
+export async function getReviewedProductIds(userId: string, productIds: string[]): Promise<string[]> {
+  try {
+    const authenticatedUser = await verifyAuthenticatedUser();
+    if (!authenticatedUser.authorized || authenticatedUser.userId !== userId) return [];
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock") || productIds.length === 0) return [];
+
+    const reviews = await db.review.findMany({
+      where: { userId, productId: { in: productIds }, sellerId: null },
+      select: { productId: true },
+    });
+    return reviews.flatMap((review) => review.productId ? [review.productId] : []);
+  } catch (error) {
+    console.error("Failed to load the user's reviewed products:", error);
+    return [];
   }
 }

@@ -7,6 +7,7 @@ import { isConfiguredSellerEmail, isSuperAdminEmail } from "@/lib/account-roles"
 import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { setEarthcentricSessionCookie } from "@/lib/session";
 
 function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
@@ -50,13 +51,11 @@ export async function loginUser(email: string, password?: string): Promise<{ suc
       isNewUser: false,
     };
     
-    // Await the cookies() call in Next.js 15+
-    const cookieStore = await cookies();
-    cookieStore.set('earthcentric_session', JSON.stringify({
+    await setEarthcentricSessionCookie({
       id: user.id,
       role: user.role,
-      sellerStatus: user.seller?.verificationStatus
-    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+      sellerStatus: user.seller?.verificationStatus,
+    });
 
     return {
       success: true,
@@ -77,6 +76,9 @@ export async function signupUser(
 ): Promise<{ success: boolean; user?: any; error?: string }> {
   try {
     const normalizedEmail = email.toLowerCase().trim();
+    if (role !== "BUYER" && role !== "SELLER") {
+      return { success: false, error: "Choose a valid account type." };
+    }
 
     // --- Guard: For BUYER registrations, ensure email was OTP-verified ---
     if (role === "BUYER") {
@@ -109,7 +111,7 @@ export async function signupUser(
         email: normalizedEmail,
         password: hashedPassword,
         phone: phone || null,
-        role: role as any,
+        role,
         // Mark emailVerified since we confirmed via OTP
         emailVerified: role === "BUYER" ? new Date() : null,
       }
@@ -152,12 +154,7 @@ export async function signupUser(
       badges: [],
     };
     
-    // Await the cookies() call in Next.js 15+
-    const cookieStore = await cookies();
-    cookieStore.set('earthcentric_session', JSON.stringify({
-      id: user.id,
-      role: user.role
-    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+    await setEarthcentricSessionCookie({ id: user.id, role: user.role });
 
     return {
       success: true,
@@ -223,13 +220,17 @@ export async function syncUserInDb(userData: {
       where: { email: normalizedEmail },
       update: {
         name: identity.name,
+        ...(identity.image ? { image: identity.image } : {}),
         role: targetRole,
+        emailVerified: existingUser?.emailVerified ?? new Date(),
       },
       create: {
         id: identity.id,
         name: identity.name,
+        image: identity.image,
         email: normalizedEmail,
         role: targetRole,
+        emailVerified: new Date(),
       },
       include: {
         seller: true,
@@ -255,12 +256,11 @@ export async function syncUserInDb(userData: {
       isNewUser: !existingUser,
     };
     
-    const cookieStore = await cookies();
-    cookieStore.set('earthcentric_session', JSON.stringify({
+    await setEarthcentricSessionCookie({
       id: user.id,
       role: user.role,
-      sellerStatus: user.seller?.verificationStatus
-    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+      sellerStatus: user.seller?.verificationStatus,
+    });
 
     return { success: true as const, user: finalUser };
   } catch (error) {
@@ -300,12 +300,11 @@ export async function setSellerSessionCookie(userId: string, role: string = "SEL
       sellerStatus = user.seller.verificationStatus;
     }
 
-    const cookieStore = await cookies();
-    cookieStore.set('earthcentric_session', JSON.stringify({
+    await setEarthcentricSessionCookie({
       id: userId,
-      role: role,
-      sellerStatus: sellerStatus
-    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+      role,
+      sellerStatus,
+    });
     return { success: true };
   } catch (e) {
     console.error("Failed to set seller session cookie:", e);
@@ -328,11 +327,7 @@ export async function setAdminSessionCookie(userId: string = "admin-1") {
       }
     }
 
-    const cookieStore = await cookies();
-    cookieStore.set('earthcentric_session', JSON.stringify({
-      id: userId,
-      role: 'ADMIN'
-    }), { httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/' });
+    await setEarthcentricSessionCookie({ id: userId, role: "ADMIN" });
     return { success: true };
   } catch (e) {
     console.error("Failed to set admin session cookie:", e);
