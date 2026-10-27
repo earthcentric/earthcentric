@@ -44,7 +44,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
   const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
   const isWishlisted = isInWishlist(product.id);
   const [activeImage, setActiveImage] = useState(product.images[0]);
-  const [quantity, setQuantity] = useState(product.moq || 1);
+  const [quantity, setQuantity] = useState(1);
   const [related, setRelated] = useState<ProductItem[]>([]);
   const [addedNotify, setAddedNotify] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
@@ -788,27 +788,50 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
             {product.stock > 0 && (
               <div className="space-y-4 pt-2">
                 <div className="flex items-center space-x-4">
-                  {/* Quantity */}
-                  <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden">
+                  {/* Quantity Stepper (1 to stock) */}
+                  <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50 shadow-xs">
                     <button suppressHydrationWarning
-                      onClick={() => setQuantity(Math.max(product.moq || 1, quantity - 1))}
-                      className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-r border-slate-200"
+                      type="button"
+                      onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
+                      disabled={quantity <= 1}
+                      className={`h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors border-r border-slate-200 ${
+                        quantity <= 1 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                      }`}
+                      aria-label="Decrease quantity"
                     >
                       <Minus className="h-4 w-4" />
                     </button>
-                    <span className="h-12 w-12 flex items-center justify-center text-base font-bold text-slate-900 bg-slate-50">
-                      {quantity}
-                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={product.stock || 9999}
+                      value={quantity}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val)) {
+                          setQuantity(Math.max(1, Math.min(product.stock || 9999, val)));
+                        } else if (e.target.value === "") {
+                          setQuantity(1);
+                        }
+                      }}
+                      className="h-12 w-16 text-center text-base font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
                     <button suppressHydrationWarning
-                      onClick={() => setQuantity(quantity + 1)}
-                      className="h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer border-l border-slate-200"
+                      type="button"
+                      onClick={() => setQuantity((prev) => Math.min(product.stock || 9999, prev + 1))}
+                      disabled={product.stock > 0 && quantity >= product.stock}
+                      className={`h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors border-l border-slate-200 ${
+                        product.stock > 0 && quantity >= product.stock ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                      }`}
+                      aria-label="Increase quantity"
                     >
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
 
-                  {/* Add to Cart */}
+                  {/* Add to Cart with Real-Time Total Calculation */}
                   <button suppressHydrationWarning
+                    type="button"
                     onClick={handleAddToCart}
                     className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
                   >
@@ -816,6 +839,14 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
                   </button>
                 </div>
+
+                {/* Subtotal calculation note for immediate visual feedback */}
+                {quantity > 1 && (
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
+                    <span>Quantity: <strong className="text-slate-800">{quantity} units</strong></span>
+                    <span>Total: <strong className="text-emerald-700 font-bold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</strong> (₹{getActiveUnitPrice().toLocaleString()} / unit)</span>
+                  </div>
+                )}
 
                 {/* Bulk Quote Request Button */}
                 <button suppressHydrationWarning
@@ -1038,24 +1069,47 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
           {/* Quantity + Cart */}
           <div className="flex items-center space-x-3 shrink-0">
-            <div className="hidden sm:flex items-center border border-slate-200 rounded-lg overflow-hidden">
+            <div className="hidden sm:flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
               <button suppressHydrationWarning
-                onClick={() => setQuantity(Math.max(product.moq || 1, quantity - 1))}
-                className="h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-50 cursor-pointer border-r border-slate-200"
+                type="button"
+                onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
+                disabled={quantity <= 1}
+                className={`h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 border-r border-slate-200 ${
+                  quantity <= 1 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                }`}
+                aria-label="Decrease quantity"
               >
                 <Minus className="h-3.5 w-3.5" />
               </button>
-              <span className="h-9 w-9 flex items-center justify-center text-sm font-bold text-slate-900 bg-slate-50">
-                {quantity}
-              </span>
+              <input
+                type="number"
+                min={1}
+                max={product.stock || 9999}
+                value={quantity}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (!isNaN(val)) {
+                    setQuantity(Math.max(1, Math.min(product.stock || 9999, val)));
+                  } else if (e.target.value === "") {
+                    setQuantity(1);
+                  }
+                }}
+                className="h-9 w-12 text-center text-sm font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
               <button suppressHydrationWarning
-                onClick={() => setQuantity(quantity + 1)}
-                className="h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-50 cursor-pointer border-l border-slate-200"
+                type="button"
+                onClick={() => setQuantity((prev) => Math.min(product.stock || 9999, prev + 1))}
+                disabled={product.stock > 0 && quantity >= product.stock}
+                className={`h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 border-l border-slate-200 ${
+                  product.stock > 0 && quantity >= product.stock ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                }`}
+                aria-label="Increase quantity"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
             <button suppressHydrationWarning
+              type="button"
               onClick={handleAddToCart}
               className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
             >

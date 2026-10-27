@@ -3,15 +3,27 @@
 import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { sendSellerVerificationUpdateEmail } from "@/lib/email";
-import { getMockSellersInternal, updateMockSellerStatusInternal, SellerProfile } from "./sellers";
+import { 
+  getMockSellersInternal, 
+  updateMockSellerStatusInternal, 
+  removeMockSellerInternal,
+  getMockSellerRemovalHistory,
+  getSellerRemovalHistoryInternal,
+  SellerProfile,
+  SellerRemovalRecord 
+} from "./sellers";
 import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId, getProducts, getProductById, updateProduct } from "./products";
 import { createNotification } from "./notifications";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { revalidatePath } from "next/cache";
 import { verifyAdminAuth } from "@/lib/auth-server";
+import { getPlatformFinancialStats } from "@/lib/financials";
 
 export interface PlatformStats {
   totalRevenue: number;
+  grossOrderValue?: number;
+  netSales?: number;
+  totalRefunds?: number;
   totalOrders: number;
   totalSellers: number;
   totalProducts: number;
@@ -24,13 +36,36 @@ export interface PlatformStats {
   ecoCertifiedRate: number;
   approvedToday: number;
   rejectedToday: number;
+  cancellationStats?: {
+    pending: number;
+    approved: number;
+    rejected: number;
+    refundsProcessing: number;
+    refundsCompleted: number;
+    refundsFailed: number;
+  };
 }
 
 export async function getPendingSellers(): Promise<SellerProfile[]> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const sellers = await getMockSellersInternal();
-      return sellers.filter((s) => s.verificationStatus === "PENDING");
+      const mapped = sellers.map((s) => {
+        const appliedDate = s.appliedAt || s.createdAt || new Date();
+        const isRemoved = s.isRemoved || (s.verificationStatus === "REJECTED" && (s.rejectionReason?.startsWith("[SELLER_REMOVED]:") || false));
+        return {
+          ...s,
+          isRemoved,
+          appliedAt: appliedDate,
+          appliedOn: s.appliedOn || (s.createdAt ? new Date(s.createdAt).toLocaleDateString("en-US") : new Date().toLocaleDateString("en-US")),
+        };
+      });
+      mapped.sort((a, b) => {
+        const timeA = a.appliedAt ? new Date(a.appliedAt).getTime() : 0;
+        const timeB = b.appliedAt ? new Date(b.appliedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+      return mapped;
     }
 
     const adminAuth = await verifyAdminAuth();
@@ -38,45 +73,101 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
       throw new Error("Unauthorized: Super Admin access is required to load seller applications.");
     }
 
-    const sellers = await db.seller.findMany({
-      where: {
-        verificationStatus: {
-          in: ["PENDING", "UNDER_REVIEW", "NEED_MORE_DOCS", "APPROVED", "REJECTED", "SUSPENDED"]
+    const [sellers, removalLogs] = await Promise.all([
+      db.seller.findMany({
+        where: {
+          verificationStatus: {
+            in: ["PENDING", "UNDER_REVIEW", "NEED_MORE_DOCS", "APPROVED", "REJECTED", "SUSPENDED"]
+          }
+        },
+        include: {
+          documents: {
+            orderBy: { uploadedAt: "desc" },
+          },
+          user: true,
+        },
+        orderBy: { updatedAt: "desc" },
+      }),
+      db.auditLog.findMany({
+        where: { action: "REMOVE_SELLER" },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    const mapped: SellerProfile[] = sellers.map((s) => {
+      let appliedDate: Date = s.updatedAt || s.createdAt || new Date();
+      if (s.documents && s.documents.length > 0) {
+        const docDates = s.documents
+          .map((d) => (d.uploadedAt ? new Date(d.uploadedAt).getTime() : 0))
+          .filter((t) => t > 0);
+        if (docDates.length > 0) {
+          appliedDate = new Date(Math.max(...docDates));
         }
-      },
-      include: {
-        documents: true,
-        user: true,
-      },
-      orderBy: { createdAt: "desc" },
+      }
+
+      const matchedLogs = removalLogs.filter((log) => {
+        if (!log.details) return false;
+        return log.details.includes(s.userId) || log.details.includes(s.id);
+      });
+
+      const isRemoved = s.verificationStatus === "REJECTED" && (s.rejectionReason?.startsWith("[SELLER_REMOVED]:") || false);
+      const hasPriorRemoval = matchedLogs.length > 0;
+      let priorRemovalDate: string | undefined;
+      let priorRemovalReason: string | undefined;
+      let priorRemovalAdmin: string | undefined;
+      if (matchedLogs.length > 0 && matchedLogs[0].details) {
+        try {
+          const parsed = JSON.parse(matchedLogs[0].details);
+          priorRemovalDate = parsed.removedAt;
+          priorRemovalReason = parsed.removalReason;
+          priorRemovalAdmin = parsed.removedBy;
+        } catch {}
+      }
+
+      return {
+        id: s.id,
+        userId: s.userId,
+        ...(s.user?.name ? { userName: s.user.name } : {}),
+        ...(s.user ? { user: { name: s.user.name, email: s.user.email } } : {}),
+        companyName: s.companyName,
+        businessType: s.businessType,
+        ...(s.description ? { description: s.description } : {}),
+        ...(getUrlFromDb(s.logoUrl) ? { logoUrl: getUrlFromDb(s.logoUrl) } : {}),
+        ...(s.website ? { website: s.website } : {}),
+        ...(s.gstNumber ? { gstNumber: s.gstNumber } : {}),
+        ...(s.panNumber ? { panNumber: decrypt(s.panNumber) || s.panNumber } : {}),
+        verificationStatus: s.verificationStatus as any,
+        badges: s.badges,
+        ...(s.phone ? { phone: s.phone } : {}),
+        ...((s.user?.name || s.ownerName) ? { ownerName: (s.user?.name || s.ownerName)! } : {}),
+        ...((s.user?.name || s.founderName) ? { founderName: (s.user?.name || s.founderName)! } : {}),
+        appliedAt: appliedDate,
+        appliedOn: appliedDate.toLocaleDateString("en-US"),
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}),
+        isRemoved,
+        hasPriorRemoval,
+        priorRemovalDate,
+        priorRemovalReason,
+        priorRemovalAdmin,
+        documents: s.documents.map((d) => ({
+          id: d.id,
+          type: d.type,
+          fileName: d.fileName,
+          fileUrl: getUrlFromDb(d.fileUrl),
+          uploadedAt: d.uploadedAt,
+        })),
+      };
     });
 
-    return sellers.map((s) => ({
-      id: s.id,
-      userId: s.userId,
-      ...(s.user?.name ? { userName: s.user.name } : {}),
-      ...(s.user ? { user: { name: s.user.name, email: s.user.email } } : {}),
-      companyName: s.companyName,
-      businessType: s.businessType,
-      ...(s.description ? { description: s.description } : {}),
-      ...(getUrlFromDb(s.logoUrl) ? { logoUrl: getUrlFromDb(s.logoUrl) } : {}),
-      ...(s.website ? { website: s.website } : {}),
-      ...(s.gstNumber ? { gstNumber: s.gstNumber } : {}),
-      ...(s.panNumber ? { panNumber: decrypt(s.panNumber) || s.panNumber } : {}),
-      verificationStatus: s.verificationStatus as any,
-      badges: s.badges,
-      ...(s.phone ? { phone: s.phone } : {}),
-      ...((s.user?.name || s.ownerName) ? { ownerName: (s.user?.name || s.ownerName)! } : {}),
-      ...((s.user?.name || s.founderName) ? { founderName: (s.user?.name || s.founderName)! } : {}),
-      ...(s.createdAt ? { createdAt: s.createdAt } : {}),
-      ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}),
-      documents: s.documents.map((d) => ({
-        id: d.id,
-        type: d.type,
-        fileName: d.fileName,
-        fileUrl: getUrlFromDb(d.fileUrl),
-      })),
-    }));
+    mapped.sort((a, b) => {
+      const timeA = a.appliedAt ? new Date(a.appliedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const timeB = b.appliedAt ? new Date(b.appliedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      return timeB - timeA;
+    });
+
+    return mapped;
   } catch (error) {
     console.error("Failed to load seller verification records:", error);
     throw new Error("Could not load seller applications. Refresh and try again.");
@@ -141,6 +232,28 @@ export async function approveSeller(
           details: `Approved seller ${seller.companyName} (${userId}) with badges: ${badges.join(", ")}. Fields updated: ${JSON.stringify(updatedData)}`,
         },
       });
+
+      // Automatically approve the seller's initial launch product candidate
+      await db.product.updateMany({
+        where: {
+          OR: [
+            { sellerId: seller.id },
+            { seller: { userId: seller.userId } }
+          ],
+          isApproved: false,
+        },
+        data: {
+          isApproved: true,
+          status: "APPROVED" as any,
+        }
+      });
+
+      try {
+        revalidatePath("/marketplace");
+        revalidatePath("/api/categories");
+      } catch (revalErr) {
+        // Ignored if non-request context
+      }
     }
 
     // Send confirmation email
@@ -221,6 +334,161 @@ export async function rejectSeller(
   }
 }
 
+export async function removeSellerAsSeller(
+  sellerIdOrUserId: string,
+  reason: string,
+  adminEmail: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+
+    if (!isMock) {
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        return { success: false, error: "Unauthorized: Super Admin access is required to remove a seller." };
+      }
+
+      const seller = await db.seller.findFirst({
+        where: {
+          OR: [
+            { id: sellerIdOrUserId },
+            { userId: sellerIdOrUserId }
+          ]
+        },
+        include: {
+          user: true,
+          documents: true,
+          products: true,
+        }
+      });
+
+      if (!seller) {
+        return { success: false, error: "Seller record not found." };
+      }
+
+      const cleanReason = (reason || "Seller privileges removed by Super Admin.").trim();
+
+      // Create snapshot of complete prior data for permanent auditing and future re-verification
+      const removalSnapshot: SellerRemovalRecord = {
+        sellerId: seller.id,
+        userId: seller.userId,
+        userEmail: seller.user?.email,
+        userName: seller.user?.name || undefined,
+        companyName: seller.companyName,
+        businessType: seller.businessType,
+        description: seller.description || undefined,
+        website: seller.website || undefined,
+        gstNumber: seller.gstNumber || undefined,
+        panNumber: seller.panNumber ? (decrypt(seller.panNumber) || seller.panNumber) : undefined,
+        declaredRevenue: seller.declaredRevenue || undefined,
+        trustScore: seller.trustScore,
+        badges: seller.badges || [],
+        phone: seller.phone || undefined,
+        ownerName: seller.ownerName || undefined,
+        founderName: seller.founderName || undefined,
+        aadharNumber: seller.aadharNumber ? (decrypt(seller.aadharNumber) || seller.aadharNumber) : undefined,
+        factoryAddress: seller.factoryAddress || undefined,
+        pickupAddress: seller.pickupAddress || undefined,
+        companyAddress: seller.companyAddress || undefined,
+        bankAccountNo: seller.bankAccountNo || undefined,
+        bankName: seller.bankName || undefined,
+        bankIfsc: seller.bankIfsc || undefined,
+        bankProofUrl: seller.bankProofUrl ? getUrlFromDb(seller.bankProofUrl) : undefined,
+        verifiedAt: seller.verifiedAt || undefined,
+        previousStatus: seller.verificationStatus,
+        removedAt: new Date().toISOString(),
+        removalReason: cleanReason,
+        removedBy: adminEmail || "Super Admin",
+        documents: (seller.documents || []).map((d) => ({
+          type: d.type,
+          fileName: d.fileName,
+          fileUrl: getUrlFromDb(d.fileUrl),
+          uploadedAt: d.uploadedAt,
+        })),
+        productsCount: (seller.products || []).length,
+      };
+
+      // 1. Log permanent snapshot in AuditLog
+      await db.auditLog.create({
+        data: {
+          action: "REMOVE_SELLER",
+          adminEmail: adminEmail || "admin@earthcentric.com",
+          details: JSON.stringify(removalSnapshot),
+        }
+      });
+
+      // 2. Demote user role back to BUYER
+      await db.user.update({
+        where: { id: seller.userId },
+        data: {
+          role: "BUYER",
+        }
+      });
+
+      // 3. Deactivate all marketplace products for this seller (set unapproved & blocked)
+      await db.product.updateMany({
+        where: {
+          OR: [
+            { sellerId: seller.id },
+            { seller: { userId: seller.userId } }
+          ]
+        },
+        data: {
+          isApproved: false,
+          status: "BLOCKED" as any,
+        }
+      });
+
+      // 4. Update seller record to REJECTED with removal prefix, clear badges & verifiedAt
+      await db.seller.update({
+        where: { id: seller.id },
+        data: {
+          verificationStatus: "REJECTED",
+          rejectionReason: `[SELLER_REMOVED]: ${cleanReason}`,
+          badges: [],
+          verifiedAt: null,
+        }
+      });
+
+      // 5. Send notification to user with guidance to re-apply if desired
+      await createNotification(
+        seller.userId,
+        "Seller Status Revoked ⚠️",
+        `Your seller privileges on EarthCentric have been removed by administration. Reason: ${cleanReason}. If you wish to sell again, you can submit a new application from the seller verification portal.`,
+        "/seller/verification"
+      );
+
+      // 6. Send email notification
+      if (seller.user?.email) {
+        await sendSellerVerificationUpdateEmail(
+          seller.user.email,
+          seller.companyName,
+          "REJECTED",
+          `Seller privileges removed: ${cleanReason}`
+        );
+      }
+
+      try {
+        revalidatePath("/marketplace");
+        revalidatePath("/admin/dashboard");
+        revalidatePath("/");
+      } catch {}
+
+      return { success: true };
+    } else {
+      await removeMockSellerInternal(sellerIdOrUserId, reason, adminEmail);
+      return { success: true };
+    }
+  } catch (error: any) {
+    console.error("Failed to remove seller as seller:", error);
+    return { success: false, error: error.message || "Failed to remove seller." };
+  }
+}
+
+export async function getSellerRemovalHistory(sellerIdOrUserId: string): Promise<SellerRemovalRecord[]> {
+  return getSellerRemovalHistoryInternal(sellerIdOrUserId);
+}
+
 export async function getPlatformStats(
   filterType?: "overall" | "daily" | "monthly" | "yearly",
   selectedDate?: string,
@@ -278,12 +546,19 @@ export async function getPlatformStats(
 
     const whereDate = dateFilter ? { createdAt: dateFilter } : {};
 
-    const totalOrders = await db.order.count({
-      where: {
-        ...whereDate,
-        payment: { is: { status: "COMPLETED" } },
-      },
+    const financialStats = await getPlatformFinancialStats({
+      filterType,
+      selectedDate,
+      selectedMonth,
+      selectedYear,
     });
+
+    const totalOrders = financialStats.totalActiveOrders;
+    const totalRevenue = financialStats.netSales;
+    const grossOrderValue = financialStats.grossOrderValue;
+    const netSales = financialStats.netSales;
+    const totalRefunds = financialStats.totalRefundsAmount;
+
     const totalSellers = await db.seller.count({ where: whereDate });
     const totalProducts = await db.product.count({ where: { isArchived: false, ...whereDate } });
     const totalBuyers = await db.user.count({ where: { role: "BUYER", ...whereDate } });
@@ -292,6 +567,9 @@ export async function getPlatformStats(
     const payments = await db.payment.findMany({
       where: { 
         status: "COMPLETED",
+        order: {
+          status: { notIn: ["CANCELLED", "REFUNDED"] },
+        },
         ...(paymentDateFilter ? { createdAt: paymentDateFilter } : {})
       },
       include: {
@@ -302,7 +580,6 @@ export async function getPlatformStats(
         },
       },
     });
-    const totalRevenue = payments.reduce((acc, curr) => acc + curr.amount, 0);
 
     const monthlyMap: Record<string, number> = {};
     payments.forEach((pay) => {
@@ -325,6 +602,9 @@ export async function getPlatformStats(
 
     return {
       totalRevenue,
+      grossOrderValue,
+      netSales,
+      totalRefunds,
       totalOrders,
       totalSellers,
       totalProducts,
@@ -336,12 +616,23 @@ export async function getPlatformStats(
       customerSatisfaction: 4.8,
       ecoCertifiedRate: 85.0,
       approvedToday: 12,
-      rejectedToday: 2
+      rejectedToday: 2,
+      cancellationStats: {
+        pending: financialStats.pendingCancellationCount,
+        approved: financialStats.approvedCancellationCount,
+        rejected: financialStats.rejectedCancellationCount,
+        refundsProcessing: financialStats.refundsProcessingCount,
+        refundsCompleted: financialStats.refundsCompletedCount,
+        refundsFailed: financialStats.refundsFailedCount,
+      },
     };
   } catch (e) {
     console.error("getPlatformStats failed, using mock:", e);
     return {
       totalRevenue: 289450,
+      grossOrderValue: 325450,
+      netSales: 289450,
+      totalRefunds: 36000,
       totalOrders: 64,
       totalSellers: 8,
       totalProducts: 42,
@@ -359,7 +650,15 @@ export async function getPlatformStats(
       customerSatisfaction: 4.8,
       ecoCertifiedRate: 85.0,
       approvedToday: 12,
-      rejectedToday: 2
+      rejectedToday: 2,
+      cancellationStats: {
+        pending: 2,
+        approved: 4,
+        rejected: 1,
+        refundsProcessing: 1,
+        refundsCompleted: 3,
+        refundsFailed: 0,
+      },
     };
   }
 }
@@ -540,6 +839,7 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     const orderItems = await db.orderItem.findMany({
       where: {
         order: {
+          status: { notIn: ["CANCELLED", "REFUNDED"] },
           payment: {
             status: "COMPLETED",
           },

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { createAdminNotification } from "@/actions/notifications";
 import { verifyAuthenticatedUser } from "@/lib/auth-server";
+import { upsertCategory } from "@/actions/categories";
 
 export interface ProductFilter {
   category?: string;
@@ -2133,11 +2134,15 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       isArchived: false,
     };
 
-    // Public marketplace requests only show approved items.
+    // Public marketplace requests only show approved items from active verified sellers.
     // Seller dashboards pass includeUnapproved: true to display pending/unapproved/rejected items.
     if (!filters.includeUnapproved) {
       whereClause.isApproved = true;
       whereClause.status = "APPROVED";
+      whereClause.seller = {
+        verificationStatus: "APPROVED",
+        user: { role: "SELLER" }
+      };
     }
 
     // Use AND array to compose filters safely (avoids OR clause conflicts)
@@ -2649,25 +2654,8 @@ export async function createProduct(data: {
     }
     const resolvedSellerId = seller.id;
 
-    // Handle Category look-up/creation (case-insensitive and slug-safe)
-    const trimmedCatName = data.categoryName.trim();
-    const catSlug = trimmedCatName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    let category = await db.category.findFirst({
-      where: {
-        OR: [
-          { name: { equals: trimmedCatName, mode: "insensitive" } },
-          { slug: catSlug }
-        ]
-      }
-    });
-    if (!category) {
-      category = await db.category.create({
-        data: {
-          name: trimmedCatName,
-          slug: catSlug,
-        },
-      });
-    }
+    // Handle Category look-up/creation (case-insensitive, normalized, and race-condition safe)
+    const category = await upsertCategory(data.categoryName);
 
     const scoreVal = Number.isFinite(Number(data.sustainabilityScore))
       ? Math.round(Number(data.sustainabilityScore))
@@ -2965,15 +2953,7 @@ export async function updateProduct(
     if (data.technicalSpecs !== undefined) updatePayload.technicalSpecs = data.technicalSpecs;
 
     if (data.categoryName) {
-      let category = await db.category.findUnique({ where: { name: data.categoryName } });
-      if (!category) {
-        category = await db.category.create({
-          data: {
-            name: data.categoryName,
-            slug: data.categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          },
-        });
-      }
+      const category = await upsertCategory(data.categoryName);
       updatePayload.categoryId = category.id;
     }
 

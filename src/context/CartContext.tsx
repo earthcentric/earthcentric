@@ -170,23 +170,27 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
       const item = prevCart.find(i => i.id === id);
       if (!item) return prevCart;
       
-      const minQty = item.moq || 1;
-      
       if (quantity <= 0) {
         return prevCart.filter((i) => i.id !== id);
       }
       
-      // Enforce MOQ if quantity is being set below MOQ (unless it's 0 which means remove)
-      finalQty = quantity < minQty ? minQty : quantity;
+      // Normal ordering: buyer can purchase any quantity (minimum 1 unit; MOQ is strictly for bulk/wholesale quotes)
+      finalQty = Math.max(1, quantity);
       
       return prevCart.map((i) => (i.id === id ? { ...i, quantity: finalQty } : i));
     });
 
     // Save changes to database in the background if authenticated
     if (user?.id) {
-      updateDbCartQuantity(user.id, id, finalQty).catch((err) =>
-        console.error("Failed to sync updateQuantity to database:", err)
-      );
+      if (quantity <= 0) {
+        removeFromDbCart(user.id, id).catch((err) =>
+          console.error("Failed to sync removeFromCart to database:", err)
+        );
+      } else {
+        updateDbCartQuantity(user.id, id, finalQty).catch((err) =>
+          console.error("Failed to sync updateQuantity to database:", err)
+        );
+      }
     }
   };
 

@@ -412,9 +412,7 @@ export default function Homepage() {
           setProducts(fetchedProducts);
         }
         const fetchedSellers = await getVerifiedSellers();
-        if (fetchedSellers && fetchedSellers.length > 0) {
-          setVerifiedSellers(fetchedSellers);
-        }
+        setVerifiedSellers(Array.isArray(fetchedSellers) ? fetchedSellers : []);
       } catch (err) {
         console.error("Failed to load data from DB:", err);
       }
@@ -740,40 +738,46 @@ export default function Homepage() {
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {verifiedSellers.map((seller) => (
-              <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1">
-                <div className="flex items-start justify-between">
-                  <div className="h-16 w-16 rounded-full border border-border/40 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0">
-                    {seller.logoUrl ? (
-                      <img src={seller.logoUrl} alt={seller.companyName} className="h-full w-full object-cover" />
-                    ) : (
-                      <Leaf className="h-8 w-8 text-[#2d4a36]" />
-                    )}
+          {verifiedSellers.length === 0 ? (
+            <div className="text-center py-12 text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl bg-white">
+              No verified sellers currently listed.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {verifiedSellers.map((seller) => (
+                <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1">
+                  <div className="flex items-start justify-between">
+                    <div className="h-16 w-16 rounded-full border border-border/40 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0">
+                      {seller.logoUrl ? (
+                        <img src={seller.logoUrl} alt={seller.companyName} className="h-full w-full object-cover" />
+                      ) : (
+                        <Leaf className="h-8 w-8 text-[#2d4a36]" />
+                      )}
+                    </div>
+                    <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
+                    </Badge>
                   </div>
-                  <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
-                  </Badge>
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-primary truncate" title={seller.companyName}>{seller.companyName}</h3>
-                  <div className="flex items-center space-x-1 mt-1 text-emerald-600">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Verified Business</span>
+                  <div>
+                    <h3 className="font-bold text-lg text-primary truncate" title={seller.companyName}>{seller.companyName}</h3>
+                    <div className="flex items-center space-x-1 mt-1 text-emerald-600">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Verified Business</span>
+                    </div>
                   </div>
-                </div>
-                <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px]">
-                  {seller.description}
-                </p>
-                <div className="pt-2 border-t border-border/40">
-                  <Link href={`/marketplace?seller=${seller.id}`}>
-                    <Button variant="cool" size="sm" className="w-full text-xs">
-                      View Seller
-                    </Button>
-                  </Link>
-                </div>
-              </Card>
-            ))}
-          </div>
+                  <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px]">
+                    {seller.description}
+                  </p>
+                  <div className="pt-2 border-t border-border/40">
+                    <Link href={`/marketplace?seller=${seller.id}`}>
+                      <Button variant="cool" size="sm" className="w-full text-xs">
+                        View Seller
+                      </Button>
+                    </Link>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
         </section>
       )
     },

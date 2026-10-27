@@ -135,13 +135,19 @@ model Seller {
 }
 
 model SellerDocument {
-  id         String       @id @default(cuid())
-  sellerId   String
-  seller     Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  type       DocumentType
-  fileUrl    String
-  fileName   String
-  uploadedAt DateTime     @default(now())
+  id              String              @id @default(cuid())
+  sellerId        String
+  seller          Seller              @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  type            DocumentType
+  fileUrl         String
+  fileName        String
+  publicId        String?
+  format          String?
+  resourceType    String?             @default("image")
+  fileSize        Int?
+  status          VerificationStatus? @default(PENDING)
+  rejectionReason String?
+  uploadedAt      DateTime            @default(now())
 }
 
 model Certification {
@@ -280,6 +286,9 @@ model OrderCancellation {
   refundError             String?
   refundAttempt           Int       @default(0)
   refundUpdatedAt         DateTime?
+  isAutoApproved          Boolean   @default(false)
+  rejectionReason         String?
+  snapshotItems           Json?
 
   @@index([status, requestedAt])
   @@index([orderId, requestedAt])

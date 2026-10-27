@@ -28,6 +28,7 @@ import TopSellersSection from "@/components/marketplace/SellerCard";
 import TestimonialsSection from "@/components/marketplace/TestimonialsSection";
 import QuickViewModal from "@/components/marketplace/QuickViewModal";
 import ProductCard from "@/components/marketplace/ProductCard";
+import CategoryAttributeFilters, { AttributeFilter } from "@/components/marketplace/CategoryAttributeFilters";
 
 
 const CERTIFICATIONS = [
@@ -156,11 +157,11 @@ function EmptyState({ onClear }: { onClear: () => void }) {
   );
 }
 
-export default function MarketplaceClient() {
+export default function MarketplaceClient({ initialCategoryProp }: { initialCategoryProp?: string } = {}) {
   const searchParams = useSearchParams();
   
-  // Read initial states from URL parameters
-  const initialCategory = searchParams.get("category") || "all";
+  // Read initial states from URL parameters or props
+  const initialCategory = initialCategoryProp || searchParams.get("category") || "all";
   const initialSearch = searchParams.get("search") || "";
   const initialPricePreset = searchParams.get("pricePreset") || "all";
   const initialVerified = searchParams.get("verified") === "true";
@@ -182,6 +183,7 @@ export default function MarketplaceClient() {
   const [dealsOnly, setDealsOnly] = useState(initialDealsOnly);
   const [newArrivalsOnly, setNewArrivalsOnly] = useState(initialNewArrivalsOnly);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [selectedAttributes, setSelectedAttributes] = useState<AttributeFilter>({});
   
   // Custom Storefront state
   const [showCatalogExplicitly, setShowCatalogExplicitly] = useState(true);
@@ -297,6 +299,24 @@ export default function MarketplaceClient() {
             );
           }
 
+          // Apply attribute filters (client-side, parsed from technicalSpecs)
+          const attrEntries = Object.entries(selectedAttributes).filter(([, vals]) => vals.length > 0);
+          if (attrEntries.length > 0) {
+            sortedResults = sortedResults.filter((p) => {
+              const specs: string[] = (p.technicalSpecs as string[]) || [];
+              return attrEntries.every(([key, selectedVals]) => {
+                // Build a value lookup from this product's specs
+                return specs.some((spec) => {
+                  const colonIdx = spec.indexOf(":");
+                  if (colonIdx === -1) return false;
+                  const specKey = spec.slice(0, colonIdx).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+                  const specVal = spec.slice(colonIdx + 1).trim();
+                  return specKey === key && selectedVals.some((sv) => sv.toLowerCase() === specVal.toLowerCase());
+                });
+              });
+            });
+          }
+
           // Apply custom client-side sorting overrides if requested
           if (sortBy === "best-rated") {
             sortedResults.sort((a, b) => b.rating - a.rating);
@@ -313,7 +333,8 @@ export default function MarketplaceClient() {
 
     const timer = setTimeout(loadProducts, 300); // Debouncing queries
     return () => clearTimeout(timer);
-  }, [search, category, selectedBrand, pricePreset, minPrice, maxPrice, sortBy, dealsOnly, newArrivalsOnly]);
+  }, [search, category, selectedBrand, pricePreset, minPrice, maxPrice, sortBy, dealsOnly, newArrivalsOnly, selectedAttributes]);
+
 
   // Carousel slide timer
   useEffect(() => {
@@ -375,6 +396,7 @@ export default function MarketplaceClient() {
     setSortBy("newest");
     setDealsOnly(false);
     setNewArrivalsOnly(false);
+    setSelectedAttributes({});
   };
 
   // Compute active filters count
@@ -385,6 +407,7 @@ export default function MarketplaceClient() {
   if (selectedBrand !== "all") activeFiltersCount++;
   if (dealsOnly) activeFiltersCount++;
   if (newArrivalsOnly) activeFiltersCount++;
+  activeFiltersCount += Object.values(selectedAttributes).flat().length;
 
   const showStorefront = !showCatalogExplicitly && category === "all" && search === "";
 
@@ -727,7 +750,10 @@ export default function MarketplaceClient() {
                     <select
                       id="category-select"
                       value={category}
-                      onChange={(e) => setCategory(e.target.value)}
+                      onChange={(e) => {
+                        setCategory(e.target.value);
+                        setSelectedAttributes({}); // Reset attributes when category changes
+                      }}
                       className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:border-[#0F6E56] transition-all cursor-pointer shadow-sm"
                     >
                       <option value="all">All Products</option>
@@ -738,6 +764,15 @@ export default function MarketplaceClient() {
                       ))}
                     </select>
                   </div>
+
+                  {/* Dynamic Attribute Filters — shown when a category is selected */}
+                  {category !== "all" && (
+                    <CategoryAttributeFilters
+                      categorySlug={category}
+                      selectedAttributes={selectedAttributes}
+                      onAttributeChange={setSelectedAttributes}
+                    />
+                  )}
 
                   {/* Deals & Offers Toggle */}
                   <div className="flex items-center justify-between border-t border-slate-100 pt-4">

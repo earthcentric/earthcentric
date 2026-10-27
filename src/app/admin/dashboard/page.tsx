@@ -4,7 +4,7 @@ import React, { useState, useEffect, useTransition, useMemo, useRef } from "reac
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { getPendingSellers, approveSeller, rejectSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount, getAllProductsForAdminPromotions, updateProductPromotionsByAdmin } from "@/actions/admin";
+import { getPendingSellers, approveSeller, rejectSeller, removeSellerAsSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount, getAllProductsForAdminPromotions, updateProductPromotionsByAdmin } from "@/actions/admin";
 import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
 import {
   cancelOrderAsAdmin,
@@ -27,6 +27,8 @@ import { AdminSellerDetailModal } from "@/components/ui/admin-seller-detail-moda
 import { AdminBuyerDetailModal } from "@/components/ui/admin-buyer-detail-modal";
 import { AdminProductDetailModal } from "@/components/ui/admin-product-detail-modal";
 import { AdminMessagesView } from "@/components/admin/AdminMessagesView";
+import { CategoryManagementView } from "@/components/admin/CategoryManagementView";
+import { OrderCancellationsAdminView } from "@/components/admin/OrderCancellationsAdminView";
 import { getUnreadMessageCount } from "@/actions/messages";
 import { Logo } from "@/components/Logo";
 import {
@@ -74,6 +76,11 @@ import {
   Trash2,
   Edit3,
   Sparkles,
+  UserX,
+  History,
+  AlertOctagon,
+  Loader2,
+  RotateCcw,
 } from "lucide-react";
 
 // Mock User Data for User Management View Fallback
@@ -305,8 +312,10 @@ export default function AdminDashboard() {
             <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" badge={pendingDiscounts.filter((d: any) => (d.status || d.discount?.status) === "PENDING").length} />
             <SidebarLink icon={Mail} label="Messages" value="messages" badge={messagesUnreadCount} />
             <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
+            <SidebarLink icon={RotateCcw} label="Cancellation Requests" value="cancellations" badge={stats?.cancellationStats?.pending || 0} />
             <SidebarLink icon={Wallet} label="Payments" value="payments" />
             <SidebarLink icon={AlertCircle} label="Disputes" value="disputes" />
+            <SidebarLink icon={Layers} label="Category Manager" value="categories" />
           </div>
 
           <div className="space-y-1">
@@ -453,7 +462,7 @@ export default function AdminDashboard() {
                 selectedYear={selectedYear}
                 setSelectedYear={setSelectedYear}
               />}
-            {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} globalSearch={globalSearch} />}
+            {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} globalSearch={globalSearch} adminEmail={user?.email} />}
             {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} globalSearch={globalSearch} />}
             {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
@@ -471,7 +480,15 @@ export default function AdminDashboard() {
                 onClearSellerFilter={() => setSelectedSellerFilterForOrders(null)}
               />
             )}
+            {activeTab === "cancellations" && (
+              <OrderCancellationsAdminView
+                onActionComplete={loadAdminData}
+                globalSearch={globalSearch}
+                adminEmail={user?.email}
+              />
+            )}
             {activeTab === "credentials" && <CredentialsManagerView credentials={credentials} reload={loadAdminData} globalSearch={globalSearch} />}
+            {activeTab === "categories" && <CategoryManagementView adminEmail={user?.email} globalSearch={globalSearch} />}
           </FadeIn>
         </main>
       </div>
@@ -813,15 +830,13 @@ function DashboardView({
 // --------------------------------------------------------------------------
 // SELLER APPROVALS VIEW
 // --------------------------------------------------------------------------
-function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSearch }: any) {
+function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSearch, adminEmail }: any) {
   const [refreshing, setRefreshing] = useState(false);
-  const displaySellers = globalSearch 
-    ? pendingSellers.filter((s: any) => 
-        s.companyName?.toLowerCase().includes(globalSearch.toLowerCase()) || 
-        s.user?.email?.toLowerCase().includes(globalSearch.toLowerCase()) ||
-        s.id?.toLowerCase().includes(globalSearch.toLowerCase())
-      ) 
-    : pendingSellers;
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc"); // Default: latest applied on top!
+  const [sellerToRemove, setSellerToRemove] = useState<any>(null);
+  const [removeReason, setRemoveReason] = useState("");
+  const [isRemoving, setIsRemoving] = useState(false);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -835,16 +850,209 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
     }
   };
 
+  const handleConfirmRemove = async () => {
+    if (!sellerToRemove) return;
+    if (!removeReason.trim()) {
+      toast.error("Please enter a reason for removing this seller.");
+      return;
+    }
+    setIsRemoving(true);
+    try {
+      const res = await removeSellerAsSeller(
+        sellerToRemove.userId || sellerToRemove.id,
+        removeReason.trim(),
+        adminEmail || "admin@earthcentric.com"
+      );
+      if (!res.success) {
+        toast.error(res.error || "Failed to remove seller.");
+        return;
+      }
+      toast.success(`Seller "${sellerToRemove.companyName}" has been removed as seller.`);
+      setSellerToRemove(null);
+      setRemoveReason("");
+      await handleRefresh();
+    } catch (err) {
+      console.error("Failed to remove seller:", err);
+      toast.error("Could not remove seller. Try again.");
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
+  // Helper helpers to categorize seller states accurately
+  const isSellerRemoved = (s: any): boolean => Boolean(s.isRemoved || s.rejectionReason?.startsWith("[SELLER_REMOVED]:"));
+  const isSellerPending = (s: any): boolean => !isSellerRemoved(s) && ((s.verificationStatus || s.status) === "PENDING" || (s.verificationStatus || s.status) === "UNDER_REVIEW");
+  const isSellerApproved = (s: any): boolean => !isSellerRemoved(s) && ((s.verificationStatus || s.status) === "APPROVED" || (s.verificationStatus || s.status) === "VERIFIED");
+  const isSellerRejected = (s: any): boolean => !isSellerRemoved(s) && ((s.verificationStatus || s.status) === "REJECTED");
+
+  // Helper to reliably extract the application timestamp
+  const getAppliedTimestamp = (s: any): number => {
+    if (s.appliedAt) {
+      const t = new Date(s.appliedAt).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+    if (s.documents && Array.isArray(s.documents) && s.documents.length > 0) {
+      const docTimes = s.documents
+        .map((d: any) => (d.uploadedAt ? new Date(d.uploadedAt).getTime() : 0))
+        .filter((t: number) => !isNaN(t) && t > 0);
+      if (docTimes.length > 0) return Math.max(...docTimes);
+    }
+    if (s.updatedAt) {
+      const t = new Date(s.updatedAt).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+    if (s.appliedOn) {
+      const t = new Date(s.appliedOn).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+    if (s.createdAt) {
+      const t = new Date(s.createdAt).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+    return 0;
+  };
+
+  // Process, filter, and sort sellers (strictly latest applied on top by default)
+  const displaySellers = useMemo(() => {
+    let list = [...(pendingSellers || [])];
+
+    // Status filter
+    if (statusFilter !== "ALL") {
+      list = list.filter((s: any) => {
+        if (statusFilter === "PENDING") return isSellerPending(s);
+        if (statusFilter === "APPROVED") return isSellerApproved(s);
+        if (statusFilter === "REJECTED") return isSellerRejected(s);
+        if (statusFilter === "REMOVED") return isSellerRemoved(s);
+        return true;
+      });
+    }
+
+    // Global search
+    if (globalSearch && globalSearch.trim()) {
+      const q = globalSearch.toLowerCase().trim();
+      list = list.filter((s: any) =>
+        s.companyName?.toLowerCase().includes(q) ||
+        s.user?.email?.toLowerCase().includes(q) ||
+        s.user?.name?.toLowerCase().includes(q) ||
+        s.userName?.toLowerCase().includes(q) ||
+        s.founderName?.toLowerCase().includes(q) ||
+        s.ownerName?.toLowerCase().includes(q) ||
+        s.id?.toLowerCase().includes(q) ||
+        s.phone?.toLowerCase().includes(q)
+      );
+    }
+
+    // Sort by Applied Date: latest applied on top (desc) or oldest (asc)
+    list.sort((a: any, b: any) => {
+      const timeA = getAppliedTimestamp(a);
+      const timeB = getAppliedTimestamp(b);
+      return sortOrder === "desc" ? timeB - timeA : timeA - timeB;
+    });
+
+    return list;
+  }, [pendingSellers, statusFilter, globalSearch, sortOrder]);
+
+  const pendingCount = (pendingSellers || []).filter(isSellerPending).length;
+  const approvedCount = (pendingSellers || []).filter(isSellerApproved).length;
+  const rejectedCount = (pendingSellers || []).filter(isSellerRejected).length;
+  const removedCount = (pendingSellers || []).filter(isSellerRemoved).length;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-[#1a3321]">Seller Approvals</h1>
           <p className="text-sm text-muted-foreground mt-1">Review and manage seller verification records.</p>
         </div>
-        <Button variant="outline" size="sm" disabled={refreshing} onClick={handleRefresh}>
-          {refreshing ? "Refreshing..." : "Refresh applications"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+            className="text-xs text-[#1a3321] border-slate-200 gap-1.5 h-8 font-semibold shadow-none cursor-pointer"
+            title="Toggle sort order"
+          >
+            <ArrowUpDown className="h-3 w-3 text-emerald-600" />
+            <span>{sortOrder === "desc" ? "Latest First" : "Oldest First"}</span>
+          </Button>
+          <Button variant="outline" size="sm" disabled={refreshing} onClick={handleRefresh} className="h-8 shadow-none">
+            {refreshing ? "Refreshing..." : "Refresh applications"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200/70 w-fit text-xs font-semibold">
+        <button
+          onClick={() => setStatusFilter("ALL")}
+          className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+            statusFilter === "ALL"
+              ? "bg-[#1a3321] text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          All ({(pendingSellers || []).length})
+        </button>
+        <button
+          onClick={() => setStatusFilter("PENDING")}
+          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+            statusFilter === "PENDING"
+              ? "bg-amber-500 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          <span>Pending</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none ${
+            statusFilter === "PENDING" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700"
+          }`}>
+            {pendingCount}
+          </span>
+        </button>
+        <button
+          onClick={() => setStatusFilter("APPROVED")}
+          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+            statusFilter === "APPROVED"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          <span>Verified</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none ${
+            statusFilter === "APPROVED" ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"
+          }`}>
+            {approvedCount}
+          </span>
+        </button>
+        <button
+          onClick={() => setStatusFilter("REJECTED")}
+          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+            statusFilter === "REJECTED"
+              ? "bg-rose-600 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          <span>Rejected</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none ${
+            statusFilter === "REJECTED" ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700"
+          }`}>
+            {rejectedCount}
+          </span>
+        </button>
+        <button
+          onClick={() => setStatusFilter("REMOVED")}
+          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+            statusFilter === "REMOVED"
+              ? "bg-rose-700 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          <span>Removed</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none ${
+            statusFilter === "REMOVED" ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700"
+          }`}>
+            {removedCount}
+          </span>
+        </button>
       </div>
 
       <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
@@ -853,7 +1061,18 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
             <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Business / Applicant</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Contact</TableHead>
-              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Applied On</TableHead>
+              <TableHead 
+                className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 cursor-pointer hover:text-slate-700 select-none"
+                onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Applied On</span>
+                  <ArrowUpDown className="h-3 w-3 text-emerald-600" />
+                  <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded normal-case tracking-normal">
+                    {sortOrder === "desc" ? "Latest First ↓" : "Oldest First ↑"}
+                  </span>
+                </div>
+              </TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
             </TableRow>
@@ -866,71 +1085,235 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
                 </TableCell>
               </TableRow>
             ) : (
-              displaySellers.map((seller: any, i: number) => (
-                <TableRow key={i} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                  <TableCell className="py-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="h-8 w-8 bg-[#f4f5f3] rounded border border-[#e9ece6] flex items-center justify-center text-[#8ca193]">
-                        <Users className="h-4 w-4" />
+              displaySellers.map((seller: any, i: number) => {
+                const appliedTs = getAppliedTimestamp(seller);
+                const appliedDateStr = appliedTs > 0
+                  ? new Date(appliedTs).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })
+                  : seller.appliedOn || (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }));
+
+                const removed = isSellerRemoved(seller);
+                const approved = isSellerApproved(seller);
+                const rejected = isSellerRejected(seller);
+
+                return (
+                  <TableRow key={seller.id || i} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+                    <TableCell className="py-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-8 w-8 bg-[#f4f5f3] rounded border border-[#e9ece6] flex items-center justify-center text-[#8ca193]">
+                          <Users className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-[#1a3321]">{seller.companyName}</p>
+                          <p className="text-[10px] text-muted-foreground flex items-center">
+                            <Users className="h-2.5 w-2.5 mr-1" /> {seller.userName || seller.user?.name || seller.founderName || seller.ownerName || "Applicant"}
+                          </p>
+                          {seller.hasPriorRemoval && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5" title="Prior seller status was removed; re-applied">
+                                <History className="h-2.5 w-2.5 text-amber-600" />
+                                Re-applicant • Prior Removed
+                              </span>
+                            </div>
+                          )}
+                          {removed && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-rose-50 text-rose-800 border border-rose-200 rounded px-1.5 py-0.5">
+                                <UserX className="h-2.5 w-2.5 text-rose-600" />
+                                Removed as Seller
+                              </span>
+                              {seller.priorRemovalReason && (
+                                <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1 italic max-w-xs">
+                                  "{seller.priorRemovalReason}"
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-bold text-[#1a3321]">{seller.companyName}</p>
-                        <p className="text-[10px] text-muted-foreground flex items-center"><Users className="h-2.5 w-2.5 mr-1" /> {seller.userName || seller.user?.name || seller.founderName || seller.ownerName || "Applicant"}</p>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div className="space-y-1 text-xs">
+                        <p className="text-muted-foreground flex items-center">
+                          <Mail className="h-3 w-3 mr-1.5 text-[#8ca193]" />
+                          {seller.user?.email || seller.email || "N/A"}
+                        </p>
+                        <p className="text-muted-foreground flex items-center">
+                          <Phone className="h-3 w-3 mr-1.5 text-[#8ca193]" />
+                          {seller.phone || seller.user?.phone || seller.contact || "N/A"}
+                        </p>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <div className="space-y-1 text-xs">
-                      <p className="text-muted-foreground flex items-center">
-                        <Mail className="h-3 w-3 mr-1.5 text-[#8ca193]" />
-                        {seller.user?.email || seller.email || "N/A"}
-                      </p>
-                      <p className="text-muted-foreground flex items-center">
-                        <Phone className="h-3 w-3 mr-1.5 text-[#8ca193]" />
-                        {seller.phone || seller.user?.phone || seller.contact || "N/A"}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <div className="space-y-1 text-xs">
-                      <p className="text-muted-foreground flex items-center" title="Request Submitted Date">
-                        <Calendar className="h-3 w-3 mr-1.5 text-[#8ca193]" />
-                        <span className="font-semibold text-[#1a3321]">Applied:</span>&nbsp;
-                        {seller.appliedOn || (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString("en-US") : new Date().toLocaleDateString("en-US"))}
-                      </p>
-                      <p className="text-muted-foreground flex items-center" title="Approved Date">
-                        <CheckCircle2 className="h-3 w-3 mr-1.5 text-emerald-600" />
-                        <span className="font-semibold text-[#1a3321]">Approved:</span>&nbsp;
-                        {seller.verifiedAt
-                          ? new Date(seller.verifiedAt).toLocaleDateString("en-US")
-                          : seller.verificationStatus === "APPROVED" || seller.status === "VERIFIED"
-                          ? (seller.createdAt ? new Date(seller.createdAt).toLocaleDateString("en-US") : new Date().toLocaleDateString("en-US"))
-                          : "Pending"}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    {seller.verificationStatus === "APPROVED" || seller.status === "VERIFIED" ? (
-                      <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec]"><CheckCircle2 className="h-3 w-3 mr-1 inline-block" /> VERIFIED</Badge>
-                    ) : seller.verificationStatus === "REJECTED" || seller.status === "REJECTED" ? (
-                      <Badge className="bg-rose-50 text-rose-700 border-none text-[9px] hover:bg-rose-50"><X className="h-3 w-3 mr-1 inline-block" /> REJECTED</Badge>
-                    ) : (
-                      <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] hover:bg-amber-50"><AlertCircle className="h-3 w-3 mr-1 inline-block" /> PENDING</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="py-4 text-right pr-6">
-                    {seller.verificationStatus === "PENDING" || seller.status === "PENDING" ? (
-                      <Button variant="outline" className="text-xs text-[#1a3321] border-[#1a3321]/30 hover:bg-[#f4f5f3] px-3 h-8" onClick={() => onInspectSeller(seller.id || seller.userId)}><Eye className="h-3 w-3 mr-1.5" /> Review</Button>
-                    ) : (
-                      <Button variant="ghost" className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 h-8 font-semibold" onClick={() => onInspectSeller(seller.id || seller.userId)}>View Record</Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div className="space-y-1 text-xs">
+                        <p className="text-muted-foreground flex items-center" title="Request Submitted Date">
+                          <Calendar className="h-3 w-3 mr-1.5 text-[#8ca193]" />
+                          <span className="font-semibold text-[#1a3321]">Applied:</span>&nbsp;
+                          <span className="font-medium text-slate-700">{appliedDateStr}</span>
+                        </p>
+                        <p className="text-muted-foreground flex items-center" title="Approved Date">
+                          <CheckCircle2 className="h-3 w-3 mr-1.5 text-emerald-600" />
+                          <span className="font-semibold text-[#1a3321]">Approved:</span>&nbsp;
+                          {seller.verifiedAt
+                            ? new Date(seller.verifiedAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })
+                            : approved
+                            ? "Verified"
+                            : removed
+                            ? "Revoked"
+                            : "Pending"}
+                        </p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      {removed ? (
+                        <Badge className="bg-rose-100 text-rose-800 border border-rose-300 text-[9px] hover:bg-rose-100 font-bold">
+                          <UserX className="h-3 w-3 mr-1 inline-block" /> REMOVED
+                        </Badge>
+                      ) : approved ? (
+                        <Badge className="bg-[#e8f3ec] text-emerald-700 border-none text-[9px] hover:bg-[#e8f3ec] font-semibold">
+                          <CheckCircle2 className="h-3 w-3 mr-1 inline-block" /> VERIFIED
+                        </Badge>
+                      ) : rejected ? (
+                        <Badge className="bg-rose-50 text-rose-700 border-none text-[9px] hover:bg-rose-50 font-semibold">
+                          <X className="h-3 w-3 mr-1 inline-block" /> REJECTED
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] hover:bg-amber-50 font-semibold">
+                          <AlertCircle className="h-3 w-3 mr-1 inline-block" /> PENDING
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4 text-right pr-6">
+                      {approved ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 px-2.5 h-8 font-semibold cursor-pointer"
+                            onClick={() => {
+                              setSellerToRemove(seller);
+                              setRemoveReason("");
+                            }}
+                            title="Remove seller account and unlist from marketplace"
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" /> Remove
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 h-8 font-semibold cursor-pointer"
+                            onClick={() => onInspectSeller(seller.id || seller.userId)}
+                          >
+                            View Record
+                          </Button>
+                        </div>
+                      ) : removed ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <span className="text-[10px] text-rose-700 font-bold px-2 py-0.5 rounded bg-rose-50 border border-rose-200">
+                            Removed
+                          </span>
+                          <Button
+                            variant="ghost"
+                            className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 h-8 font-semibold cursor-pointer"
+                            onClick={() => onInspectSeller(seller.id || seller.userId)}
+                          >
+                            View Record
+                          </Button>
+                        </div>
+                      ) : isSellerPending(seller) ? (
+                        <Button
+                          variant="outline"
+                          className="text-xs text-[#1a3321] border-[#1a3321]/30 hover:bg-[#f4f5f3] px-3 h-8 cursor-pointer font-semibold"
+                          onClick={() => onInspectSeller(seller.id || seller.userId)}
+                        >
+                          <Eye className="h-3 w-3 mr-1.5" /> Review
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 h-8 font-semibold cursor-pointer"
+                          onClick={() => onInspectSeller(seller.id || seller.userId)}
+                        >
+                          View Record
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </Card>
+
+      {sellerToRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white border border-rose-200 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-full bg-rose-100 border border-rose-200">
+                <AlertOctagon className="h-6 w-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-slate-900">Remove as Seller?</h3>
+                <p className="text-xs text-muted-foreground">{sellerToRemove.companyName || "Seller"}</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs space-y-2 text-rose-900">
+              <p className="font-semibold">Immediate consequences:</p>
+              <ul className="list-disc list-inside space-y-1 text-slate-600 text-[11px]">
+                <li>User role will be demoted to <span className="font-semibold text-slate-900">BUYER</span>.</li>
+                <li>Seller store page and products will be removed from marketplace & homepage.</li>
+                <li>All listings blocked immediately.</li>
+                <li>Full snapshot of prior company data & verification documents is preserved in audit records so Super Admin can review prior history if they apply again.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                Reason for Removal <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                value={removeReason}
+                onChange={(e) => setRemoveReason(e.target.value)}
+                rows={3}
+                placeholder="e.g. Platform policy violation, requested offboarding, inactive or fraudulent..."
+                className="w-full text-xs p-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 resize-none text-slate-900"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSellerToRemove(null);
+                  setRemoveReason("");
+                }}
+                disabled={isRemoving}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-semibold flex items-center gap-1.5"
+                onClick={handleConfirmRemove}
+                disabled={isRemoving || !removeReason.trim()}
+              >
+                {isRemoving ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    Removing...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Confirm & Remove Seller
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,14 @@
 
 import db from "@/lib/db";
 import { createCashfreeOrder, verifyPaymentSignature } from "@/lib/cashfree";
-import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "@/lib/email";
+import {
+  sendOrderConfirmationEmail,
+  sendOrderStatusEmail,
+  sendCancellationRequestedEmail,
+  sendCancellationApprovedEmail,
+  sendAutoCancellationEmail,
+  sendCancellationRejectedEmail,
+} from "@/lib/email";
 import { createNotification, createAdminNotification } from "./notifications";
 import { getProductById } from "./products";
 import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
@@ -14,6 +21,8 @@ import {
   startCancellationRefund,
   type RefundState,
 } from "@/lib/order-cancellations";
+
+const CANCELLATION_AUTO_APPROVE_HOURS = 24;
 
 export interface OrderItemInput {
   productId: string;
@@ -45,6 +54,8 @@ export interface OrderDetail {
   totalAmount: number;
   status: "PLACED" | "CONFIRMED" | "PACKED" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "RETURNED" | "REFUNDED";
   createdAt: Date;
+  estimatedDeliveryDate?: Date | string | null;
+  deliveredAt?: Date | string | null;
   address: AddressInput;
   items: {
     productId: string;
@@ -52,6 +63,9 @@ export interface OrderDetail {
     quantity: number;
     price: number;
     image: string;
+    sku?: string;
+    sellerId?: string;
+    sellerName?: string;
     seller?: {
       id: string;
       companyName: string;
@@ -67,6 +81,8 @@ export interface OrderDetail {
     requestedAt: Date;
     reviewedAt?: Date | null;
     adminNote?: string | null;
+    rejectionReason?: string | null;
+    isAutoApproved?: boolean;
     refundStatus: RefundState;
     refundAmount?: number | null;
     cashfreeRefundReference?: string | null;
@@ -99,6 +115,8 @@ function mapLatestCancellation(cancellations?: {
   requestedAt: Date;
   reviewedAt: Date | null;
   adminNote: string | null;
+  rejectionReason?: string | null;
+  isAutoApproved?: boolean;
   refundStatus: string;
   refundAmount: number | null;
   cashfreeRefundReference: string | null;
@@ -114,6 +132,8 @@ function mapLatestCancellation(cancellations?: {
     requestedAt: cancellation.requestedAt,
     reviewedAt: cancellation.reviewedAt,
     adminNote: cancellation.adminNote,
+    rejectionReason: cancellation.rejectionReason,
+    isAutoApproved: cancellation.isAutoApproved,
     refundStatus: cancellation.refundStatus as RefundState,
     refundAmount: cancellation.refundAmount,
     cashfreeRefundReference: cancellation.cashfreeRefundReference,
@@ -443,7 +463,28 @@ export async function confirmOrderPayment(
 
       const updated = mockOrders.find((o) => o.id === orderId);
       if (updated) {
-        await sendOrderConfirmationEmail(userEmail, orderId, updated.totalAmount);
+        const mockAddr = updated.address;
+        await sendOrderConfirmationEmail(userEmail, orderId, updated.totalAmount, {
+          buyerName: (updated as any).user?.name || undefined,
+          placedAt: updated.createdAt,
+          items: (updated.items || []).map((it: any) => ({
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+            image: it.image || undefined,
+            sellerName: it.seller?.companyName || undefined,
+          })),
+          shippingAddress: mockAddr
+            ? {
+                street: mockAddr.street,
+                city: mockAddr.city,
+                state: mockAddr.state,
+                postalCode: mockAddr.postalCode,
+                country: mockAddr.country,
+              }
+            : undefined,
+          paymentMethod: "Cashfree",
+        });
       }
       return true;
     }
@@ -500,7 +541,31 @@ export async function confirmOrderPayment(
 
     const dbOrder = await db.order.findUnique({
       where: { id: orderId },
-      select: { totalAmount: true, userId: true },
+      include: {
+        address: true,
+        user: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+        items: {
+          include: {
+            product: {
+              include: {
+                images: {
+                  take: 1,
+                },
+                seller: {
+                  select: {
+                    companyName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
     if (dbOrder?.userId) {
@@ -512,7 +577,30 @@ export async function confirmOrderPayment(
       ).catch((e) => console.error("Failed to create notification:", e));
     }
 
-    await sendOrderConfirmationEmail(userEmail, orderId, dbOrder?.totalAmount || 0);
+    const buyerName = dbOrder?.user?.name || undefined;
+    const orderAddress = dbOrder?.address;
+
+    await sendOrderConfirmationEmail(userEmail, orderId, dbOrder?.totalAmount || 0, {
+      buyerName,
+      placedAt: dbOrder?.createdAt,
+      items: (dbOrder?.items || []).map((it) => ({
+        name: it.product?.name || "Product",
+        quantity: it.quantity,
+        price: it.price,
+        image: it.product?.images?.[0]?.url || undefined,
+        sellerName: it.product?.seller?.companyName || undefined,
+      })),
+      shippingAddress: orderAddress
+        ? {
+            street: orderAddress.street,
+            city: orderAddress.city,
+            state: orderAddress.state,
+            postalCode: orderAddress.postalCode,
+            country: orderAddress.country,
+          }
+        : undefined,
+      paymentMethod: "Cashfree",
+    });
     return true;
   } catch (error) {
     console.error("Failed to update database payment confirmation, updating mock:", error);
@@ -642,6 +730,7 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
             product: {
               include: {
                 images: true,
+                seller: { select: { id: true, companyName: true } },
               },
             },
           },
@@ -653,35 +742,43 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
       orderBy: { createdAt: "desc" },
     });
 
-    return dbOrders.map((order) => ({
-      id: order.id,
-      userId: order.userId,
-      totalAmount: order.totalAmount,
-      status: order.status as any,
-      createdAt: order.createdAt,
-      address: {
-        street: order.address.street,
-        city: order.address.city,
-        state: order.address.state,
-        postalCode: order.address.postalCode,
-        country: order.address.country,
-      },
-      items: order.items.map((it) => ({
-        productId: it.productId,
-        name: it.product.name,
-        quantity: it.quantity,
-        price: it.price,
-        image: it.product.images[0]?.url || "",
-      })),
-      paymentStatus: (order.payment?.status as any) || "PENDING",
-      cancellation: mapLatestCancellation(order.cancellations),
-      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
-      timeline: order.timeline.map((t) => ({
-        status: t.status,
-        description: t.description,
-        createdAt: t.createdAt,
-      })),
-    }));
+    return dbOrders.map((order) => {
+      const deliveredEvent = order.timeline.find((t) => t.status === "DELIVERED");
+      return {
+        id: order.id,
+        userId: order.userId,
+        totalAmount: order.totalAmount,
+        status: order.status as any,
+        createdAt: order.createdAt,
+        estimatedDeliveryDate: new Date(new Date(order.createdAt).getTime() + 4 * 24 * 60 * 60 * 1000),
+        deliveredAt: deliveredEvent?.createdAt || null,
+        address: {
+          street: order.address.street,
+          city: order.address.city,
+          state: order.address.state,
+          postalCode: order.address.postalCode,
+          country: order.address.country,
+        },
+        items: order.items.map((it) => ({
+          productId: it.productId,
+          name: it.product.name,
+          quantity: it.quantity,
+          price: it.price,
+          image: it.product.images[0]?.url || "",
+          sku: it.product.slug || it.productId.slice(0, 8).toUpperCase(),
+          sellerId: it.product.sellerId,
+          sellerName: it.product.seller?.companyName || "EarthCentric Partner",
+        })),
+        paymentStatus: (order.payment?.status as any) || "PENDING",
+        cancellation: mapLatestCancellation(order.cancellations),
+        ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
+        timeline: order.timeline.map((t) => ({
+          status: t.status,
+          description: t.description,
+          createdAt: t.createdAt,
+        })),
+      };
+    });
   } catch (e) {
     console.error("getOrdersByUser failed:", e);
     throw new Error("Could not retrieve your orders. Please try again.");
@@ -718,9 +815,36 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
       if (!updatedOrder) return false;
 
       if (updatedOrder !== mockOrders.find((o) => o.id === orderId) && buyerEmail) {
-        await sendOrderStatusEmail(buyerEmail, orderId, status, description).catch((err) =>
-          console.error("Failed to send order status email:", err)
-        );
+        if (status === "CONFIRMED") {
+          const ord = mockOrders.find((o) => o.id === orderId);
+          if (ord) {
+            const mockAddr = ord.address;
+            await sendOrderConfirmationEmail(buyerEmail, orderId, ord.totalAmount, {
+              buyerName: (ord as any).user?.name || undefined,
+              placedAt: ord.createdAt,
+              items: (ord.items || []).map((it: any) => ({
+                name: it.name,
+                quantity: it.quantity,
+                price: it.price,
+                image: it.image || undefined,
+                sellerName: it.seller?.companyName || undefined,
+              })),
+              shippingAddress: mockAddr
+                ? {
+                    street: mockAddr.street,
+                    city: mockAddr.city,
+                    state: mockAddr.state,
+                    postalCode: mockAddr.postalCode,
+                    country: mockAddr.country,
+                  }
+                : undefined,
+            }).catch((err) => console.error("Failed to send mock order confirmation email:", err));
+          }
+        } else {
+          await sendOrderStatusEmail(buyerEmail, orderId, status, description).catch((err) =>
+            console.error("Failed to send order status email:", err)
+          );
+        }
       }
       return true;
     }
@@ -781,11 +905,54 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
       }),
     ]);
 
-    // Send delivery alert email
+    // Send order confirmation or status alert email
     if (emailToSend) {
-      await sendOrderStatusEmail(emailToSend, orderId, status, description).catch((err) =>
-        console.error("Failed to send order status email:", err)
-      );
+      if (status === "CONFIRMED") {
+        const fullOrder = await db.order.findUnique({
+          where: { id: orderId },
+          include: {
+            address: true,
+            user: { select: { name: true, email: true } },
+            items: {
+              include: {
+                product: {
+                  include: {
+                    images: { take: 1 },
+                    seller: { select: { companyName: true } },
+                  },
+                },
+              },
+            },
+          },
+        });
+        if (fullOrder) {
+          await sendOrderConfirmationEmail(emailToSend, orderId, fullOrder.totalAmount, {
+            buyerName: fullOrder.user?.name || undefined,
+            placedAt: fullOrder.createdAt,
+            items: fullOrder.items.map((it) => ({
+              name: it.product?.name || "Product",
+              quantity: it.quantity,
+              price: it.price,
+              image: it.product?.images?.[0]?.url || undefined,
+              sellerName: it.product?.seller?.companyName || undefined,
+            })),
+            shippingAddress: fullOrder.address
+              ? {
+                  street: fullOrder.address.street,
+                  city: fullOrder.address.city,
+                  state: fullOrder.address.state,
+                  postalCode: fullOrder.address.postalCode,
+                  country: fullOrder.address.country,
+                }
+              : undefined,
+            paymentMethod: "Online Payment",
+          }).catch((err) => console.error("Failed to send order confirmation email:", err));
+        }
+      } else {
+        await sendOrderStatusEmail(emailToSend, orderId, status, description).catch((err) =>
+          console.error("Failed to send order status email:", err)
+        );
+      }
     }
     
     // Send Notification to Buyer
@@ -1054,7 +1221,7 @@ async function createCancellationRequest(
   orderId: string,
   reason: string,
   requester: { userId: string; email: string; role: string; sellerId?: string }
-): Promise<{ success: boolean; error?: string; cancellationId?: string }> {
+): Promise<{ success: boolean; error?: string; cancellationId?: string; autoApproved?: boolean }> {
   try {
     const cleanedReason = reason.trim();
     if (cleanedReason.length < 8 || cleanedReason.length > 500) {
@@ -1065,18 +1232,37 @@ async function createCancellationRequest(
       where: { id: orderId },
       include: {
         seller: { select: { id: true, userId: true, companyName: true } },
-        user: { select: { id: true } },
-        payment: { select: { status: true } },
-        items: { include: { product: { select: { sellerId: true } } } },
+        user: { select: { id: true, name: true, email: true } },
+        payment: { select: { status: true, amount: true, cashfreeOrderId: true } },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sellerId: true,
+                images: { take: 1, select: { url: true } },
+                seller: { select: { id: true, companyName: true } },
+              },
+            },
+          },
+        },
         cancellations: {
           where: { status: { in: ["REQUESTED", "APPROVED"] } },
-          select: { id: true },
+          select: { id: true, status: true },
         },
       },
     });
     if (!order) return { success: false, error: "Order not found." };
+
+    if (order.status === "SHIPPED" || order.status === "DELIVERED") {
+      return { success: false, error: "This order cannot be cancelled because it has already been shipped." };
+    }
+    if (order.status === "CANCELLED" || order.status === "REFUNDED") {
+      return { success: false, error: "This order has already been cancelled." };
+    }
     if (!["PLACED", "CONFIRMED", "PACKED"].includes(order.status)) {
-      return { success: false, error: "Cancellation requests are only available before shipment. Contact support for shipped or delivered orders." };
+      return { success: false, error: "Cancellation is only available before shipment." };
     }
     if (order.cancellations.length > 0) {
       return { success: false, error: "An active cancellation request already exists for this order." };
@@ -1094,42 +1280,148 @@ async function createCancellationRequest(
       return { success: false, error: "You can only request cancellation for your own order." };
     }
 
-    const cancellation = await db.$transaction(async (tx) => {
-      const record = await tx.orderCancellation.create({
-        data: {
-          orderId,
-          activeOrderId: orderId,
-          requestedByUserId: requester.userId,
-          requestedByEmail: requester.email,
-          requestedByRole: requester.role,
-          reason: cleanedReason,
-          refundStatus: order.payment?.status === "COMPLETED" ? "PENDING" : "PENDING_PAYMENT",
-        },
-      });
-      await tx.orderTimeline.create({
-        data: {
-          orderId,
-          status: order.status,
-          description: `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation. Reason: ${cleanedReason}`,
-        },
-      });
-      return record;
-    });
+    // Check order age against configurable 24-hour cutoff
+    const orderCreatedAt = new Date(order.createdAt).getTime();
+    const ageHours = (Date.now() - orderCreatedAt) / (1000 * 60 * 60);
+    const isAutoApproved = ageHours <= CANCELLATION_AUTO_APPROVE_HOURS;
 
-    const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
-    await createNotification(
-      order.userId,
-      "Cancellation request received",
-      `${requesterLabel} requested cancellation of order ${orderId}. Reason: ${cleanedReason}. The order is not yet cancelled; a Super Admin must review the request.`,
-      `/orders/${orderId}`
-    );
-    await createAdminNotification(
-      "Order cancellation needs review",
-      `${requesterLabel} requested cancellation for order ${orderId}. Reason: ${cleanedReason}`,
-      "orders"
-    );
+    const snapshotItems = order.items.map((it) => ({
+      productId: it.productId,
+      name: it.product?.name || "Product",
+      quantity: it.quantity,
+      price: it.price,
+      image: it.product?.images?.[0]?.url || "",
+      sellerId: it.product?.sellerId,
+      sellerName: it.product?.seller?.companyName,
+    }));
 
-    return { success: true, cancellationId: cancellation.id };
+    if (isAutoApproved) {
+      // CASE A: Within first 24 hours -> Automatically approved by backend
+      const refundStatus: RefundState =
+        order.payment?.status === "COMPLETED"
+          ? "PENDING"
+          : order.payment?.status === "PENDING"
+            ? "PENDING_PAYMENT"
+            : "NOT_REQUIRED";
+
+      const cancellation = await db.$transaction(async (tx) => {
+        const record = await tx.orderCancellation.create({
+          data: {
+            orderId,
+            activeOrderId: orderId,
+            requestedByUserId: requester.userId,
+            requestedByEmail: requester.email,
+            requestedByRole: requester.role,
+            reason: cleanedReason,
+            status: "APPROVED",
+            isAutoApproved: true,
+            adminNote: "Automatically approved under 24-hour pre-shipment policy.",
+            reviewedAt: new Date(),
+            reviewedByUserId: "SYSTEM_AUTO_POLICY",
+            reviewedByEmail: "system@earthcentric.com",
+            refundStatus,
+            refundAmount: order.totalAmount,
+            snapshotItems,
+          },
+        });
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: "CANCELLED" },
+        });
+        await tx.orderTimeline.create({
+          data: {
+            orderId,
+            status: "CANCELLED",
+            description: `Order automatically cancelled within 24 hours per policy. Reason: ${cleanedReason}. Refund initiated.`,
+          },
+        });
+        return record;
+      });
+
+      // Initiate refund through gateway if payment was completed
+      if (order.payment?.status === "COMPLETED") {
+        await startCancellationRefund(cancellation.id).catch((err) =>
+          console.error("Auto cancellation start refund error:", err)
+        );
+      }
+
+      // EMAIL 4 — AUTOMATIC CANCELLATION WITHIN 24 HOURS
+      await sendAutoCancellationEmail(requester.email, {
+        orderId,
+        customerName: order.user?.name || undefined,
+        items: snapshotItems,
+        refundAmount: order.totalAmount,
+        cancelDate: new Date(),
+      }).catch((err) => console.error("Auto cancellation email error:", err));
+
+      // Notifications
+      await createNotification(
+        order.userId,
+        "Order Cancelled ⚡",
+        `Your order ${orderId} has been cancelled per our 24-hour policy. Refund of ₹${order.totalAmount.toLocaleString("en-IN")} initiated.`,
+        `/orders/${orderId}`
+      ).catch((e) => console.error("Notification error:", e));
+
+      await createAdminNotification(
+        "Order Auto-Cancelled (24h Policy)",
+        `Order ${orderId} was automatically cancelled within 24 hours. Reason: ${cleanedReason}`,
+        "cancellations"
+      ).catch((e) => console.error("Admin notification error:", e));
+
+      return { success: true, autoApproved: true, cancellationId: cancellation.id };
+    } else {
+      // CASE B: Older than 24 hours -> Pending Super Admin review
+      const cancellation = await db.$transaction(async (tx) => {
+        const record = await tx.orderCancellation.create({
+          data: {
+            orderId,
+            activeOrderId: orderId,
+            requestedByUserId: requester.userId,
+            requestedByEmail: requester.email,
+            requestedByRole: requester.role,
+            reason: cleanedReason,
+            status: "REQUESTED",
+            isAutoApproved: false,
+            refundStatus: order.payment?.status === "COMPLETED" ? "PENDING" : "PENDING_PAYMENT",
+            refundAmount: order.totalAmount,
+            snapshotItems,
+          },
+        });
+        await tx.orderTimeline.create({
+          data: {
+            orderId,
+            status: order.status,
+            description: `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation. Reason: ${cleanedReason}. Awaiting Super Admin review.`,
+          },
+        });
+        return record;
+      });
+
+      // EMAIL 2 — CANCELLATION REQUEST RECEIVED
+      await sendCancellationRequestedEmail(requester.email, {
+        orderId,
+        customerName: order.user?.name || undefined,
+        items: snapshotItems,
+        refundAmount: order.totalAmount,
+        requestDate: new Date(),
+      }).catch((err) => console.error("Cancellation requested email error:", err));
+
+      const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
+      await createNotification(
+        order.userId,
+        "Cancellation request received ⏳",
+        `Cancellation requested for order ${orderId}. Our team will review your request and provide a decision within 24–48 hours.`,
+        `/orders/${orderId}`
+      ).catch((e) => console.error("Notification error:", e));
+
+      await createAdminNotification(
+        "Order cancellation needs review",
+        `${requesterLabel} requested cancellation for order ${orderId}. Reason: ${cleanedReason}`,
+        "cancellations"
+      ).catch((e) => console.error("Admin alert error:", e));
+
+      return { success: true, autoApproved: false, cancellationId: cancellation.id };
+    }
   } catch (e) {
     console.error("createCancellationRequest failed:", e);
     if (
@@ -1175,9 +1467,7 @@ export async function cancelOrder(orderId: string, userId: string, reason?: stri
   if (!auth.authorized || auth.userId !== userId || !auth.email) {
     return { success: false, error: "Sign in to the account that placed this order." };
   }
-  if (auth.role === "SELLER" || auth.role === "ADMIN") {
-    return { success: false, error: "Use the seller or administrator cancellation workflow for this account." };
-  }
+  // Allow any logged-in user to cancel their own personal order
   return createCancellationRequest(orderId, reason || "Buyer requested cancellation.", {
     userId: auth.userId,
     email: auth.email,
@@ -1185,29 +1475,149 @@ export async function cancelOrder(orderId: string, userId: string, reason?: stri
   });
 }
 
-export async function getOrderCancellationsForAdmin() {
+export async function getOrderCancellationsForAdmin(filterStatus?: string) {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   if (isMock) return [];
   const auth = await verifyAdminAuth();
   if (!auth.authorized) throw new Error("Super Admin access is required to review cancellations.");
 
+  let whereClause: any = {};
+  if (filterStatus === "PENDING" || filterStatus === "REQUESTED") {
+    whereClause = { status: "REQUESTED" };
+  } else if (filterStatus === "APPROVED") {
+    whereClause = { status: "APPROVED" };
+  } else if (filterStatus === "REJECTED") {
+    whereClause = { status: "REJECTED" };
+  } else if (filterStatus === "REFUND_PROCESSING") {
+    whereClause = { refundStatus: { in: ["PENDING", "PENDING_PAYMENT"] } };
+  } else if (filterStatus === "REFUNDED") {
+    whereClause = { refundStatus: "SUCCESS" };
+  } else if (filterStatus === "REFUND_FAILED") {
+    whereClause = { refundStatus: "FAILED" };
+  }
+
   return db.orderCancellation.findMany({
-    where: {
-      OR: [
-        { status: "REQUESTED" },
-        { status: "APPROVED", refundStatus: { in: ["PENDING_PAYMENT", "PENDING", "FAILED"] } },
-      ],
-    },
+    where: whereClause,
     include: {
       order: {
         include: {
-          user: { select: { name: true, email: true } },
-          seller: { select: { companyName: true } },
-          payment: { select: { status: true } },
+          user: { select: { id: true, name: true, email: true, phone: true } },
+          seller: { select: { id: true, companyName: true, phone: true } },
+          payment: true,
+          address: true,
+          items: {
+            include: {
+              product: {
+                include: {
+                  images: { take: 1 },
+                  seller: { select: { id: true, companyName: true } },
+                },
+              },
+            },
+          },
         },
       },
     },
-    orderBy: [{ status: "asc" }, { requestedAt: "desc" }],
+    orderBy: [
+      { status: "asc" },
+      { requestedAt: "desc" },
+    ],
+  });
+}
+
+export async function getSellerCancelledOrders(sellerIdOrUserId: string) {
+  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  if (isMock) return [];
+
+  const auth = await verifySellerAuth();
+  if (!auth.authorized) {
+    throw new Error("Seller access required to view cancelled orders.");
+  }
+
+  // Resolve seller ID
+  let seller = await db.seller.findUnique({ where: { id: sellerIdOrUserId } });
+  if (!seller) {
+    seller = await db.seller.findUnique({ where: { userId: sellerIdOrUserId } });
+  }
+  const candidateIds = Array.from(new Set([sellerIdOrUserId, seller?.id, seller?.userId].filter(Boolean) as string[]));
+
+  // Orders that either have a cancellation record OR are in CANCELLED/REFUNDED status
+  const orders = await db.order.findMany({
+    where: {
+      OR: [
+        { sellerId: { in: candidateIds } },
+        { items: { some: { product: { sellerId: { in: candidateIds } } } } },
+      ],
+      AND: [
+        {
+          OR: [
+            { status: { in: ["CANCELLED", "REFUNDED"] } },
+            { cancellations: { some: {} } },
+          ],
+        },
+      ],
+    },
+    include: {
+      user: { select: { name: true, email: true } },
+      address: { select: { city: true, state: true } },
+      items: {
+        include: {
+          product: {
+            include: {
+              images: { take: 1 },
+            },
+          },
+        },
+      },
+      payment: true,
+      cancellations: {
+        orderBy: { requestedAt: "desc" },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return orders.map((o) => {
+    // Only include items belonging to this seller
+    const sellerItems = o.items.filter(
+      (it) => candidateIds.includes(it.product.sellerId) || candidateIds.includes(o.sellerId || "")
+    );
+    const sellerSubtotal = sellerItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
+    const latestCancellation = o.cancellations[0];
+
+    return {
+      orderId: o.id,
+      orderCreatedAt: o.createdAt,
+      orderStatus: o.status,
+      totalAmount: o.totalAmount,
+      sellerSubtotal,
+      sellerItems: sellerItems.map((it) => ({
+        productId: it.productId,
+        name: it.product.name,
+        image: it.product.images[0]?.url || "",
+        price: it.price,
+        quantity: it.quantity,
+      })),
+      cancellation: latestCancellation
+        ? {
+            id: latestCancellation.id,
+            status: latestCancellation.status, // REQUESTED, APPROVED, REJECTED
+            isAutoApproved: latestCancellation.isAutoApproved,
+            reason: latestCancellation.reason,
+            adminNote: latestCancellation.adminNote,
+            rejectionReason: latestCancellation.rejectionReason,
+            requestedAt: latestCancellation.requestedAt,
+            reviewedAt: latestCancellation.reviewedAt,
+            refundStatus: latestCancellation.refundStatus,
+            refundAmount: latestCancellation.refundAmount,
+          }
+        : null,
+      buyer: {
+        name: o.user?.name || "Customer",
+        city: o.address?.city || "",
+        state: o.address?.state || "",
+      },
+    };
   });
 }
 
@@ -1231,7 +1641,19 @@ export async function reviewOrderCancellation(
   try {
     const cancellation = await db.orderCancellation.findUnique({
       where: { id: cancellationId },
-      include: { order: { include: { payment: true } } },
+      include: {
+        order: {
+          include: {
+            payment: true,
+            user: { select: { id: true, name: true, email: true } },
+            items: {
+              include: {
+                product: { select: { name: true, images: { take: 1, select: { url: true } } } },
+              },
+            },
+          },
+        },
+      },
     });
     if (!cancellation || cancellation.status !== "REQUESTED") {
       return { success: false, error: "This cancellation request is no longer awaiting review." };
@@ -1240,7 +1662,7 @@ export async function reviewOrderCancellation(
       return { success: false, error: "The order has shipped or reached a terminal state; handle it as a return/dispute instead." };
     }
 
-    const resultingRefundStatus =
+    const resultingRefundStatus: RefundState =
       decision === "REJECT"
         ? "NOT_REQUIRED"
         : cancellation.order.payment?.status === "COMPLETED"
@@ -1256,6 +1678,7 @@ export async function reviewOrderCancellation(
           status: decision === "APPROVE" ? "APPROVED" : "REJECTED",
           ...(decision === "REJECT" ? { activeOrderId: null } : {}),
           adminNote: note || null,
+          rejectionReason: decision === "REJECT" ? note : null,
           reviewedAt: new Date(),
           reviewedByUserId: auth.userId,
           reviewedByEmail: auth.email,
@@ -1292,27 +1715,66 @@ export async function reviewOrderCancellation(
       });
     });
 
-    const buyerMessage =
-      decision === "APPROVE"
-        ? resultingRefundStatus === "PENDING"
+    const customerEmail = cancellation.order.user?.email || cancellation.requestedByEmail;
+    const customerName = cancellation.order.user?.name || undefined;
+
+    if (decision === "APPROVE") {
+      // EMAIL 3 — CANCELLATION APPROVED
+      if (customerEmail) {
+        await sendCancellationApprovedEmail(customerEmail, {
+          orderId: cancellation.orderId,
+          customerName,
+          approvedAmount: cancellation.refundAmount || cancellation.order.totalAmount,
+          approvalDate: new Date(),
+          refundStatus: resultingRefundStatus,
+          refundInitiated: resultingRefundStatus === "PENDING",
+        }).catch((err) => console.error("Cancellation approved email error:", err));
+      }
+
+      const buyerMessage =
+        resultingRefundStatus === "PENDING"
           ? `Order ${cancellation.orderId} was cancelled. Refund of ₹${cancellation.order.totalAmount.toLocaleString("en-IN")} is being initiated.`
           : resultingRefundStatus === "PENDING_PAYMENT"
             ? `Order ${cancellation.orderId} was cancelled. Payment is still pending; refund eligibility will be checked if payment completes.`
-            : `Order ${cancellation.orderId} was cancelled. No captured payment was found, so no refund is currently due.`
-        : `Cancellation for order ${cancellation.orderId} was not approved. Reason: ${note}`;
-    await createNotification(
-      cancellation.order.userId,
-      decision === "APPROVE" ? "Order cancellation approved" : "Cancellation request declined",
-      buyerMessage,
-      `/orders/${cancellation.orderId}`
-    );
+            : `Order ${cancellation.orderId} was cancelled. No captured payment was found, so no refund is currently due.`;
 
-    let refundStatus = resultingRefundStatus as RefundState;
-    if (decision === "APPROVE" && resultingRefundStatus === "PENDING") {
-      const refund = await startCancellationRefund(cancellationId);
-      refundStatus = refund.status;
+      await createNotification(
+        cancellation.order.userId,
+        "Order cancellation approved ✅",
+        buyerMessage,
+        `/orders/${cancellation.orderId}`
+      ).catch((e) => console.error("Notification error:", e));
+
+      let refundStatus: RefundState = resultingRefundStatus;
+      if (resultingRefundStatus === "PENDING") {
+        const refund = await startCancellationRefund(cancellationId).catch((err) => ({
+          status: "FAILED" as RefundState,
+          error: err.message,
+        }));
+        refundStatus = refund.status;
+      }
+      return { success: true, refundStatus };
+    } else {
+      // Rejection
+      // EMAIL 5 — CANCELLATION REJECTED
+      if (customerEmail) {
+        await sendCancellationRejectedEmail(customerEmail, {
+          orderId: cancellation.orderId,
+          customerName,
+          rejectionReason: note,
+          reviewDate: new Date(),
+        }).catch((err) => console.error("Cancellation rejected email error:", err));
+      }
+
+      await createNotification(
+        cancellation.order.userId,
+        "Cancellation request declined 📋",
+        `Cancellation for order ${cancellation.orderId} was not approved. Reason: ${note}`,
+        `/orders/${cancellation.orderId}`
+      ).catch((e) => console.error("Notification error:", e));
+
+      return { success: true, refundStatus: "NOT_REQUIRED" };
     }
-    return { success: true, refundStatus };
   } catch (error) {
     console.error("reviewOrderCancellation failed:", error);
     return {

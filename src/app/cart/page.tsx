@@ -154,7 +154,11 @@ export default function CartPage() {
                   <div className="flex items-center space-x-1.5 border border-border/60 rounded-md bg-muted/20 px-1 py-0.5">
                     <button
                       onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                      className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer font-semibold"
+                      disabled={item.quantity <= 1}
+                      className={`p-1 rounded text-muted-foreground font-semibold ${
+                        item.quantity <= 1 ? "opacity-30 cursor-not-allowed" : "hover:bg-muted cursor-pointer"
+                      }`}
+                      aria-label="Decrease quantity"
                     >
                       <Minus className="h-3 w-3" />
                     </button>
@@ -162,6 +166,7 @@ export default function CartPage() {
                     <button
                       onClick={() => updateQuantity(item.id, item.quantity + 1)}
                       className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer font-semibold"
+                      aria-label="Increase quantity"
                     >
                       <Plus className="h-3 w-3" />
                     </button>

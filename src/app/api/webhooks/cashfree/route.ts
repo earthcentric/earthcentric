@@ -92,7 +92,27 @@ export async function POST(req: NextRequest) {
                 { payment: { cashfreeOrderId } },
               ],
             },
-            include: { user: true },
+            include: {
+              address: true,
+              user: {
+                select: {
+                  name: true,
+                  email: true,
+                },
+              },
+              items: {
+                include: {
+                  product: {
+                    include: {
+                      images: { take: 1 },
+                      seller: {
+                        select: { companyName: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           });
 
           for (const order of dbOrders) {
@@ -133,10 +153,33 @@ export async function POST(req: NextRequest) {
             }
 
             if (order.user?.email) {
+              const buyerName = order.user.name || undefined;
+              const orderAddress = order.address;
               await sendOrderConfirmationEmail(
                 order.user.email,
                 order.id,
-                order.totalAmount
+                order.totalAmount,
+                {
+                  buyerName,
+                  placedAt: order.createdAt,
+                  items: (order.items || []).map((it) => ({
+                    name: it.product?.name || "Product",
+                    quantity: it.quantity,
+                    price: it.price,
+                    image: it.product?.images?.[0]?.url || undefined,
+                    sellerName: it.product?.seller?.companyName || undefined,
+                  })),
+                  shippingAddress: orderAddress
+                    ? {
+                        street: orderAddress.street,
+                        city: orderAddress.city,
+                        state: orderAddress.state,
+                        postalCode: orderAddress.postalCode,
+                        country: orderAddress.country,
+                      }
+                    : undefined,
+                  paymentMethod: "Cashfree",
+                }
               ).catch((e) => console.error("Webhook confirmation email error:", e));
             }
           }

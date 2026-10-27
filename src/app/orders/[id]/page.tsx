@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOrderById } from "@/actions/orders";
 import { Card, Badge, Button } from "@/components/ui/shared";
-import { CheckCircle2, Package, Truck, Calendar, ShoppingBag, Leaf, HelpCircle, MapPin } from "lucide-react";
+import { CheckCircle2, Package, Truck, Calendar, ShoppingBag, Leaf, HelpCircle, MapPin, Clock, XCircle, RotateCcw, AlertCircle, Zap, Loader2 } from "lucide-react";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -48,23 +48,119 @@ export default async function OrderTrackingPage({ params }: PageProps) {
       </div>
 
       {order.cancellation && (
-        <Card className="border-amber-200 bg-amber-50 p-5 space-y-2">
-          <h2 className="font-bold text-sm text-amber-950">
-            Cancellation {order.cancellation.status.toLowerCase()}
-            {order.cancellation.status === "REQUESTED" && " — awaiting Super Admin review"}
-          </h2>
-          <p className="text-xs text-amber-900"><strong>Reason:</strong> {order.cancellation.reason}</p>
-          {order.cancellation.adminNote && <p className="text-xs text-amber-900"><strong>Admin update:</strong> {order.cancellation.adminNote}</p>}
+        <Card className={`p-5 space-y-3 ${
+          order.cancellation.status === "APPROVED"
+            ? "border-emerald-200 bg-emerald-50/70"
+            : order.cancellation.status === "REJECTED"
+              ? "border-rose-200 bg-rose-50/70"
+              : "border-amber-200 bg-amber-50"
+        }`}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              {order.cancellation.status === "APPROVED" ? (
+                <Badge variant="success" className="gap-1.5 text-xs py-0.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Cancellation Approved
+                </Badge>
+              ) : order.cancellation.status === "REJECTED" ? (
+                <Badge variant="danger" className="gap-1.5 text-xs py-0.5">
+                  <XCircle className="w-3.5 h-3.5" /> Cancellation Rejected
+                </Badge>
+              ) : (
+                <Badge variant="accent" className="gap-1.5 text-xs py-0.5">
+                  <Clock className="w-3.5 h-3.5" /> Cancellation Pending Admin Review
+                </Badge>
+              )}
+              {order.cancellation.isAutoApproved && (
+                <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] gap-1 py-0.5">
+                  <Zap className="w-3 h-3 text-emerald-600" /> Instant 24h Approval
+                </Badge>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              Requested on {new Date(order.cancellation.requestedAt).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric"
+              })}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-800">
+            <span className="font-semibold text-slate-700">Reason:</span> {order.cancellation.reason}
+          </p>
+
+          {order.cancellation.rejectionReason && (
+            <div className="p-3 rounded-xl bg-rose-100/70 border border-rose-200/80 text-rose-950 text-xs">
+              <p className="font-bold flex items-center gap-1.5 text-rose-800">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Admin Rejection Reason:
+              </p>
+              <p className="mt-0.5 text-rose-900">{order.cancellation.rejectionReason}</p>
+              <p className="mt-1 text-[11px] text-rose-700 italic">This order remains active and will proceed with shipping and delivery as planned.</p>
+            </div>
+          )}
+
+          {order.cancellation.adminNote && !order.cancellation.rejectionReason && (
+            <p className="text-xs text-slate-700">
+              <span className="font-semibold">Admin update:</span> {order.cancellation.adminNote}
+            </p>
+          )}
+
           {order.cancellation.status === "APPROVED" && (
-            <div className="text-xs text-slate-700 space-y-1">
-              <p><strong>Refund status:</strong> {order.cancellation.refundStatus.replaceAll("_", " ")}</p>
-              {order.cancellation.refundAmount != null && <p><strong>Refund amount:</strong> ₹{order.cancellation.refundAmount.toLocaleString("en-IN")}</p>}
-              {order.cancellation.refundStatus === "PENDING_PAYMENT" && <p>Payment is not yet captured. If it completes, the refund will be checked automatically.</p>}
-              {order.cancellation.refundStatus === "PENDING" && <p>Cashfree is processing or confirming the refund. Bank posting time can vary.</p>}
-              {order.cancellation.refundStatus === "NOT_REQUIRED" && <p>No captured payment was found when the cancellation was approved.</p>}
-              {order.cancellation.cashfreeRefundReference && <p><strong>Cashfree reference:</strong> {order.cancellation.cashfreeRefundReference}</p>}
-              {order.cancellation.refundArn && <p><strong>Refund ARN:</strong> {order.cancellation.refundArn}</p>}
-              {order.cancellation.refundError && <p className="text-rose-700">{order.cancellation.refundError}</p>}
+            <div className="p-4 rounded-xl bg-white/90 border border-emerald-200/70 shadow-xs space-y-2 text-xs text-slate-700">
+              <div className="flex items-center justify-between pb-1.5 border-b border-emerald-100 flex-wrap gap-2">
+                <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-600" /> Payment Refund Details
+                </span>
+                {order.cancellation.refundStatus === "SUCCESS" ? (
+                  <Badge variant="success" className="gap-1 text-[11px] py-0.5">
+                    <CheckCircle2 className="w-3 h-3" /> Refund Completed
+                  </Badge>
+                ) : order.cancellation.refundStatus === "PENDING" ? (
+                  <Badge variant="primary" className="gap-1 text-[11px] py-0.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Refund Processing
+                  </Badge>
+                ) : order.cancellation.refundStatus === "FAILED" ? (
+                  <Badge variant="danger" className="gap-1 text-[11px] py-0.5">
+                    <AlertCircle className="w-3 h-3" /> Refund Delayed
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[11px] py-0.5">
+                    {order.cancellation.refundStatus.replaceAll("_", " ")}
+                  </Badge>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <span className="text-[10px] text-muted-foreground uppercase font-bold">Approved Refund Amount</span>
+                  <p className="font-extrabold text-emerald-700 text-sm">
+                    ₹{(order.cancellation.refundAmount ?? order.totalAmount).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                {order.cancellation.cashfreeRefundReference && (
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold">Cashfree Reference</span>
+                    <p className="font-mono text-slate-800 text-xs">{order.cancellation.cashfreeRefundReference}</p>
+                  </div>
+                )}
+                {order.cancellation.refundArn && (
+                  <div className="sm:col-span-2">
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold">Bank ARN</span>
+                    <p className="font-mono text-slate-800 text-xs">{order.cancellation.refundArn}</p>
+                  </div>
+                )}
+              </div>
+
+              {order.cancellation.refundStatus === "PENDING" && (
+                <p className="text-[11px] text-slate-600 bg-emerald-50/60 p-2.5 rounded-lg leading-relaxed">
+                  The refund is currently being routed by Cashfree. Credit to your original account typically takes 3–5 working days depending on your bank.
+                </p>
+              )}
+              {order.cancellation.refundStatus === "FAILED" && (
+                <p className="text-[11px] text-rose-700 bg-rose-50 p-2.5 rounded-lg leading-relaxed">
+                  {order.cancellation.refundError || "Automatic refund confirmation was delayed. Super Admin is reviewing this transaction."}
+                </p>
+              )}
             </div>
           )}
         </Card>

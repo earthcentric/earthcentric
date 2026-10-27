@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useTheme } from "next-themes";
-import { X, Play, Pause, CheckCircle2, Building, ExternalLink, FileText, Globe } from "lucide-react";
+import { X, Play, Pause, CheckCircle2, Building, ExternalLink, FileText, Globe, Download, AlertTriangle } from "lucide-react";
 import { SellerProfile } from "@/actions/sellers";
 import { Badge, Input, Textarea } from "@/components/ui/shared";
+import { getDocumentPreviewInfo } from "@/lib/cloudinary-utils";
 
 interface SellerApprovalTableProps {
   sellers: SellerProfile[];
@@ -612,25 +613,80 @@ export function SellerApprovalTable({
                   </div>
 
                   {/* Interactive Document Preview Box inside the Drawer */}
-                  {activeDocUrl && (
-                    <div className="border border-border/30 rounded-xl bg-muted/20 overflow-hidden relative p-2">
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground border-b border-border/10 pb-1.5 mb-2">
-                        <span>Previewing: {activeDocName}</span>
-                        <button
-                          onClick={() => {
-                            setActiveDocUrl(null);
-                            setActiveDocName(null);
-                          }}
-                          className="hover:text-foreground text-muted-foreground cursor-pointer"
-                        >
-                          Hide Preview
-                        </button>
+                  {activeDocUrl && (() => {
+                    const previewInfo = getDocumentPreviewInfo(activeDocUrl, activeDocName || undefined);
+                    return (
+                      <div className="border border-border/30 rounded-xl bg-muted/20 overflow-hidden relative p-3 space-y-2">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground border-b border-border/10 pb-1.5">
+                          <span className="font-medium text-foreground">Previewing: {activeDocName}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveDocUrl(null);
+                              setActiveDocName(null);
+                            }}
+                            className="hover:text-foreground text-muted-foreground cursor-pointer text-xs"
+                          >
+                            Hide Preview
+                          </button>
+                        </div>
+
+                        {previewInfo.isLegacyMock && (
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs">
+                            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                            <span>Legacy placeholder record. Seller must re-upload actual document.</span>
+                          </div>
+                        )}
+
+                        <div className="aspect-video w-full max-h-64 rounded-lg overflow-hidden bg-black/5 dark:bg-black/30 relative flex items-center justify-center border border-border/30">
+                          {previewInfo.isAvailable ? (
+                            <img
+                              src={previewInfo.previewUrl}
+                              alt={activeDocName || "Document Preview"}
+                              className="h-full w-full object-contain"
+                            />
+                          ) : (
+                            <div className="text-center p-4 text-xs text-muted-foreground space-y-1">
+                              <FileText className="h-8 w-8 mx-auto text-muted-foreground/40" />
+                              <p>Document preview unavailable</p>
+                            </div>
+                          )}
+
+                          {previewInfo.isPdf && (
+                            <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-red-600/90 text-white font-bold text-[10px] uppercase tracking-wider shadow">
+                              PDF Preview (Page 1)
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          {previewInfo.cleanUrl && !previewInfo.isLegacyMock && (
+                            <>
+                              <a
+                                href={previewInfo.cleanUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Open Full Document</span>
+                              </a>
+                              <a
+                                href={previewInfo.cleanUrl}
+                                download={activeDocName || "document"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-medium hover:bg-muted/80 border border-border/40 transition-colors"
+                              >
+                                <Download className="h-3 w-3" />
+                                <span>Download</span>
+                              </a>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="aspect-video w-full max-h-64 rounded-lg overflow-hidden bg-black/5 relative flex items-center justify-center">
-                        <img src={activeDocUrl} alt="Certificate Scan" className="h-full w-full object-contain" />
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
                 {/* Brand description / values */}

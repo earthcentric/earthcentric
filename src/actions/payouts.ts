@@ -4,6 +4,7 @@ import db from "@/lib/db";
 import { sendPayoutSettledEmail } from "@/lib/email";
 import { createNotification, createAdminNotification } from "@/actions/notifications";
 import { Prisma, PayoutStatus as PrismaPayoutStatus } from "@prisma/client";
+import { getSellerFinancialStats } from "@/lib/financials";
 
 export type PayoutStatus = "PENDING" | "PARTIALLY_PAID" | "APPROVED" | "REJECTED" | "PAID" | "SETTLED" | "ON_HOLD";
 
@@ -33,9 +34,12 @@ export interface PayoutRequestInfo {
 
 export interface SellerPayoutStats {
   totalSalesRevenue: number;
+  grossSalesRevenue?: number;
+  cancelledRevenue?: number;
   pendingAmount: number;
   settledAmount: number;
   availableBalance: number;
+  recoverableBalance?: number;
 }
 
 // In-memory global array for mock payouts sandbox session
@@ -43,108 +47,26 @@ let mockPayoutRequests: PayoutRequestInfo[] = [];
 
 export async function getSellerPayoutStats(sellerId: string): Promise<SellerPayoutStats> {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const sellerRequests = mockPayoutRequests.filter((p) => p.sellerId === sellerId);
-      
-      const pendingAmount = sellerRequests
-        .filter((p) => p.status === "PENDING" || p.status === "PARTIALLY_PAID" || p.status === "ON_HOLD")
-        .reduce((sum, p) => sum + (p.remainingAmount !== undefined && p.remainingAmount !== null ? p.remainingAmount : p.amount), 0);
-
-      const settledAmount = sellerRequests.reduce((sum, p) => {
-        if (p.status === "APPROVED" || p.status === "PAID" || p.status === "SETTLED") {
-          return sum + p.amount;
-        }
-        if (p.status === "PARTIALLY_PAID") {
-          const remaining = p.remainingAmount !== undefined && p.remainingAmount !== null ? p.remainingAmount : p.amount;
-          return sum + (p.amount - remaining);
-        }
-        return sum;
-      }, 0);
-      
-      const totalSalesRevenue = 156900; 
-      const availableBalance = Math.max(totalSalesRevenue - (pendingAmount + settledAmount), 0);
-
-      return {
-        totalSalesRevenue,
-        pendingAmount,
-        settledAmount,
-        availableBalance,
-      };
-    }
-
-    // Resolve the actual Seller Profile database record
-    const seller = await db.seller.findFirst({
-      where: {
-        OR: [
-          { id: sellerId },
-          { userId: sellerId }
-        ]
-      }
-    });
-
-    if (!seller) {
-      return { totalSalesRevenue: 0, pendingAmount: 0, settledAmount: 0, availableBalance: 0 };
-    }
-
-    const actualSellerId = seller.id;
-
-    // Sum of all completed order items for the seller
-    const completedItems = await db.orderItem.findMany({
-      where: {
-        product: {
-          sellerId: actualSellerId,
-        },
-        order: {
-          payment: {
-            status: "COMPLETED",
-          },
-        },
-      },
-      select: {
-        price: true,
-        quantity: true,
-      },
-    });
-
-    const totalSalesRevenue = completedItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-
-    const payouts = await db.payoutRequest.findMany({
-      where: { sellerId: actualSellerId },
-    });
-
-    // Sum of payout requests that are PENDING, PARTIALLY_PAID, or ON_HOLD
-    const pendingAmount = payouts
-      .filter((p) => p.status === "PENDING" || p.status === "PARTIALLY_PAID" || p.status === "ON_HOLD")
-      .reduce((sum, p) => sum + (p.remainingAmount !== null ? p.remainingAmount : p.amount), 0);
-
-    // Sum of settled amounts
-    const settledAmount = payouts.reduce((sum, p) => {
-      if (p.status === "APPROVED" || p.status === "PAID" || p.status === "SETTLED") {
-        return sum + p.amount;
-      }
-      if (p.status === "PARTIALLY_PAID") {
-        const remaining = p.remainingAmount !== null ? p.remainingAmount : p.amount;
-        return sum + (p.amount - remaining);
-      }
-      return sum;
-    }, 0);
-
-    // Available balance immediately deducts both pending and settled payout requests
-    const availableBalance = Math.max(totalSalesRevenue - (pendingAmount + settledAmount), 0);
-
+    const fin = await getSellerFinancialStats(sellerId);
     return {
-      totalSalesRevenue,
-      pendingAmount,
-      settledAmount,
-      availableBalance,
+      totalSalesRevenue: fin.sellerNetSales,
+      grossSalesRevenue: fin.sellerGrossRevenue,
+      cancelledRevenue: fin.sellerCancelledRevenue,
+      pendingAmount: fin.pendingPayoutAmount,
+      settledAmount: fin.settledPayoutAmount,
+      availableBalance: fin.availableBalance,
+      recoverableBalance: fin.recoverableBalance,
     };
   } catch (error) {
     console.error("Failed to get seller payout stats, returning mock:", error);
     return {
       totalSalesRevenue: 156900,
+      grossSalesRevenue: 175000,
+      cancelledRevenue: 18100,
       pendingAmount: 8000,
       settledAmount: 15000,
       availableBalance: 133900,
+      recoverableBalance: 0,
     };
   }
 }

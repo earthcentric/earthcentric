@@ -18,6 +18,8 @@ import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableB
 import { FadeIn } from "@/components/FramerComponents";
 import ProductPreviewCard from "@/components/seller/ProductPreviewCard";
 import { SellerMessagesView } from "@/components/seller/SellerMessagesView";
+import { SellerCancellationsView } from "@/components/seller/SellerCancellationsView";
+import CategoryTypeahead from "@/components/ui/CategoryTypeahead";
 import { Logo } from "@/components/Logo";
 import { SellerLogo } from "@/components/SellerLogo";
 import {
@@ -58,6 +60,7 @@ import {
   Calendar,
   Sparkles,
   MapPin,
+  RotateCcw,
 } from "lucide-react";
 import {
   BarChart,
@@ -238,6 +241,28 @@ export default function SellerDashboard() {
     return <div className="min-h-screen bg-[#f4f5f3] flex items-center justify-center text-xs text-muted-foreground">Loading Seller Studio...</div>;
   }
 
+  if (profile?.isRemoved || profile?.rejectionReason?.startsWith("[SELLER_REMOVED]:") || (user && user.role !== "SELLER" && user.role !== "ADMIN")) {
+    return (
+      <div className="min-h-screen bg-[#f4f5f3] flex flex-col items-center justify-center space-y-4 px-4 text-center">
+        <div className="h-14 w-14 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-2">
+          <UserX className="h-7 w-7" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900">Seller Access Revoked</h2>
+        <p className="text-sm text-muted-foreground max-w-md">
+          Your seller privileges have been removed by the Super Admin. You cannot access the seller dashboard. If you wish to sell on Earthcentric again, you can apply for verification.
+        </p>
+        <div className="flex items-center gap-3 pt-2">
+          <Button variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer" onClick={() => window.location.href = "/seller/verification"}>
+            Apply for Verification
+          </Button>
+          <Button variant="outline" className="cursor-pointer" onClick={() => window.location.href = "/marketplace"}>
+            Back to Marketplace
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (profile?.verificationStatus === "PENDING" || profile?.verificationStatus === "REJECTED") {
     return (
       <div className="min-h-screen bg-[#f4f5f3] flex flex-col items-center justify-center space-y-4 px-4 text-center">
@@ -255,6 +280,7 @@ export default function SellerDashboard() {
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "products", label: "Products", icon: Package },
     { id: "orders", label: "Orders", icon: ShoppingBag },
+    { id: "cancellations", label: "Cancelled Orders", icon: RotateCcw },
     { id: "customers", label: "Customers", icon: Users },
     { id: "enquiries", label: "Enquiries", icon: MessageSquare },
     { id: "complaints", label: "Complaints", icon: AlertCircle },
@@ -522,6 +548,7 @@ export default function SellerDashboard() {
             {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} payoutStats={payoutStats} />}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
             {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} handleRequestCancellation={handleRequestCancellation} sellerId={profile?.id || user?.id} />}
+            {activeTab === "cancellations" && <SellerCancellationsView sellerId={profile?.id || user?.id || ""} />}
             {activeTab === "customers" && <CustomersView sellerId={profile?.id || user?.id || ""} />}
             {activeTab === "enquiries" && <EnquiriesView sellerId={profile?.id || ""} />}
             { activeTab === "complaints" && <ComplaintsView sellerId={profile?.id || ""} />}
@@ -1331,7 +1358,13 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                 </div>
                 <div className="space-y-1">
                   <Label>Category</Label>
-                  <Input required value={editCat} onChange={(e) => setEditCat(e.target.value)} />
+                  <CategoryTypeahead
+                    id="edit-product-category"
+                    value={editCat}
+                    onChange={(val) => setEditCat(val)}
+                    required
+                    placeholder="Search or type a category..."
+                  />
                 </div>
               </div>
               <div className="space-y-1">
@@ -1358,8 +1391,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <Label>MOQ (Min Order Qty)</Label>
-                  <Input type="number" placeholder="Optional" value={editMoq} onChange={(e) => setEditMoq(e.target.value)} />
+                  <Label>Wholesale MOQ (Min Bulk Qty)</Label>
+                  <Input type="number" placeholder="e.g. 25, 50 (Bulk only)" value={editMoq} onChange={(e) => setEditMoq(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <Label>Sustainability Score (1-100)</Label>
@@ -2180,7 +2213,16 @@ function AddProductForm({ onBack, profile, reload }: any) {
           {/* Form fields here */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1"><Label>Product Name</Label><Input required value={prodName} onChange={(e) => setProdName(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Category</Label><Input required value={prodCat} onChange={(e) => setProdCat(e.target.value)} /></div>
+            <div className="space-y-1">
+              <Label>Category</Label>
+              <CategoryTypeahead
+                id="add-product-category"
+                value={prodCat}
+                onChange={(val) => setProdCat(val)}
+                required
+                placeholder="Search or type a new category..."
+              />
+            </div>
           </div>
           <div className="space-y-1"><Label>Description</Label><Textarea required value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} /></div>
           <div className="grid grid-cols-3 gap-4">

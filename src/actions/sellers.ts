@@ -7,6 +7,46 @@ import { createProduct } from "./products";
 import { getOrdersBySeller } from "./orders";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { setEarthcentricSessionCookie } from "@/lib/session";
+import { validateFullApplication } from "@/lib/seller-validation";
+
+export interface SellerRemovalRecord {
+  sellerId: string;
+  userId: string;
+  userEmail?: string;
+  userName?: string;
+  companyName: string;
+  businessType: string;
+  description?: string;
+  website?: string;
+  gstNumber?: string;
+  panNumber?: string;
+  declaredRevenue?: string;
+  trustScore?: number;
+  badges?: string[];
+  phone?: string;
+  ownerName?: string;
+  founderName?: string;
+  aadharNumber?: string;
+  factoryAddress?: string;
+  pickupAddress?: string;
+  companyAddress?: string;
+  bankAccountNo?: string;
+  bankName?: string;
+  bankIfsc?: string;
+  bankProofUrl?: string;
+  verifiedAt?: Date | string;
+  previousStatus: string;
+  removedAt: string;
+  removalReason: string;
+  removedBy: string;
+  documents?: {
+    type: string;
+    fileName: string;
+    fileUrl: string;
+    uploadedAt?: Date | string;
+  }[];
+  productsCount?: number;
+}
 
 export interface SellerProfile {
   id: string;
@@ -30,7 +70,10 @@ export interface SellerProfile {
   ownerName?: string;
   founderName?: string;
   createdAt?: Date | string;
+  updatedAt?: Date | string;
   verifiedAt?: Date | string;
+  appliedAt?: Date | string;
+  appliedOn?: string;
   aadharNumber?: string;
   factoryAddress?: string;
   pickupAddress?: string;
@@ -44,7 +87,20 @@ export interface SellerProfile {
     type: string;
     fileName: string;
     fileUrl: string;
+    publicId?: string | null;
+    format?: string | null;
+    resourceType?: string | null;
+    fileSize?: number | null;
+    status?: string | null;
+    rejectionReason?: string | null;
+    uploadedAt?: Date | string;
   }[];
+  isRemoved?: boolean;
+  hasPriorRemoval?: boolean;
+  priorRemovalDate?: string;
+  priorRemovalReason?: string;
+  priorRemovalAdmin?: string;
+  removalHistory?: SellerRemovalRecord[];
 }
 
 // In-memory global array for single designated seller fallback
@@ -82,6 +138,10 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
 
     if (!seller) return null;
 
+    const removalHistory = await getSellerRemovalHistoryInternal(seller.userId, seller.id);
+    const hasPriorRemoval = removalHistory.length > 0;
+    const isRemoved = seller.verificationStatus === "REJECTED" && (seller.rejectionReason?.startsWith("[SELLER_REMOVED]:") || false);
+
     return {
       id: seller.id,
       userId: seller.userId,
@@ -113,11 +173,26 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       ...(getUrlFromDb(seller.bankProofUrl) ? { bankProofUrl: getUrlFromDb(seller.bankProofUrl) } : {}),
       ...(seller.createdAt ? { createdAt: seller.createdAt } : {}),
       ...(seller.verifiedAt ? { verifiedAt: seller.verifiedAt } : {}),
+      isRemoved,
+      hasPriorRemoval,
+      ...(hasPriorRemoval ? {
+        priorRemovalDate: removalHistory[0].removedAt,
+        priorRemovalReason: removalHistory[0].removalReason,
+        priorRemovalAdmin: removalHistory[0].removedBy,
+        removalHistory,
+      } : {}),
       documents: seller.documents.map((doc: any) => ({
         id: doc.id,
         type: doc.type,
         fileName: doc.fileName,
         fileUrl: getUrlFromDb(doc.fileUrl),
+        publicId: doc.publicId || null,
+        format: doc.format || null,
+        resourceType: doc.resourceType || "image",
+        fileSize: doc.fileSize || null,
+        status: doc.status || "PENDING",
+        rejectionReason: doc.rejectionReason || null,
+        uploadedAt: doc.uploadedAt,
       })),
     };
   } catch (e) {
@@ -128,15 +203,36 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
 export async function getSellerProfileById(id: string): Promise<SellerProfile | null> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return mockSellers.find((s) => s.id === id) || null;
+      const s = mockSellers.find((sel) => sel.id === id || sel.userId === id);
+      if (s) {
+        const hist = await getMockSellerRemovalHistory(s.userId, s.id);
+        return {
+          ...s,
+          hasPriorRemoval: hist.length > 0,
+          removalHistory: hist,
+          isRemoved: s.isRemoved || (s.rejectionReason?.startsWith("[SELLER_REMOVED]:") || false),
+        };
+      }
+      return null;
     }
 
-    const seller = await db.seller.findUnique({
+    let seller = await db.seller.findUnique({
       where: { id },
       include: { documents: true, user: true },
     });
 
+    if (!seller) {
+      seller = await db.seller.findUnique({
+        where: { userId: id },
+        include: { documents: true, user: true },
+      });
+    }
+
     if (!seller) return null;
+
+    const removalHistory = await getSellerRemovalHistoryInternal(seller.userId, seller.id);
+    const hasPriorRemoval = removalHistory.length > 0;
+    const isRemoved = seller.verificationStatus === "REJECTED" && (seller.rejectionReason?.startsWith("[SELLER_REMOVED]:") || false);
 
     return {
       id: seller.id,
@@ -169,15 +265,30 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       ...(getUrlFromDb(seller.bankProofUrl) ? { bankProofUrl: getUrlFromDb(seller.bankProofUrl) } : {}),
       ...(seller.createdAt ? { createdAt: seller.createdAt } : {}),
       ...(seller.verifiedAt ? { verifiedAt: seller.verifiedAt } : {}),
+      isRemoved,
+      hasPriorRemoval,
+      ...(hasPriorRemoval ? {
+        priorRemovalDate: removalHistory[0].removedAt,
+        priorRemovalReason: removalHistory[0].removalReason,
+        priorRemovalAdmin: removalHistory[0].removedBy,
+        removalHistory,
+      } : {}),
       documents: seller.documents.map((doc: any) => ({
         id: doc.id,
         type: doc.type,
         fileName: doc.fileName,
         fileUrl: getUrlFromDb(doc.fileUrl),
+        publicId: doc.publicId || null,
+        format: doc.format || null,
+        resourceType: doc.resourceType || "image",
+        fileSize: doc.fileSize || null,
+        status: doc.status || "PENDING",
+        rejectionReason: doc.rejectionReason || null,
+        uploadedAt: doc.uploadedAt,
       })),
     };
   } catch (e) {
-    return mockSellers.find((s) => s.userId === id) || null;
+    return mockSellers.find((s) => s.userId === id || s.id === id) || null;
   }
 }
 
@@ -190,6 +301,7 @@ export async function submitSellerVerification(data: {
   gstNumber: string;
   panNumber: string;
   logoBase64?: string;
+  logoUrl?: string;
   declaredRevenue?: string;
   phone?: string;
   ownerName?: string;
@@ -202,26 +314,51 @@ export async function submitSellerVerification(data: {
   documents: {
     type: "GST" | "PAN" | "BUSINESS_REGISTRATION" | "SUSTAINABILITY_CERTIFICATE" | "MANUFACTURING_PROOF" | "BANK_PROOF" | "AADHAR" | string;
     fileName: string;
-    fileBase64: string; // Base64 representation of file
+    fileBase64?: string;
+    fileUrl?: string;
+    publicId?: string | null;
+    format?: string | null;
+    resourceType?: string | null;
+    fileSize?: number | null;
   }[];
 }): Promise<SellerProfile> {
-  // Upload all documents to Cloudinary (or mock)
+  // Process documents: preserve verified pre-uploaded URLs, or upload base64 if provided
   const uploadedDocs = await Promise.all(
     data.documents.map(async (doc) => {
-      // Use automated folder selection for verification documents
-      const secureUrl = await uploadImage(doc.fileBase64, "verification");
+      let secureUrl = doc.fileUrl;
+      let publicId = doc.publicId || null;
+      let format = doc.format || null;
+      let resourceType = doc.resourceType || "image";
+      let fileSize = doc.fileSize || null;
+
+      if (!secureUrl && doc.fileBase64 && doc.fileBase64 !== "existing" && doc.fileBase64 !== "mock_base64") {
+        try {
+          const res = await uploadImage(doc.fileBase64, "verification");
+          secureUrl = getUrlFromDb(res);
+          publicId = getPublicIdFromDb(res);
+        } catch (uploadErr) {
+          console.error(`Failed to upload ${doc.type} document:`, uploadErr);
+        }
+      }
+
       return {
         type: doc.type,
         fileName: doc.fileName,
-        fileUrl: secureUrl,
+        fileUrl: secureUrl || "",
+        publicId,
+        format,
+        resourceType,
+        fileSize,
+        status: "PENDING",
       };
     })
   );
 
-  let uploadedLogoUrl: string | null = null;
-  if (data.logoBase64 && data.logoBase64 !== "existing") {
+  let uploadedLogoUrl: string | null = data.logoUrl || null;
+  if (!uploadedLogoUrl && data.logoBase64 && data.logoBase64 !== "existing") {
     try {
-      uploadedLogoUrl = await uploadImage(data.logoBase64, "sellers/logos");
+      const res = await uploadImage(data.logoBase64, "sellers/logos");
+      uploadedLogoUrl = getUrlFromDb(res);
     } catch (logoErr) {
       console.error("Failed to upload logo during verification:", logoErr);
     }
@@ -350,11 +487,18 @@ export async function submitSellerVerification(data: {
         bankIfsc: data.bankIfsc,
         bankProofUrl: bankProofDoc?.fileUrl,
         documents: {
-          create: uploadedDocs.map((d) => ({
-            type: d.type as any,
-            fileName: d.fileName,
-            fileUrl: d.fileUrl,
-          })),
+          create: uploadedDocs
+            .filter((d) => Boolean(d.fileUrl))
+            .map((d) => ({
+              type: d.type as any,
+              fileName: d.fileName,
+              fileUrl: d.fileUrl,
+              publicId: d.publicId,
+              format: d.format,
+              resourceType: d.resourceType,
+              fileSize: d.fileSize,
+              status: "PENDING",
+            })),
         },
       },
       update: {
@@ -380,11 +524,18 @@ export async function submitSellerVerification(data: {
         bankProofUrl: bankProofDoc?.fileUrl || null,
         documents: {
           deleteMany: {}, // Clear old documents
-          create: uploadedDocs.map((d) => ({
-            type: d.type as any,
-            fileName: d.fileName,
-            fileUrl: d.fileUrl,
-          })),
+          create: uploadedDocs
+            .filter((d) => Boolean(d.fileUrl))
+            .map((d) => ({
+              type: d.type as any,
+              fileName: d.fileName,
+              fileUrl: d.fileUrl,
+              publicId: d.publicId,
+              format: d.format,
+              resourceType: d.resourceType,
+              fileSize: d.fileSize,
+              status: "PENDING",
+            })),
         },
       },
       include: {
@@ -434,6 +585,13 @@ export async function submitSellerVerification(data: {
         type: d.type,
         fileName: d.fileName,
         fileUrl: getUrlFromDb(d.fileUrl),
+        publicId: d.publicId || null,
+        format: d.format || null,
+        resourceType: d.resourceType || "image",
+        fileSize: d.fileSize || null,
+        status: d.status || "PENDING",
+        rejectionReason: d.rejectionReason || null,
+        uploadedAt: d.uploadedAt,
       })),
     };
   } catch (error) {
@@ -737,6 +895,99 @@ export async function getMockSellersInternal() {
   return mockSellers;
 }
 
+let mockSellerRemovalHistory: SellerRemovalRecord[] = [];
+
+export async function getMockSellerRemovalHistory(userId: string, sellerId?: string): Promise<SellerRemovalRecord[]> {
+  return mockSellerRemovalHistory.filter(
+    (r) => r.userId === userId || r.sellerId === userId || (sellerId && (r.sellerId === sellerId || r.userId === sellerId))
+  );
+}
+
+export async function removeMockSellerInternal(userIdOrSellerId: string, reason: string, adminEmail: string) {
+  const seller = mockSellers.find((s) => s.userId === userIdOrSellerId || s.id === userIdOrSellerId);
+  if (!seller) return;
+
+  const record: SellerRemovalRecord = {
+    sellerId: seller.id,
+    userId: seller.userId,
+    userEmail: seller.user?.email || "seller@earthcentric.com",
+    userName: seller.userName || seller.companyName,
+    companyName: seller.companyName,
+    businessType: seller.businessType,
+    description: seller.description,
+    website: seller.website,
+    gstNumber: seller.gstNumber,
+    panNumber: seller.panNumber,
+    declaredRevenue: seller.declaredRevenue,
+    trustScore: seller.trustScore,
+    badges: seller.badges || [],
+    phone: seller.phone,
+    ownerName: seller.ownerName,
+    founderName: seller.founderName,
+    verifiedAt: seller.verifiedAt,
+    previousStatus: seller.verificationStatus,
+    removedAt: new Date().toISOString(),
+    removalReason: reason || "Seller removed by administration.",
+    removedBy: adminEmail || "Super Admin",
+    documents: (seller.documents || []).map((d) => ({
+      type: d.type,
+      fileName: d.fileName,
+      fileUrl: d.fileUrl,
+      uploadedAt: d.uploadedAt,
+    })),
+  };
+
+  mockSellerRemovalHistory.unshift(record);
+
+  seller.verificationStatus = "REJECTED";
+  seller.rejectionReason = `[SELLER_REMOVED]: ${reason}`;
+  seller.badges = [];
+  seller.isRemoved = true;
+  seller.hasPriorRemoval = true;
+  seller.priorRemovalDate = record.removedAt;
+  seller.priorRemovalReason = record.removalReason;
+  seller.priorRemovalAdmin = record.removedBy;
+  seller.removalHistory = [record];
+}
+
+export async function getSellerRemovalHistoryInternal(userId: string, sellerId?: string): Promise<SellerRemovalRecord[]> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (isMock) {
+      return getMockSellerRemovalHistory(userId, sellerId);
+    }
+
+    const logs = await db.auditLog.findMany({
+      where: {
+        action: "REMOVE_SELLER",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    const matching: SellerRemovalRecord[] = [];
+    for (const log of logs) {
+      if (!log.details) continue;
+      try {
+        const parsed = JSON.parse(log.details);
+        if (
+          parsed.userId === userId ||
+          parsed.sellerId === userId ||
+          (sellerId && (parsed.sellerId === sellerId || parsed.userId === sellerId))
+        ) {
+          matching.push(parsed);
+        }
+      } catch {}
+    }
+
+    return matching;
+  } catch (e) {
+    console.error("Error loading seller removal history internal:", e);
+    return [];
+  }
+}
+
 export async function updateMockSellerStatusInternal(userId: string, status: SellerProfile["verificationStatus"], badges: string[], reason?: string) {
   mockSellers = mockSellers.map((s) => {
     if (s.userId === userId) {
@@ -927,11 +1178,14 @@ export async function updateSellerBanner(sellerId: string, base64Image: string):
 export async function getVerifiedSellers() {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return mockSellers.filter(s => s.verificationStatus === "APPROVED");
+      return mockSellers.filter(s => s.verificationStatus === "APPROVED" && !s.isRemoved);
     }
 
     const sellers = await db.seller.findMany({
-      where: { verificationStatus: "APPROVED" },
+      where: {
+        verificationStatus: "APPROVED",
+        user: { role: "SELLER" },
+      },
       take: 8,
       include: {
         products: {
@@ -959,7 +1213,7 @@ export async function getAllBrands() {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const uniqueMap = new Map<string, { id: string; companyName: string }>();
-      mockSellers.forEach(s => {
+      mockSellers.filter(s => s.verificationStatus === "APPROVED" && !s.isRemoved).forEach(s => {
         if (!uniqueMap.has(s.companyName)) {
           uniqueMap.set(s.companyName, { id: s.id, companyName: s.companyName });
         }
@@ -972,6 +1226,8 @@ export async function getAllBrands() {
 
     const sellers = await db.seller.findMany({
       where: {
+        verificationStatus: "APPROVED",
+        user: { role: "SELLER" },
         products: {
           some: {
             isApproved: true,
@@ -1031,7 +1287,12 @@ export async function submit3StepSellerVerification(data: {
   documents: {
     type: string;
     fileName: string;
-    fileBase64: string;
+    fileBase64?: string;
+    fileUrl?: string;
+    publicId?: string | null;
+    format?: string | null;
+    resourceType?: string | null;
+    fileSize?: number | null;
   }[];
   product: {
     name: string;
@@ -1048,6 +1309,63 @@ export async function submit3StepSellerVerification(data: {
     imageUrls: string[];
   };
 }): Promise<SellerProfile> {
+  // Server-side centralized validation across all 3 steps to prevent API bypass
+  const gstDoc = data.documents.find((d) => d.type === "GST");
+  const panDoc = data.documents.find((d) => d.type === "PAN");
+  const aadharDoc = data.documents.find((d) => d.type === "AADHAR");
+
+  const val = validateFullApplication({
+    company: {
+      companyName: data.companyName,
+      founderName: data.founderName,
+      businessType: data.businessType,
+      phone: data.phone || "",
+      description: data.description,
+      companyAddress: data.companyAddress || "",
+      website: data.website,
+      factoryAddress: data.factoryAddress,
+      pickupAddress: data.pickupAddress,
+      logoUrl: data.logoUrl,
+    },
+    legal: {
+      gstNumber: data.gstNumber,
+      gstDoc: gstDoc?.fileUrl ? { name: gstDoc.fileName, url: gstDoc.fileUrl } : null,
+      panNumber: data.panNumber,
+      panDoc: panDoc?.fileUrl ? { name: panDoc.fileName, url: panDoc.fileUrl } : null,
+      aadharNumber: data.aadharNumber,
+      aadharDoc: aadharDoc?.fileUrl ? { name: aadharDoc.fileName, url: aadharDoc.fileUrl } : null,
+      bankName: data.bankName,
+      bankAccountNo: data.bankAccountNo,
+      bankIfsc: data.bankIfsc,
+    },
+    product: {
+      name: data.product.name,
+      categoryName: data.product.categoryName,
+      unit: data.product.unit || "Piece",
+      price: data.product.price,
+      wholesalePrice: data.product.wholesalePrice,
+      originalPrice: data.product.originalPrice,
+      stock: data.product.stock,
+      description: data.product.description,
+      materialUsed: data.product.materialUsed,
+      imageUrls: data.product.imageUrls,
+    },
+  });
+
+  if (!val.valid) {
+    const allErrors = [
+      ...Object.values(val.errors.company),
+      ...Object.values(val.errors.legal),
+      ...Object.values(val.errors.product),
+    ];
+    const firstError = allErrors[0] || "Incomplete seller application details.";
+    throw new Error(`Validation Error: ${firstError}`);
+  }
+
+  if (!data.product.imageUrls || data.product.imageUrls.length < 5) {
+    throw new Error("Validation Error: Step 3 requires at least 5 uploaded product images.");
+  }
+
   const sellerProfile = await submitSellerVerification({
     userId: data.userId,
     companyName: data.companyName,
@@ -1064,6 +1382,7 @@ export async function submit3StepSellerVerification(data: {
     bankName: data.bankName,
     bankAccountNo: data.bankAccountNo,
     bankIfsc: data.bankIfsc,
+    logoUrl: data.logoUrl,
     documents: data.documents as any,
   });
 
@@ -1084,8 +1403,8 @@ export async function submit3StepSellerVerification(data: {
           founderName: data.founderName,
           ownerName: data.founderName,
           aadharNumber: encrypt(data.aadharNumber) || data.aadharNumber,
-          ...(data.logoUrl ? { logoUrl: data.logoUrl } : {})
-        }
+          ...(data.logoUrl ? { logoUrl: data.logoUrl } : {}),
+        },
       });
     }
   } catch (err) {

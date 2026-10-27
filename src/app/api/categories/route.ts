@@ -17,14 +17,15 @@ const FALLBACK_CATEGORIES = [
   { id: "c-12", name: "Organic Food & Spices",      slug: "food",               description: "Certified organic food products and spices" },
 ];
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const forSeller = searchParams.get("for") === "seller"; // include all categories even with 0 products
+
   try {
-    // Try to seed + fetch from DB
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
-      // Check if we already have categories seeded
+      // Seed categories only once when DB is empty
       const count = await db.category.count();
       if (count === 0) {
-        // Seed categories only once when DB is empty
         for (const cat of FALLBACK_CATEGORIES) {
           await db.category.create({
             data: { name: cat.name, slug: cat.slug, description: cat.description },
@@ -34,12 +35,38 @@ export async function GET() {
 
       const cats = await db.category.findMany({
         include: {
-          _count: { select: { products: { where: { isApproved: true, isArchived: false } } } },
+          _count: {
+            select: {
+              products: {
+                where: forSeller
+                  ? undefined
+                  : {
+                      isApproved: true,
+                      isArchived: false,
+                      seller: {
+                        verificationStatus: "APPROVED",
+                      },
+                    },
+              },
+            },
+          },
         },
         orderBy: { name: "asc" },
       });
 
-      const categories = cats.map((c) => ({
+      const filteredCats = forSeller
+        ? cats
+        : cats.filter((c) => {
+            const isPredefined = FALLBACK_CATEGORIES.some(
+              (fc) => fc.slug === c.slug || fc.name.toLowerCase() === c.name.toLowerCase()
+            );
+            const approvedProductCount = (c as any)._count?.products ?? 0;
+            // Predefined default categories can stay visible;
+            // Any newly entered custom category displays in marketplace ONLY IF the seller is approved by Super Admin
+            return isPredefined ? true : approvedProductCount > 0;
+          });
+
+      const categories = filteredCats.map((c) => ({
         id: c.id,
         name: c.name,
         slug: c.slug,
@@ -47,10 +74,15 @@ export async function GET() {
         productCount: (c as any)._count?.products ?? 0,
       }));
 
+      if (!forSeller && categories.length === 0) {
+        return NextResponse.json({
+          categories: FALLBACK_CATEGORIES.map((c) => ({ ...c, productCount: 0 })),
+        });
+      }
+
       return NextResponse.json({ categories });
     }
   } catch (e) {
-    // Fall through to fallback
     console.error("categories API DB error:", e);
   }
 

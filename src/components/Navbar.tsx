@@ -976,7 +976,11 @@ export default function Navbar() {
                             <div className="flex items-center space-x-1.5 border border-border/60 rounded px-1 py-0.5 bg-muted/20">
                               <button suppressHydrationWarning
                                 onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
+                                disabled={item.quantity <= 1}
+                                className={`p-1 rounded text-muted-foreground ${
+                                  item.quantity <= 1 ? "opacity-30 cursor-not-allowed" : "hover:bg-muted cursor-pointer"
+                                }`}
+                                aria-label="Decrease quantity"
                               >
                                 <Minus className="h-3 w-3" />
                               </button>
@@ -986,6 +990,7 @@ export default function Navbar() {
                               <button suppressHydrationWarning
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                 className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer"
+                                aria-label="Increase quantity"
                               >
                                 <Plus className="h-3 w-3" />
                               </button>

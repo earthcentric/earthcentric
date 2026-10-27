@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import db from "@/lib/db";
 import { createCashfreeRefund, fetchCashfreeRefund, CashfreeRefundResult } from "@/lib/cashfree";
-import { createNotification } from "@/actions/notifications";
+import { createNotification, createAdminNotification } from "@/actions/notifications";
+import { sendRefundCompletedEmail, sendRefundFailedEmail } from "@/lib/email";
 
 export type RefundState = "NOT_REQUIRED" | "PENDING_PAYMENT" | "PENDING" | "SUCCESS" | "FAILED";
 
@@ -111,16 +112,54 @@ async function saveProviderRefund(
     return { status: effectiveStatus, orderRefunded: false };
   });
 
-  if (transition.orderRefunded) {
-    const order = await db.order.findUnique({ where: { id: cancellation.orderId }, select: { userId: true } });
-    if (order?.userId) {
+  const orderWithUser = await db.order.findUnique({
+    where: { id: cancellation.orderId },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
+
+  const finalRefundAmount = result.refund_amount ?? cancellation.refundAmount ?? cancellation.order.totalAmount ?? 0;
+  const customerEmail = orderWithUser?.user?.email || cancellation.requestedByEmail;
+  const customerName = orderWithUser?.user?.name || undefined;
+
+  if (transition.orderRefunded && customerEmail) {
+    if (orderWithUser?.userId) {
       await createNotification(
-        order.userId,
-        "Refund completed",
-        `Refund of ₹${(result.refund_amount ?? cancellation.refundAmount ?? 0).toLocaleString("en-IN")} for order ${cancellation.orderId} completed. Reference: ${providerRefundReference || cancellation.cashfreeRefundId || "see order details"}.`,
+        orderWithUser.userId,
+        "Refund completed ✅",
+        `Refund of ₹${finalRefundAmount.toLocaleString("en-IN")} for order ${cancellation.orderId} completed. Reference: ${providerRefundReference || cancellation.cashfreeRefundId || "see order details"}.`,
         `/orders/${cancellation.orderId}`
-      );
+      ).catch((e) => console.error("Refund completed notification error:", e));
     }
+
+    await sendRefundCompletedEmail(customerEmail, {
+      orderId: cancellation.orderId,
+      customerName,
+      amount: finalRefundAmount,
+      refundReference: providerRefundReference || cancellation.cashfreeRefundId || "CF-REFUND-VERIFIED",
+      completedDate: new Date(),
+    }).catch((e) => console.error("Refund completed email error:", e));
+  } else if (transition.status === "FAILED" && customerEmail) {
+    if (orderWithUser?.userId) {
+      await createNotification(
+        orderWithUser.userId,
+        "Refund Processing Update ⚠️",
+        `Your refund of ₹${finalRefundAmount.toLocaleString("en-IN")} for order ${cancellation.orderId} requires manual processing. Our finance desk is assisting.`,
+        `/orders/${cancellation.orderId}`
+      ).catch((e) => console.error("Refund failed notification error:", e));
+    }
+
+    await createAdminNotification(
+      "Refund requires attention",
+      `Refund for order ${cancellation.orderId} failed: ${result.status_description || "Gateway declined or timed out"}. Retry required.`,
+      "cancellations"
+    ).catch((e) => console.error("Admin refund failed alert error:", e));
+
+    await sendRefundFailedEmail(customerEmail, {
+      orderId: cancellation.orderId,
+      customerName,
+      amount: finalRefundAmount,
+      errorDetail: result.status_description || "Banking network delayed confirmation.",
+    }).catch((e) => console.error("Refund failed email error:", e));
   }
   return transition.status;
 }

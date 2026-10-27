@@ -1,5 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
 import { getCredential } from "./credentials";
+import { getFolderFromType, isDocFolder } from "./cloudinary-utils";
+
+export * from "./cloudinary-utils";
 
 async function configureCloudinary() {
   const cloudName = await getCredential("CLOUDINARY_CLOUD_NAME", "mock");
@@ -25,40 +28,6 @@ export async function isCloudinaryMock(): Promise<boolean> {
   const apiSecret = await getCredential("CLOUDINARY_API_SECRET");
   
   return !cloudName || cloudName === "mock" || !apiKey || apiKey === "mock" || !apiSecret || apiSecret === "mock";
-}
-
-// Automatically resolve folders based on upload type
-export function getFolderFromType(folderOrType: string): string {
-  const normalized = folderOrType.toLowerCase().trim();
-  
-  if (normalized.includes("buyer-profile") || normalized.includes("buyers/profile")) {
-    return "buyers/profile";
-  }
-  if (normalized.includes("seller-profile") || normalized.includes("sellers/profile")) {
-    return "sellers/profile";
-  }
-  if (normalized.includes("seller-banner") || normalized.includes("sellers/banner") || normalized.includes("sellers/banners")) {
-    return "sellers/banners";
-  }
-  if (normalized.includes("product") || normalized.includes("products/images")) {
-    return "products/images";
-  }
-  if (normalized.includes("category") || normalized.includes("admin/categories")) {
-    return "admin/categories";
-  }
-  if (normalized.includes("ad-banner") || normalized.includes("admin/banner") || normalized.includes("admin/banners")) {
-    return "admin/banners";
-  }
-  if (normalized.includes("verification") || normalized.includes("document") || normalized.includes("documents/verification")) {
-    return "documents/verification";
-  }
-  
-  return folderOrType; // default fallback if none match
-}
-
-// Helper to check if file type is document
-function isDocFolder(folder: string): boolean {
-  return folder === "documents/verification";
 }
 
 // Extends uploadImage signature to remain backward compatible, but returns JSON response.
@@ -142,16 +111,20 @@ export async function uploadImage(fileBase64: string, folderOrType: string = "pr
       publicId: uploadResponse.public_id
     });
   } catch (error: any) {
-    console.warn("Cloudinary upload failed, falling back to mock:", error.message || error);
-    // Fall back to mock response to prevent application crashes
-    let mockUrl = "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=60";
-    if (isDoc) {
-      mockUrl = "https://images.unsplash.com/photo-1606857521015-7f9fcf423740?w=600&auto=format&fit=crop&q=60";
+    console.error("Cloudinary upload failed:", error.message || error);
+    // Only fall back to mock if running in explicit mock mode without real credentials
+    if (isMock) {
+      let mockUrl = "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=60";
+      if (isDoc) {
+        mockUrl = "https://images.unsplash.com/photo-1606857521015-7f9fcf423740?w=600&auto=format&fit=crop&q=60";
+      }
+      return JSON.stringify({
+        url: mockUrl,
+        publicId: `mock_fallback_${Math.random().toString(36).substring(2, 9)}`
+      });
     }
-    return JSON.stringify({
-      url: mockUrl,
-      publicId: `mock_fallback_${Math.random().toString(36).substring(2, 9)}`
-    });
+    // In real mode: throw real error so caller knows upload failed
+    throw new Error(`Cloudinary storage upload error: ${error.message || "Upload failed"}`);
   }
 }
 
@@ -169,59 +142,4 @@ export async function deleteImage(publicId: string): Promise<boolean> {
     console.error("Cloudinary delete error:", error);
     return false;
   }
-}
-
-// Database helper: Extract clean URL from DB JSON string
-export function getUrlFromDb(dbValue: string | null | undefined): string {
-  if (!dbValue) return "";
-  if (dbValue.startsWith("{") && dbValue.endsWith("}")) {
-    try {
-      const parsed = JSON.parse(dbValue);
-      if (parsed && typeof parsed === "object" && "url" in parsed) {
-        return parsed.url;
-      }
-    } catch (e) {
-      // Ignored
-    }
-  }
-  return dbValue;
-}
-
-// Database helper: Extract public ID from DB JSON string
-export function getPublicIdFromDb(dbValue: string | null | undefined): string | null {
-  if (!dbValue) return null;
-  if (dbValue.startsWith("{") && dbValue.endsWith("}")) {
-    try {
-      const parsed = JSON.parse(dbValue);
-      if (parsed && typeof parsed === "object" && "publicId" in parsed) {
-        return parsed.publicId;
-      }
-    } catch (e) {
-      // Ignored
-    }
-  }
-  
-  // Fallback: extract public ID from Cloudinary URL if possible
-  if (dbValue.includes("cloudinary.com")) {
-    try {
-      const parts = dbValue.split("/upload/");
-      if (parts.length > 1) {
-        const afterUpload = parts[1];
-        const pathParts = afterUpload.split("/");
-        // remove version folder (e.g. v12345678)
-        if (pathParts[0].startsWith("v") && /^\d+$/.test(pathParts[0].substring(1))) {
-          pathParts.shift();
-        }
-        const fullPath = pathParts.join("/");
-        const dotIndex = fullPath.lastIndexOf(".");
-        if (dotIndex !== -1) {
-          return fullPath.substring(0, dotIndex);
-        }
-        return fullPath;
-      }
-    } catch (e) {
-      console.error("Error parsing publicId from url fallback:", e);
-    }
-  }
-  return null;
 }
