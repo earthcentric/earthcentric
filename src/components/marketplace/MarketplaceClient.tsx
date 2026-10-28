@@ -371,6 +371,7 @@ export default function MarketplaceClient({ initialCategoryProp }: { initialCate
       buyXGetYOffer: p.buyXGetYOffer || null,
       individualDiscount: p.individualDiscount || null,
       tierDiscounts: p.tierDiscounts || null,
+      bulkPriceSlabs: (p as any).bulkPriceSlabs || null,
     }, 1);
 
     setAddedItemName(p.name);

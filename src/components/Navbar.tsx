@@ -266,9 +266,8 @@ function BuyerNotificationMenu({ userId }: { userId: string }) {
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const { cart, removeFromCart, updateQuantity, cartTotal, cartCount } = useCart();
+  const { cart, removeFromCart, updateQuantity, cartTotal, cartCount, isCartOpen, setIsCartOpen } = useCart();
   const { wishlistCount } = useWishlist();
-  const [isCartOpen, setIsCartOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
@@ -954,7 +953,7 @@ export default function Navbar() {
                         <div className="flex-1 min-w-0">
                           {(() => {
                             const effective = getEffectiveUnitPrice(item, item.quantity);
-                            const itemTotal = effective.unitPrice * item.quantity;
+                            const itemTotal = Math.round(effective.unitPrice * item.quantity * 100) / 100;
                             return (
                               <div className="flex items-start justify-between">
                                 <Link href={`/products/${item.id}`} onClick={() => setIsCartOpen(false)} className="hover:text-[#0F6E56] transition-colors truncate">
@@ -997,8 +996,14 @@ export default function Navbar() {
                             </div>
 
                             <div className="flex items-center space-x-3">
-                              <Badge variant="primary" className="text-[10px] px-1.5 py-0">
-                              </Badge>
+                              {(() => {
+                                const eff = getEffectiveUnitPrice(item, item.quantity);
+                                return eff.appliedDiscountType !== "NONE" ? (
+                                  <Badge variant="primary" className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border-none font-bold">
+                                    {eff.badgeText || `${eff.discountPercentage}% OFF`}
+                                  </Badge>
+                                ) : null;
+                              })()}
                               <button suppressHydrationWarning
                                 onClick={() => removeFromCart(item.id)}
                                 className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-500/5 cursor-pointer"

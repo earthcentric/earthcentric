@@ -249,17 +249,33 @@ export function getEffectiveUnitPrice(
     }
   }
 
-  // 3. Check Bulk Wholesale Slabs
+  // 3. Check Bulk Wholesale Slabs / Volume Discount Deals
   if (product.bulkPriceSlabs && Array.isArray(product.bulkPriceSlabs)) {
     for (const slab of product.bulkPriceSlabs) {
-      const minQty = Number(slab.minQty ?? 0);
-      const maxQty = slab.maxQty !== null && slab.maxQty !== undefined ? Number(slab.maxQty) : Infinity;
+      const minQty = Number(slab.min ?? slab.minQty ?? slab.quantity ?? 1);
+      const maxQty = slab.max !== null && slab.max !== undefined
+        ? Number(slab.max)
+        : (slab.maxQty !== null && slab.maxQty !== undefined ? Number(slab.maxQty) : Infinity);
+
       if (quantity >= minQty && quantity <= maxQty) {
-        const slabPrice = Number(slab.pricePerUnit);
-        if (slabPrice < bestUnitPrice) {
-          bestUnitPrice = slabPrice;
+        let slabUnitPrice: number | null = null;
+        if (slab.total !== undefined && slab.total !== null && slab.total !== "" && !isNaN(Number(slab.total)) && Number(slab.total) > 0) {
+          // Total package deal: e.g. Buy 2 for ₹1 total -> unit price = 1 / 2 = 0.5
+          slabUnitPrice = minQty > 0 ? Number(slab.total) / minQty : Number(slab.total);
+        } else if (slab.price !== undefined && slab.price !== null && slab.price !== "" && !isNaN(Number(slab.price))) {
+          slabUnitPrice = Number(slab.price);
+        } else if (slab.pricePerUnit !== undefined && slab.pricePerUnit !== null && slab.pricePerUnit !== "" && !isNaN(Number(slab.pricePerUnit))) {
+          slabUnitPrice = Number(slab.pricePerUnit);
+        }
+
+        if (slabUnitPrice !== null && !isNaN(slabUnitPrice) && slabUnitPrice < bestUnitPrice) {
+          bestUnitPrice = slabUnitPrice;
           appliedType = "TIER";
-          badgeText = `Bulk ₹${slabPrice}/unit`;
+          const savingsPct = basePrice > 0 ? Math.round(((basePrice - slabUnitPrice) / basePrice) * 100) : 0;
+          discountPercentage = savingsPct;
+          badgeText = slab.total !== undefined && slab.total !== null && Number(slab.total) > 0
+            ? `Buy ${minQty} for ₹${Number(slab.total).toLocaleString()}`
+            : `Bulk ₹${slabUnitPrice}/unit`;
         }
       }
     }

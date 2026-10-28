@@ -22,6 +22,7 @@ import {
   Truck,
   ShieldCheck,
   ShoppingCart,
+  ShoppingBag,
   Minus,
   Plus,
   Leaf,
@@ -39,16 +40,36 @@ interface ProductClientViewProps {
 
 export default function ProductClientView({ product }: ProductClientViewProps) {
   const router = useRouter();
-  const { addToCart } = useCart();
+  const { cart, addToCart, updateQuantity, openCart } = useCart();
   const { user } = useAuth();
   const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
   const isWishlisted = isInWishlist(product.id);
   const [activeImage, setActiveImage] = useState(product.images[0]);
+  
+  // Check if product is currently in the cart
+  const cartItem = cart.find((i) => i.id === product.id);
+  const isInCart = Boolean(cartItem);
+
   const [quantity, setQuantity] = useState(1);
   const [related, setRelated] = useState<ProductItem[]>([]);
   const [addedNotify, setAddedNotify] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
   const [isEligibleToReview, setIsEligibleToReview] = useState(false);
+
+  // Sync quantity with cart item if present
+  useEffect(() => {
+    if (cartItem && cartItem.quantity > 0) {
+      setQuantity(cartItem.quantity);
+    }
+  }, [cartItem?.quantity]);
+
+  const handleQuantityChange = (newQty: number) => {
+    const clampedQty = Math.max(1, Math.min(product.stock || 9999, newQty));
+    setQuantity(clampedQty);
+    if (isInCart) {
+      updateQuantity(product.id, clampedQty);
+    }
+  };
 
   // Wholesale Bulk Configuration
   const baseBulkQty = (product.bulkOrderQuantity && product.bulkOrderQuantity > 0)
@@ -263,6 +284,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
         individualDiscount: product.individualDiscount,
         tierDiscounts: product.tierDiscounts,
         buyXGetYOffer: product.buyXGetYOffer,
+        bulkPriceSlabs: product.bulkPriceSlabs,
       },
       quantity
     );
@@ -667,17 +689,18 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {(product.bulkPriceSlabs as any[]).map((slab: any, i: number) => {
-                      const qty = slab.min;
-                      const slabTotal = slab.total || (slab.price * qty);
+                      const qty = Number(slab.min || slab.minQty || 1);
+                      const slabTotal = slab.total !== undefined && slab.total !== null ? Number(slab.total) : (Number(slab.price || slab.pricePerUnit || 0) * qty);
                       const regularTotal = product.price * qty;
                       const savings = regularTotal - slabTotal;
                       const savingsPercent = regularTotal > 0 ? Math.round((savings / regularTotal) * 100) : 0;
                       const isSelected = quantity === qty;
+                      const eachPrice = qty > 0 ? (slabTotal / qty) : Number(slab.price || 0);
 
                       return (
                         <div
                           key={i}
-                          onClick={() => setQuantity(qty)}
+                          onClick={() => handleQuantityChange(qty)}
                           className={`bg-white border rounded-xl p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md select-none ${
                             isSelected
                               ? "border-[#0F6E56] ring-2 ring-[#0F6E56]/15 bg-emerald-50/10"
@@ -687,7 +710,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                           <div className="flex justify-between items-start">
                             <div>
                               <span className="text-xs font-bold text-slate-800 block">Buy {qty} {qty === 1 ? "unit" : "units"}</span>
-                              <span className="text-[10px] text-slate-400 block mt-0.5">₹{slab.price.toLocaleString()} each</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">₹{eachPrice < 1 && eachPrice > 0 ? eachPrice.toFixed(2) : eachPrice.toLocaleString()} each</span>
                             </div>
                             <div className="text-right">
                               <span className="text-base font-black text-[#0F6E56] block">₹{slabTotal.toLocaleString()}</span>
@@ -792,7 +815,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50 shadow-xs">
                     <button suppressHydrationWarning
                       type="button"
-                      onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
+                      onClick={() => handleQuantityChange(quantity - 1)}
                       disabled={quantity <= 1}
                       className={`h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors border-r border-slate-200 ${
                         quantity <= 1 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
@@ -809,16 +832,17 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10);
                         if (!isNaN(val)) {
-                          setQuantity(Math.max(1, Math.min(product.stock || 9999, val)));
+                          handleQuantityChange(val);
                         } else if (e.target.value === "") {
                           setQuantity(1);
+                          if (isInCart) updateQuantity(product.id, 1);
                         }
                       }}
                       className="h-12 w-16 text-center text-base font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <button suppressHydrationWarning
                       type="button"
-                      onClick={() => setQuantity((prev) => Math.min(product.stock || 9999, prev + 1))}
+                      onClick={() => handleQuantityChange(quantity + 1)}
                       disabled={product.stock > 0 && quantity >= product.stock}
                       className={`h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors border-l border-slate-200 ${
                         product.stock > 0 && quantity >= product.stock ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
@@ -829,24 +853,43 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     </button>
                   </div>
 
-                  {/* Add to Cart with Real-Time Total Calculation */}
-                  <button suppressHydrationWarning
-                    type="button"
-                    onClick={handleAddToCart}
-                    className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
-                  >
-                    <ShoppingCart className="h-5 w-5" />
-                    <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
-                  </button>
+                  {/* Add to Cart or View Cart */}
+                  {isInCart ? (
+                    <button suppressHydrationWarning
+                      type="button"
+                      onClick={() => openCart()}
+                      className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
+                    >
+                      <ShoppingBag className="h-5 w-5" />
+                      <span>View Cart</span>
+                    </button>
+                  ) : (
+                    <button suppressHydrationWarning
+                      type="button"
+                      onClick={() => {
+                        handleAddToCart();
+                        openCart();
+                      }}
+                      className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
+                    >
+                      <ShoppingCart className="h-5 w-5" />
+                      <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Subtotal calculation note for immediate visual feedback */}
-                {quantity > 1 && (
+                {isInCart ? (
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">✓ Added in Cart ({quantity} unit{quantity > 1 ? "s" : ""})</span>
+                    <span>Total: <strong className="text-slate-900 font-bold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</strong></span>
+                  </div>
+                ) : quantity > 1 ? (
                   <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
                     <span>Quantity: <strong className="text-slate-800">{quantity} units</strong></span>
                     <span>Total: <strong className="text-emerald-700 font-bold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</strong> (₹{getActiveUnitPrice().toLocaleString()} / unit)</span>
                   </div>
-                )}
+                ) : null}
 
                 {/* Bulk Quote Request Button */}
                 <button suppressHydrationWarning
@@ -1072,7 +1115,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
             <div className="hidden sm:flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
               <button suppressHydrationWarning
                 type="button"
-                onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
+                onClick={() => handleQuantityChange(quantity - 1)}
                 disabled={quantity <= 1}
                 className={`h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 border-r border-slate-200 ${
                   quantity <= 1 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
@@ -1089,16 +1132,17 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10);
                   if (!isNaN(val)) {
-                    setQuantity(Math.max(1, Math.min(product.stock || 9999, val)));
+                    handleQuantityChange(val);
                   } else if (e.target.value === "") {
                     setQuantity(1);
+                    if (isInCart) updateQuantity(product.id, 1);
                   }
                 }}
                 className="h-9 w-12 text-center text-sm font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
               <button suppressHydrationWarning
                 type="button"
-                onClick={() => setQuantity((prev) => Math.min(product.stock || 9999, prev + 1))}
+                onClick={() => handleQuantityChange(quantity + 1)}
                 disabled={product.stock > 0 && quantity >= product.stock}
                 className={`h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 border-l border-slate-200 ${
                   product.stock > 0 && quantity >= product.stock ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
@@ -1108,13 +1152,28 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
-            <button suppressHydrationWarning
-              type="button"
-              onClick={handleAddToCart}
-              className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
-            >
-              <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
-            </button>
+            {isInCart ? (
+              <button suppressHydrationWarning
+                type="button"
+                onClick={() => openCart()}
+                className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
+              >
+                <ShoppingBag className="h-4 w-4" />
+                <span>View Cart</span>
+              </button>
+            ) : (
+              <button suppressHydrationWarning
+                type="button"
+                onClick={() => {
+                  handleAddToCart();
+                  openCart();
+                }}
+                className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

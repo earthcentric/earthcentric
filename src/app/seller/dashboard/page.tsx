@@ -176,17 +176,15 @@ export default function SellerDashboard() {
     let nextStatus: OrderDetail["status"] = "CONFIRMED";
     let desc = "";
 
-    const targetStatus = specificStatus || (["CONFIRMED", "PACKED", "SHIPPED", "DELIVERED"].includes(currentOrTargetStatus) ? (currentOrTargetStatus as OrderDetail["status"]) : undefined);
-
-    if (targetStatus) {
-      nextStatus = targetStatus;
-      if (targetStatus === "CONFIRMED") {
+    if (specificStatus) {
+      nextStatus = specificStatus;
+      if (nextStatus === "CONFIRMED") {
         desc = "Seller confirmed stock availability. Order in fulfillment queue.";
-      } else if (targetStatus === "PACKED") {
+      } else if (nextStatus === "PACKED") {
         desc = "Wrapped in recyclable plastic-free cardboard and tape.";
-      } else if (targetStatus === "SHIPPED") {
+      } else if (nextStatus === "SHIPPED") {
         desc = "Dispatched via carbon-offset logistical partners.";
-      } else if (targetStatus === "DELIVERED") {
+      } else if (nextStatus === "DELIVERED") {
         desc = "Package received by buyer. Carbon offset verified.";
       }
     } else {
@@ -1562,7 +1560,7 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                         newSlabs[index].min = qty;
                         const totalVal = newSlabs[index].total || (newSlabs[index].price * qty) || 0;
                         newSlabs[index].total = totalVal;
-                        newSlabs[index].price = qty > 0 ? Math.round(totalVal / qty) : 0;
+                        newSlabs[index].price = qty > 0 ? Math.round((totalVal / qty) * 100) / 100 : 0;
                         setEditSlabs(newSlabs);
                       }}
                       className="w-16 text-xs h-8 bg-white"
@@ -1578,14 +1576,14 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                         const newSlabs = [...editSlabs];
                         newSlabs[index].total = total;
                         const qty = newSlabs[index].min || 1;
-                        newSlabs[index].price = qty > 0 ? Math.round(total / qty) : 0;
+                        newSlabs[index].price = qty > 0 ? Math.round((total / qty) * 100) / 100 : 0;
                         setEditSlabs(newSlabs);
                       }}
                       className="w-24 text-xs h-8 bg-white"
                     />
                     {slab.price > 0 && (
                       <span className="text-[10px] text-slate-500 font-semibold italic">
-                        (₹{slab.price}/each)
+                        (₹{slab.price < 1 ? slab.price.toFixed(2) : slab.price}/each)
                       </span>
                     )}
                     <Button
@@ -2397,7 +2395,7 @@ function AddProductForm({ onBack, profile, reload }: any) {
                     newSlabs[index].min = qty;
                     const totalVal = newSlabs[index].total || (newSlabs[index].price * qty) || 0;
                     newSlabs[index].total = totalVal;
-                    newSlabs[index].price = qty > 0 ? Math.round(totalVal / qty) : 0;
+                    newSlabs[index].price = qty > 0 ? Math.round((totalVal / qty) * 100) / 100 : 0;
                     setProdSlabs(newSlabs);
                   }}
                   className="w-16 text-xs h-8 bg-white"
@@ -2413,14 +2411,14 @@ function AddProductForm({ onBack, profile, reload }: any) {
                     const newSlabs = [...prodSlabs];
                     newSlabs[index].total = total;
                     const qty = newSlabs[index].min || 1;
-                    newSlabs[index].price = qty > 0 ? Math.round(total / qty) : 0;
+                    newSlabs[index].price = qty > 0 ? Math.round((total / qty) * 100) / 100 : 0;
                     setProdSlabs(newSlabs);
                   }}
                   className="w-24 text-xs h-8 bg-white"
                 />
                 {slab.price > 0 && (
                   <span className="text-[10px] text-slate-500 font-semibold italic">
-                    (₹{slab.price}/each)
+                    (₹{slab.price < 1 ? slab.price.toFixed(2) : slab.price}/each)
                   </span>
                 )}
                 <Button

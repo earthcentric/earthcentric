@@ -19,6 +19,7 @@ export interface CartItem {
   buyXGetYOffer?: BuyXGetYOffer | null;
   individualDiscount?: IndividualDiscount | null;
   tierDiscounts?: TierDiscount[] | null;
+  bulkPriceSlabs?: any | null;
 }
 
 interface CartContextType {
@@ -29,6 +30,10 @@ interface CartContextType {
   clearCart: () => void;
   cartCount: number;
   cartTotal: number;
+  isCartOpen: boolean;
+  setIsCartOpen: (open: boolean) => void;
+  openCart: () => void;
+  closeCart: () => void;
 }
 
 import { useAuth } from "./AuthContext";
@@ -40,6 +45,9 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const openCart = () => setIsCartOpen(true);
+  const closeCart = () => setIsCartOpen(false);
   const [activeOfferPopup, setActiveOfferPopup] = useState<{
     productName: string;
     buyQuantity: number;
@@ -135,7 +143,14 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
       if (existingItem) {
         return prevCart.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + quantity, buyXGetYOffer: product.buyXGetYOffer || item.buyXGetYOffer }
+            ? {
+                ...item,
+                quantity: item.quantity + quantity,
+                buyXGetYOffer: product.buyXGetYOffer !== undefined ? product.buyXGetYOffer : item.buyXGetYOffer,
+                individualDiscount: product.individualDiscount !== undefined ? product.individualDiscount : item.individualDiscount,
+                tierDiscounts: product.tierDiscounts !== undefined ? product.tierDiscounts : item.tierDiscounts,
+                bulkPriceSlabs: product.bulkPriceSlabs !== undefined ? product.bulkPriceSlabs : item.bulkPriceSlabs,
+              }
             : item
         );
       }
@@ -222,6 +237,10 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         clearCart,
         cartCount,
         cartTotal,
+        isCartOpen,
+        setIsCartOpen,
+        openCart,
+        closeCart,
       }}
     >
       {children}

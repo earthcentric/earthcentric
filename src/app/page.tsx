@@ -531,6 +531,7 @@ export default function Homepage() {
                             buyXGetYOffer: item.buyXGetYOffer || null,
                             individualDiscount: item.individualDiscount || null,
                             tierDiscounts: item.tierDiscounts || null,
+                            bulkPriceSlabs: (item as any).bulkPriceSlabs || null,
                           }, 1);
                           setAddedItemName(item.name);
                           setTimeout(() => setAddedItemName(null), 2000);

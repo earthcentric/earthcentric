@@ -178,7 +178,7 @@ export async function createOrder(data: {
     const unitPrice = effective.unitPrice;
 
     // Quantity in cart is the purchased/payable quantity. Free items are delivered at ₹0 extra cost.
-    const itemTotal = unitPrice * item.quantity;
+    const itemTotal = Math.round(unitPrice * item.quantity * 100) / 100;
     serverCalculatedTotal += itemTotal;
 
     verifiedItems.push({
@@ -865,17 +865,34 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
     if (!order || order.status === "CANCELLED" || order.status === "REFUNDED") return false;
 
     if (!adminAuth.authorized) {
+      let resolvedSellerId = sellerAuth?.sellerId;
+      if (!resolvedSellerId && sellerAuth?.userId) {
+        const s = await db.seller.findUnique({ where: { userId: sellerAuth.userId } });
+        if (s) resolvedSellerId = s.id;
+      }
+
       const matchesSeller =
-        order.seller?.id === sellerAuth?.sellerId ||
+        order.sellerId === resolvedSellerId ||
+        order.seller?.id === resolvedSellerId ||
         order.seller?.userId === sellerAuth?.userId ||
-        order.items.some((item) => item.product.sellerId === sellerAuth?.sellerId);
-      const sellerProfile = sellerAuth?.sellerId
+        order.items.some((item) => item.product.sellerId === resolvedSellerId || item.product.sellerId === sellerAuth?.userId);
+
+      const sellerProfile = resolvedSellerId
         ? await db.seller.findUnique({
-            where: { id: sellerAuth.sellerId },
+            where: { id: resolvedSellerId },
             select: { verificationStatus: true },
           })
-        : null;
-      if (!matchesSeller || sellerProfile?.verificationStatus !== "APPROVED") return false;
+        : (sellerAuth?.userId
+          ? await db.seller.findUnique({
+              where: { userId: sellerAuth.userId },
+              select: { verificationStatus: true },
+            })
+          : null);
+
+      if (!matchesSeller || sellerProfile?.verificationStatus !== "APPROVED") {
+        console.warn("Seller mismatch or not approved in updateOrderStatus:", { matchesSeller, verificationStatus: sellerProfile?.verificationStatus });
+        return false;
+      }
 
       const nextSellerStatus: Partial<Record<OrderDetail["status"], OrderDetail["status"]>> = {
         PLACED: "CONFIRMED",
@@ -883,7 +900,10 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
         PACKED: "SHIPPED",
         SHIPPED: "DELIVERED",
       };
-      if (nextSellerStatus[order.status as OrderDetail["status"]] !== status) return false;
+      if (nextSellerStatus[order.status as OrderDetail["status"]] !== status) {
+        console.warn(`Invalid status transition for order ${orderId}: current=${order.status}, requested=${status}, expected=${nextSellerStatus[order.status as OrderDetail["status"]]}`);
+        return false;
+      }
     }
 
     if (order.status === status) return true;

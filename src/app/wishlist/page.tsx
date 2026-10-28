@@ -63,6 +63,7 @@ export default function WishlistPage() {
       buyXGetYOffer: p.buyXGetYOffer || null,
       individualDiscount: p.individualDiscount || null,
       tierDiscounts: p.tierDiscounts || null,
+      bulkPriceSlabs: (p as any).bulkPriceSlabs || null,
     });
     toast.success(`${p.name} added to cart!`);
   };
@@ -83,6 +84,7 @@ export default function WishlistPage() {
         buyXGetYOffer: p.buyXGetYOffer || null,
         individualDiscount: p.individualDiscount || null,
         tierDiscounts: p.tierDiscounts || null,
+        bulkPriceSlabs: (p as any).bulkPriceSlabs || null,
       });
     });
     toast.success(`All ${items.length} items added to your cart!`);

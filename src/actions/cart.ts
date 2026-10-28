@@ -16,6 +16,7 @@ export interface CartItem {
   buyXGetYOffer?: BuyXGetYOffer | null;
   individualDiscount?: IndividualDiscount | null;
   tierDiscounts?: TierDiscount[] | null;
+  bulkPriceSlabs?: any | null;
 }
 
 /**
@@ -65,6 +66,7 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
           buyXGetYOffer: product.buyXGetYOffer || null,
           individualDiscount: product.individualDiscount || null,
           tierDiscounts: product.tierDiscounts || null,
+          bulkPriceSlabs: product.bulkPriceSlabs || null,
         });
       }
     }
@@ -97,6 +99,7 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
           buyXGetYOffer: product.buyXGetYOffer || null,
           individualDiscount: product.individualDiscount || null,
           tierDiscounts: product.tierDiscounts || null,
+          bulkPriceSlabs: product.bulkPriceSlabs || null,
         });
       }
     }

@@ -67,7 +67,7 @@ export default function CartPage() {
                 <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
                   {(() => {
                     const effective = getEffectiveUnitPrice(item, item.quantity);
-                    const itemTotal = effective.unitPrice * item.quantity;
+                    const itemTotal = Math.round(effective.unitPrice * item.quantity * 100) / 100;
                     return (
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
                         <div>

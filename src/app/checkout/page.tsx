@@ -450,7 +450,7 @@ export default function CheckoutPage() {
                 const itemSavings = freeCount * item.price;
                 const totalDelivered = item.quantity + freeCount;
                 const effective = getEffectiveUnitPrice(item, item.quantity);
-                const itemPayable = effective.unitPrice * item.quantity;
+                const itemPayable = Math.round(effective.unitPrice * item.quantity * 100) / 100;
 
                 return (
                   <div key={item.id} className="space-y-1.5 border-b border-border/20 pb-3">
