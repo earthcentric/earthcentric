@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOrderById } from "@/actions/orders";
 import { Card, Badge, Button } from "@/components/ui/shared";
+import { OrderCancellationAction } from "@/components/orders/OrderCancellationAction";
 import { CheckCircle2, Package, Truck, Calendar, ShoppingBag, Leaf, HelpCircle, MapPin, Clock, XCircle, RotateCcw, AlertCircle, Zap, Loader2 } from "lucide-react";
 
 interface PageProps {
@@ -40,11 +41,22 @@ export default async function OrderTrackingPage({ params }: PageProps) {
             })}
           </p>
         </div>
-        <Link href="/marketplace">
-          <Button variant="cool" size="sm">
-            Continue Shopping
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3 flex-wrap">
+          {(!order.cancellation || order.cancellation.status === "REJECTED") && (
+            <OrderCancellationAction
+              orderId={order.id}
+              orderStatus={order.status}
+              createdAt={order.createdAt}
+              totalAmount={order.totalAmount}
+              userId={order.userId}
+            />
+          )}
+          <Link href="/marketplace">
+            <Button variant="cool" size="sm">
+              Continue Shopping
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {order.cancellation && (
@@ -70,11 +82,6 @@ export default async function OrderTrackingPage({ params }: PageProps) {
                   <Clock className="w-3.5 h-3.5" /> Cancellation Pending Admin Review
                 </Badge>
               )}
-              {order.cancellation.isAutoApproved && (
-                <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] gap-1 py-0.5">
-                  <Zap className="w-3 h-3 text-emerald-600" /> Instant 24h Approval
-                </Badge>
-              )}
             </div>
             <span className="text-xs text-muted-foreground">
               Requested on {new Date(order.cancellation.requestedAt).toLocaleDateString("en-IN", {
@@ -84,6 +91,17 @@ export default async function OrderTrackingPage({ params }: PageProps) {
               })}
             </span>
           </div>
+
+          {order.cancellation.status === "REQUESTED" && (
+            <div className="p-3 rounded-xl bg-amber-100/70 border border-amber-200/80 text-amber-950 text-xs space-y-1">
+              <p className="font-bold flex items-center gap-1.5 text-amber-800">
+                <Clock className="w-3.5 h-3.5 shrink-0" /> Awaiting Super Admin Review
+              </p>
+              <p className="text-amber-900 leading-relaxed">
+                Your cancellation request was submitted within the 3-day policy duration. Per marketplace policy, refunds are not automated and require Super Admin approval. Once approved, the full refund of ₹{(order.cancellation.refundAmount ?? order.totalAmount).toLocaleString("en-IN")} will be initiated to your original payment method.
+              </p>
+            </div>
+          )}
 
           <p className="text-xs text-slate-800">
             <span className="font-semibold text-slate-700">Reason:</span> {order.cancellation.reason}

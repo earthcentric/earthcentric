@@ -79,11 +79,7 @@ export default function UserOrdersPage() {
         return;
       }
 
-      if (result.autoApproved) {
-        toast.success("⚡ Order cancelled! A full refund has been initiated to your original payment method.");
-      } else {
-        toast.success("Cancellation request submitted to Super Admin for prompt review.");
-      }
+      toast.success("Cancellation request submitted to Super Admin for approval. Refund will be processed upon approval.");
 
       setCancellationModalOrder(null);
       setCancellationReason("");
@@ -332,11 +328,6 @@ export default function UserOrdersPage() {
                           <Clock className="w-3.5 h-3.5" /> Cancellation Pending Admin Review
                         </Badge>
                       )}
-                      {order.cancellation.isAutoApproved && (
-                        <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] gap-1 py-0.5">
-                          <Zap className="w-3 h-3 text-emerald-600" /> Instant 24h Approval
-                        </Badge>
-                      )}
                     </div>
                     <span className="text-[11px] text-muted-foreground">
                       Requested {new Date(order.cancellation.requestedAt).toLocaleDateString("en-IN", {
@@ -490,23 +481,34 @@ export default function UserOrdersPage() {
 
               {/* Cancellation Action Button for eligible pre-shipment orders */}
               {["PLACED", "CONFIRMED", "PACKED"].includes(order.status) &&
-                (!order.cancellation || order.cancellation.status === "REJECTED") && (
-                  <div className="px-6 py-3.5 bg-slate-50/40 border-t border-border/20 flex items-center justify-between gap-4 flex-wrap">
-                    <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-emerald-600" />
-                      Eligible for pre-dispatch cancellation
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 text-xs font-semibold gap-1.5"
-                      onClick={() => handleOpenCancellationModal(order)}
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      Cancel Order
-                    </Button>
-                  </div>
-                )}
+                (!order.cancellation || order.cancellation.status === "REJECTED") && (() => {
+                  const orderAgeHours = (Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60);
+                  const isWithin3Days = orderAgeHours <= 72;
+
+                  return (
+                    <div className="px-6 py-3.5 bg-slate-50/40 border-t border-border/20 flex items-center justify-between gap-4 flex-wrap">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                        {isWithin3Days
+                          ? `Eligible for cancellation (within 3 days duration)`
+                          : "3-day cancellation window has expired"}
+                      </span>
+                      {isWithin3Days ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 text-xs font-semibold gap-1.5"
+                          onClick={() => handleOpenCancellationModal(order)}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Cancel Order
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium">Cancellation window passed</span>
+                      )}
+                    </div>
+                  );
+                })()}
 
               {/* Action Footer */}
               <div className="bg-slate-50/50 border-t border-border/20 px-6 py-3.5 flex justify-end">
@@ -669,27 +671,15 @@ export default function UserOrdersPage() {
               </div>
 
               {/* Policy Indicator */}
-              {isAutoApprovable ? (
-                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-800">
-                    <Zap className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <span>⚡ Instant 24-Hour Approval Eligible</span>
-                  </div>
-                  <p className="text-[11px] text-emerald-900 leading-relaxed">
-                    This order was placed within the last 24 hours and has not been dispatched. Your cancellation will be processed automatically and your full refund of <strong className="font-bold">₹{cancellationModalOrder.totalAmount.toLocaleString("en-IN")}</strong> will be initiated via Cashfree to your original payment method.
-                  </p>
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900">
+                  <Clock className="h-4 w-4 text-amber-700 shrink-0" />
+                  <span>3-Day Cancellation Policy • Super Admin Review Required</span>
                 </div>
-              ) : (
-                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800">
-                    <Clock className="h-4 w-4 text-amber-600 shrink-0" />
-                    <span>⏳ Standard Super Admin Review (&gt; 24 Hours)</span>
-                  </div>
-                  <p className="text-[11px] text-amber-900 leading-relaxed">
-                    This order was placed over 24 hours ago. In accordance with Earth Centric policy, your request will be reviewed by our Super Admin team within 24–48 business hours to confirm supplier fulfillment status.
-                  </p>
-                </div>
-              )}
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  Orders can be requested for cancellation within 3 days (72 hours) of placement prior to dispatch. Refunds are not automated — your request will be reviewed and approved by the Super Admin. Once the Super Admin accepts your cancellation request, your full refund of <strong className="font-bold">₹{cancellationModalOrder.totalAmount.toLocaleString("en-IN")}</strong> will be processed to your original payment method.
+                </p>
+              </div>
 
               {/* Items summary */}
               <div className="space-y-2">

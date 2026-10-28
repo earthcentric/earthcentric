@@ -548,11 +548,11 @@ export function OrderCancellationsAdminView({
                           </p>
                           {c.isAutoApproved ? (
                             <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[9px] gap-1 py-0.2">
-                              <Zap className="h-2.5 w-2.5 text-emerald-600" /> 24h Auto-Approved
+                              <Zap className="h-2.5 w-2.5 text-emerald-600" /> Auto-Approved
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200 text-[9px] gap-1 py-0.2">
-                              <Clock className="h-2.5 w-2.5 text-amber-600" /> Admin Policy Review
+                              <Clock className="h-2.5 w-2.5 text-amber-600" /> 3-Day Policy Review
                             </Badge>
                           )}
                           {c.rejectionReason && (
@@ -878,7 +878,7 @@ export function OrderCancellationsAdminView({
               <div>
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Policy Route</span>
                 <p className="font-semibold text-slate-800 mt-0.5">
-                  {inspectItem.isAutoApproved ? "24h Auto-Approval" : "Manual Admin Review"}
+                  {inspectItem.isAutoApproved ? "Auto-Approved" : "Super Admin Review (3-Day Policy)"}
                 </p>
               </div>
             </div>

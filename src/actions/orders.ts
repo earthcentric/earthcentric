@@ -22,7 +22,7 @@ import {
   type RefundState,
 } from "@/lib/order-cancellations";
 
-const CANCELLATION_AUTO_APPROVE_HOURS = 24;
+const CANCELLATION_WINDOW_HOURS = 72; // 3 days (72 hours) duration cancellation policy
 
 export interface OrderItemInput {
   productId: string;
@@ -1300,10 +1300,16 @@ async function createCancellationRequest(
       return { success: false, error: "You can only request cancellation for your own order." };
     }
 
-    // Check order age against configurable 24-hour cutoff
+    // Check order age against 3-day (72-hour) cancellation policy
     const orderCreatedAt = new Date(order.createdAt).getTime();
     const ageHours = (Date.now() - orderCreatedAt) / (1000 * 60 * 60);
-    const isAutoApproved = ageHours <= CANCELLATION_AUTO_APPROVE_HOURS;
+
+    if (requester.role !== "ADMIN" && ageHours > CANCELLATION_WINDOW_HOURS) {
+      return {
+        success: false,
+        error: "Cancellation period expired. Orders can only be cancelled within 3 days (72 hours) of placement.",
+      };
+    }
 
     const snapshotItems = order.items.map((it) => ({
       productId: it.productId,
@@ -1315,133 +1321,58 @@ async function createCancellationRequest(
       sellerName: it.product?.seller?.companyName,
     }));
 
-    if (isAutoApproved) {
-      // CASE A: Within first 24 hours -> Automatically approved by backend
-      const refundStatus: RefundState =
-        order.payment?.status === "COMPLETED"
-          ? "PENDING"
-          : order.payment?.status === "PENDING"
-            ? "PENDING_PAYMENT"
-            : "NOT_REQUIRED";
-
-      const cancellation = await db.$transaction(async (tx) => {
-        const record = await tx.orderCancellation.create({
-          data: {
-            orderId,
-            activeOrderId: orderId,
-            requestedByUserId: requester.userId,
-            requestedByEmail: requester.email,
-            requestedByRole: requester.role,
-            reason: cleanedReason,
-            status: "APPROVED",
-            isAutoApproved: true,
-            adminNote: "Automatically approved under 24-hour pre-shipment policy.",
-            reviewedAt: new Date(),
-            reviewedByUserId: "SYSTEM_AUTO_POLICY",
-            reviewedByEmail: "system@earthcentric.com",
-            refundStatus,
-            refundAmount: order.totalAmount,
-            snapshotItems,
-          },
-        });
-        await tx.order.update({
-          where: { id: orderId },
-          data: { status: "CANCELLED" },
-        });
-        await tx.orderTimeline.create({
-          data: {
-            orderId,
-            status: "CANCELLED",
-            description: `Order automatically cancelled within 24 hours per policy. Reason: ${cleanedReason}. Refund initiated.`,
-          },
-        });
-        return record;
+    // Per policy: Cancellations within 3 days are submitted for Super Admin review.
+    // The refund is NOT automated upon request; the Super Admin must review and approve.
+    const cancellation = await db.$transaction(async (tx) => {
+      const record = await tx.orderCancellation.create({
+        data: {
+          orderId,
+          activeOrderId: orderId,
+          requestedByUserId: requester.userId,
+          requestedByEmail: requester.email,
+          requestedByRole: requester.role,
+          reason: cleanedReason,
+          status: "REQUESTED",
+          isAutoApproved: false,
+          refundStatus: order.payment?.status === "COMPLETED" ? "PENDING" : (order.payment?.status === "PENDING" ? "PENDING_PAYMENT" : "NOT_REQUIRED"),
+          refundAmount: order.totalAmount,
+          snapshotItems,
+        },
       });
-
-      // Initiate refund through gateway if payment was completed
-      if (order.payment?.status === "COMPLETED") {
-        await startCancellationRefund(cancellation.id).catch((err) =>
-          console.error("Auto cancellation start refund error:", err)
-        );
-      }
-
-      // EMAIL 4 — AUTOMATIC CANCELLATION WITHIN 24 HOURS
-      await sendAutoCancellationEmail(requester.email, {
-        orderId,
-        customerName: order.user?.name || undefined,
-        items: snapshotItems,
-        refundAmount: order.totalAmount,
-        cancelDate: new Date(),
-      }).catch((err) => console.error("Auto cancellation email error:", err));
-
-      // Notifications
-      await createNotification(
-        order.userId,
-        "Order Cancelled ⚡",
-        `Your order ${orderId} has been cancelled per our 24-hour policy. Refund of ₹${order.totalAmount.toLocaleString("en-IN")} initiated.`,
-        `/orders/${orderId}`
-      ).catch((e) => console.error("Notification error:", e));
-
-      await createAdminNotification(
-        "Order Auto-Cancelled (24h Policy)",
-        `Order ${orderId} was automatically cancelled within 24 hours. Reason: ${cleanedReason}`,
-        "cancellations"
-      ).catch((e) => console.error("Admin notification error:", e));
-
-      return { success: true, autoApproved: true, cancellationId: cancellation.id };
-    } else {
-      // CASE B: Older than 24 hours -> Pending Super Admin review
-      const cancellation = await db.$transaction(async (tx) => {
-        const record = await tx.orderCancellation.create({
-          data: {
-            orderId,
-            activeOrderId: orderId,
-            requestedByUserId: requester.userId,
-            requestedByEmail: requester.email,
-            requestedByRole: requester.role,
-            reason: cleanedReason,
-            status: "REQUESTED",
-            isAutoApproved: false,
-            refundStatus: order.payment?.status === "COMPLETED" ? "PENDING" : "PENDING_PAYMENT",
-            refundAmount: order.totalAmount,
-            snapshotItems,
-          },
-        });
-        await tx.orderTimeline.create({
-          data: {
-            orderId,
-            status: order.status,
-            description: `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation. Reason: ${cleanedReason}. Awaiting Super Admin review.`,
-          },
-        });
-        return record;
+      await tx.orderTimeline.create({
+        data: {
+          orderId,
+          status: order.status,
+          description: `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation (within 3-day window). Reason: ${cleanedReason}. Awaiting Super Admin review and refund approval.`,
+        },
       });
+      return record;
+    });
 
-      // EMAIL 2 — CANCELLATION REQUEST RECEIVED
-      await sendCancellationRequestedEmail(requester.email, {
-        orderId,
-        customerName: order.user?.name || undefined,
-        items: snapshotItems,
-        refundAmount: order.totalAmount,
-        requestDate: new Date(),
-      }).catch((err) => console.error("Cancellation requested email error:", err));
+    // EMAIL — CANCELLATION REQUEST RECEIVED
+    await sendCancellationRequestedEmail(requester.email, {
+      orderId,
+      customerName: order.user?.name || undefined,
+      items: snapshotItems,
+      refundAmount: order.totalAmount,
+      requestDate: new Date(),
+    }).catch((err) => console.error("Cancellation requested email error:", err));
 
-      const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
-      await createNotification(
-        order.userId,
-        "Cancellation request received ⏳",
-        `Cancellation requested for order ${orderId}. Our team will review your request and provide a decision within 24–48 hours.`,
-        `/orders/${orderId}`
-      ).catch((e) => console.error("Notification error:", e));
+    const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
+    await createNotification(
+      order.userId,
+      "Cancellation request received ⏳",
+      `Cancellation requested for order ${orderId}. Your request is awaiting Super Admin review and approval. Once approved, the refund will be initiated.`,
+      `/orders/${orderId}`
+    ).catch((e) => console.error("Notification error:", e));
 
-      await createAdminNotification(
-        "Order cancellation needs review",
-        `${requesterLabel} requested cancellation for order ${orderId}. Reason: ${cleanedReason}`,
-        "cancellations"
-      ).catch((e) => console.error("Admin alert error:", e));
+    await createAdminNotification(
+      "Order cancellation needs review",
+      `${requesterLabel} requested cancellation for order ${orderId} (within 3-day policy). Reason: ${cleanedReason}`,
+      "cancellations"
+    ).catch((e) => console.error("Admin alert error:", e));
 
-      return { success: true, autoApproved: false, cancellationId: cancellation.id };
-    }
+    return { success: true, autoApproved: false, cancellationId: cancellation.id };
   } catch (e) {
     console.error("createCancellationRequest failed:", e);
     if (
@@ -1479,19 +1410,22 @@ export async function requestOrderCancellation(orderId: string, reason: string) 
   });
 }
 
-export async function cancelOrder(orderId: string, userId: string, reason?: string) {
+export async function cancelOrder(orderId: string, userId?: string, reason?: string) {
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
     return { success: false, error: "Cancellation review requires the configured database." };
   }
   const auth = await verifyAuthenticatedUser();
-  if (!auth.authorized || auth.userId !== userId || !auth.email) {
+  if (!auth.authorized || !auth.userId || !auth.email) {
     return { success: false, error: "Sign in to the account that placed this order." };
+  }
+  if (userId && auth.userId !== userId && auth.role !== "ADMIN") {
+    return { success: false, error: "You can only request cancellation for your own order." };
   }
   // Allow any logged-in user to cancel their own personal order
   return createCancellationRequest(orderId, reason || "Buyer requested cancellation.", {
     userId: auth.userId,
     email: auth.email,
-    role: "BUYER",
+    role: auth.role === "ADMIN" ? "ADMIN" : "BUYER",
   });
 }
 
