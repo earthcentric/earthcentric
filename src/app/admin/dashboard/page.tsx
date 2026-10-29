@@ -2933,6 +2933,21 @@ function OrderManagementView({
     void loadCancellationRequests();
   }, []);
 
+  const selectedOrderCancellations = useMemo(() => {
+    if (!selectedOrder) return [];
+    const directMatches = cancellationRequests.filter(
+      (req) => req.orderId === selectedOrder.id || req.order?.id === selectedOrder.id
+    );
+    if (directMatches.length > 0) return directMatches;
+    if (selectedOrder.cancellations && Array.isArray(selectedOrder.cancellations) && selectedOrder.cancellations.length > 0) {
+      return selectedOrder.cancellations;
+    }
+    if (selectedOrder.cancellation) {
+      return [selectedOrder.cancellation];
+    }
+    return [];
+  }, [selectedOrder, cancellationRequests]);
+
   const handleCancellationReview = async (request: any, decision: "APPROVE" | "REJECT") => {
     const note = window.prompt(
       decision === "REJECT" ? "Enter the reason for rejecting this cancellation:" : "Optional note for the buyer:"
@@ -3269,57 +3284,6 @@ function OrderManagementView({
           </Button>
         )}
       </div>
-
-      <Card className="p-5 bg-white border border-amber-200 rounded-2xl shadow-sm">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <h2 className="text-sm font-extrabold text-[#1a3321]">Cancellations &amp; Refunds</h2>
-            <p className="text-[10px] text-slate-500 mt-1">Review seller/buyer requests and verify each Cashfree refund separately from order cancellation.</p>
-          </div>
-          <Badge className="bg-amber-50 text-amber-800 border border-amber-200">{cancellationRequests.filter((item) => item.status === "REQUESTED").length} awaiting review</Badge>
-        </div>
-        {cancellationRequests.length === 0 ? (
-          <p className="text-xs text-slate-500 py-4 text-center">No open cancellation requests or pending refunds.</p>
-        ) : (
-          <div className="space-y-3">
-            {cancellationRequests.map((request) => (
-              <div key={request.id} className="border border-slate-200 rounded-xl p-4 grid gap-3 lg:grid-cols-[1fr_auto]">
-                <div className="space-y-1 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <strong className="text-[#1a3321]">Order {request.orderId}</strong>
-                    <Badge className={request.status === "REQUESTED" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}>{request.status}</Badge>
-                    {request.status === "APPROVED" && <Badge className="bg-slate-100 text-slate-700">Refund: {request.refundStatus}</Badge>}
-                  </div>
-                  <p className="text-slate-600">Buyer: {request.order.user?.name || "Customer"} ({request.order.user?.email || "no email"}) · Seller: {request.order.seller?.companyName || "Marketplace seller"}</p>
-                  <p className="text-slate-700"><strong>Reason:</strong> {request.reason}</p>
-                  <p className="text-slate-500">Requested by {request.requestedByRole} · {new Date(request.requestedAt).toLocaleString()} · Payment: {request.order.payment?.status || "Not found"}</p>
-                  {request.refundAmount != null && <p className="text-slate-700"><strong>Refund amount:</strong> ₹{request.refundAmount.toLocaleString("en-IN")}</p>}
-                  {(request.cashfreeRefundReference || request.cashfreeRefundId) && <p className="text-slate-500 break-all"><strong>Cashfree refund reference:</strong> {request.cashfreeRefundReference || request.cashfreeRefundId}</p>}
-                  {request.refundArn && <p className="text-slate-500"><strong>Refund ARN:</strong> {request.refundArn}</p>}
-                  {request.refundError && <p className="text-rose-700"><strong>Refund note:</strong> {request.refundError}</p>}
-                </div>
-                <div className="flex flex-wrap items-start gap-2 lg:justify-end">
-                  {request.status === "REQUESTED" && (
-                    <>
-                      <Button size="sm" disabled={processingCancellationId === request.id} onClick={() => handleCancellationReview(request, "APPROVE")}>Approve &amp; refund</Button>
-                      <Button size="sm" variant="outline" disabled={processingCancellationId === request.id} onClick={() => handleCancellationReview(request, "REJECT")}>Reject</Button>
-                    </>
-                  )}
-                  {request.status === "APPROVED" && request.refundStatus === "PENDING" && request.cashfreeRefundId && (
-                    <>
-                      <Button size="sm" variant="outline" disabled={processingCancellationId === request.id} onClick={() => handleRefundRefresh(request)}>Refresh refund</Button>
-                      <Button size="sm" variant="outline" disabled={processingCancellationId === request.id} onClick={() => handleRefundResume(request)}>Retry safely</Button>
-                    </>
-                  )}
-                  {request.status === "APPROVED" && request.refundStatus === "FAILED" && (
-                    <Button size="sm" disabled={processingCancellationId === request.id} onClick={() => handleRefundRetry(request)}>Retry failed refund</Button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
 
       {/* 3 Executive High-Value KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -3840,25 +3804,44 @@ function OrderManagementView({
                       ₹{order.totalAmount?.toLocaleString()}
                     </TableCell>
                     <TableCell className="py-4">
-                      <Badge className={`text-[10px] font-bold border-none capitalize ${
-                        order.orderStatus === "DELIVERED"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : order.orderStatus === "SHIPPED"
-                          ? "bg-blue-100 text-blue-800"
-                          : order.orderStatus === "CANCELLED"
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-amber-100 text-amber-800"
-                      }`}>
-                        {order.orderStatus}
-                      </Badge>
+                      {(() => {
+                        const effectiveStatus = (order.orderStatus || order.status || "CONFIRMED").toUpperCase();
+                        const cancelReq = cancellationRequests.find((c) => c.orderId === order.id || c.order?.id === order.id) || order.cancellation;
+                        return (
+                          <div className="flex flex-col gap-1 items-start">
+                            <Badge className={`text-[10px] font-bold border-none capitalize ${
+                              effectiveStatus === "DELIVERED"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : effectiveStatus === "SHIPPED"
+                                ? "bg-blue-100 text-blue-800"
+                                : effectiveStatus === "CANCELLED"
+                                ? "bg-rose-100 text-rose-800"
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {effectiveStatus}
+                            </Badge>
+                            {cancelReq && (
+                              <Badge className={`text-[9px] font-semibold border ${
+                                cancelReq.status === "REQUESTED"
+                                  ? "bg-amber-50 text-amber-800 border-amber-300"
+                                  : cancelReq.status === "APPROVED"
+                                  ? "bg-blue-50 text-blue-800 border-blue-200"
+                                  : "bg-rose-50 text-rose-800 border-rose-200"
+                              }`}>
+                                {cancelReq.status === "REQUESTED" ? "Cancellation Pending" : `Cancelled (${cancelReq.refundStatus || "Refund"})`}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="py-4">
                       <Badge className={`text-[10px] font-bold border-none capitalize ${
-                        order.paymentStatus === "PAID"
+                        order.paymentStatus === "PAID" || order.paymentStatus === "COMPLETED"
                           ? "bg-emerald-100 text-emerald-800"
                           : "bg-slate-100 text-slate-600"
                       }`}>
-                        {order.paymentStatus}
+                        {order.paymentStatus || "COMPLETED"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right py-4 pr-6">
@@ -3879,11 +3862,11 @@ function OrderManagementView({
         </Table>
       </Card>
 
-      {/* Order Detail Modal with Seller Timeline & Item Inspection */}
+      {/* Order Detail Modal with Seller Timeline, Item Inspection, & Cancellation/Refund Info */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setSelectedOrder(null)} />
-          <Card className="relative w-full max-w-2xl p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-6">
+          <Card className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-6">
             <div className="flex justify-between items-center pb-2 border-b">
               <div>
                 <h3 className="font-bold text-base text-[#1a3321]">Order Details: EC-ORD-{selectedOrder.id.substring(4, 10).toUpperCase()}</h3>
@@ -3991,6 +3974,164 @@ function OrderManagementView({
                 </div>
               </div>
             </div>
+
+            {/* Extra Information: Cancellation & Refund Details */}
+            {selectedOrderCancellations.length > 0 && (
+              <div className="border border-amber-200/80 bg-gradient-to-br from-amber-50/60 to-[#fdfaf5] rounded-2xl p-4.5 space-y-3.5 shadow-xs">
+                <div className="flex items-center justify-between border-b border-amber-200/60 pb-2.5">
+                  <div className="flex items-center space-x-2">
+                    <div className="h-7 w-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                      <RotateCcw className="h-4 w-4 text-amber-700" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-[#1a3321] tracking-wide uppercase">
+                        Cancellation &amp; Refund Details
+                      </h4>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        Order lifecycle exception and Cashfree refund telemetry
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className="bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] px-2 py-0.5">
+                    {selectedOrderCancellations.length} Record{selectedOrderCancellations.length > 1 ? "s" : ""}
+                  </Badge>
+                </div>
+
+                <div className="space-y-3">
+                  {selectedOrderCancellations.map((cancellation: any) => (
+                    <div
+                      key={cancellation.id}
+                      className="bg-white border border-amber-200/70 rounded-xl p-3.5 space-y-2.5 text-xs shadow-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[11px] font-bold text-slate-800">
+                            Order {cancellation.orderId || selectedOrder.id}
+                          </span>
+                          <Badge
+                            className={
+                              cancellation.status === "REQUESTED"
+                                ? "bg-amber-100 text-amber-800 border-amber-300 font-bold text-[10px]"
+                                : cancellation.status === "APPROVED"
+                                ? "bg-blue-100 text-blue-800 border-blue-300 font-bold text-[10px]"
+                                : "bg-rose-100 text-rose-800 border-rose-300 font-bold text-[10px]"
+                            }
+                          >
+                            {cancellation.status}
+                          </Badge>
+                          {cancellation.status === "APPROVED" && (
+                            <Badge
+                              className={`border font-bold text-[10px] ${
+                                cancellation.refundStatus === "SUCCESS"
+                                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                  : cancellation.refundStatus === "FAILED"
+                                  ? "bg-rose-100 text-rose-800 border-rose-300"
+                                  : cancellation.refundStatus === "PENDING" || cancellation.refundStatus === "PENDING_PAYMENT"
+                                  ? "bg-amber-100 text-amber-800 border-amber-300"
+                                  : "bg-slate-100 text-slate-700 border-slate-300"
+                              }`}
+                            >
+                              Refund: {cancellation.refundStatus}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Quick Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {cancellation.status === "REQUESTED" && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2.5 text-[10px] font-bold bg-emerald-700 hover:bg-emerald-800 text-white border-none shadow-xs cursor-pointer"
+                                disabled={processingCancellationId === cancellation.id}
+                                onClick={() => handleCancellationReview(cancellation, "APPROVE")}
+                              >
+                                Approve &amp; refund
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2.5 text-[10px] font-bold text-rose-700 border-rose-300 hover:bg-rose-50 cursor-pointer"
+                                disabled={processingCancellationId === cancellation.id}
+                                onClick={() => handleCancellationReview(cancellation, "REJECT")}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          {cancellation.status === "APPROVED" &&
+                            (cancellation.refundStatus === "PENDING" || cancellation.refundStatus === "PENDING_PAYMENT") &&
+                            cancellation.cashfreeRefundId && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2.5 text-[10px] font-bold text-blue-700 border-blue-300 hover:bg-blue-50 cursor-pointer"
+                                  disabled={processingCancellationId === cancellation.id}
+                                  onClick={() => handleRefundRefresh(cancellation)}
+                                >
+                                  Refresh refund
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2.5 text-[10px] font-bold text-slate-700 border-slate-300 hover:bg-slate-50 cursor-pointer"
+                                  disabled={processingCancellationId === cancellation.id}
+                                  onClick={() => handleRefundResume(cancellation)}
+                                >
+                                  Retry safely
+                                </Button>
+                              </>
+                            )}
+                          {cancellation.status === "APPROVED" && cancellation.refundStatus === "FAILED" && (
+                            <Button
+                              size="sm"
+                              className="h-7 px-2.5 text-[10px] font-bold bg-rose-600 hover:bg-rose-700 text-white border-none shadow-xs cursor-pointer"
+                              disabled={processingCancellationId === cancellation.id}
+                              onClick={() => handleRefundRetry(cancellation)}
+                            >
+                              Retry failed refund
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-1 border-t border-slate-100 text-slate-700">
+                        <p className="text-[11px] text-slate-600">
+                          <span className="font-semibold text-slate-900">Buyer:</span> {cancellation.order?.user?.name || selectedOrder.user?.name || "Customer"} ({cancellation.order?.user?.email || selectedOrder.user?.email || "no email"}) · <span className="font-semibold text-slate-900">Seller:</span> {cancellation.order?.seller?.companyName || getOrderSellerInfo(selectedOrder).name || "Marketplace seller"}
+                        </p>
+                        <p className="text-xs">
+                          <span className="font-bold text-slate-900">Reason:</span> <span className="text-slate-800 font-medium">{cancellation.reason}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-500">
+                          Requested by <strong className="text-slate-700 uppercase">{cancellation.requestedByRole || "BUYER"}</strong> · {new Date(cancellation.requestedAt).toLocaleString()} · Payment: <span className="font-semibold text-slate-700">{cancellation.order?.payment?.status || selectedOrder.paymentStatus || "COMPLETED"}</span>
+                        </p>
+                        {cancellation.refundAmount != null && (
+                          <p className="text-xs text-[#1a3321]">
+                            <strong>Refund amount:</strong> <span className="font-black text-emerald-800">₹{cancellation.refundAmount.toLocaleString("en-IN")}</span>
+                          </p>
+                        )}
+                        {(cancellation.cashfreeRefundReference || cancellation.cashfreeRefundId) && (
+                          <p className="text-[10px] text-slate-600 font-mono break-all bg-slate-50 p-1.5 rounded border border-slate-200">
+                            <strong>Cashfree refund reference:</strong> {cancellation.cashfreeRefundReference || cancellation.cashfreeRefundId}
+                          </p>
+                        )}
+                        {cancellation.refundArn && (
+                          <p className="text-[10px] text-slate-600 font-mono">
+                            <strong>Refund ARN:</strong> {cancellation.refundArn}
+                          </p>
+                        )}
+                        {cancellation.refundError && (
+                          <p className="text-[11px] text-rose-700 bg-rose-50 p-2 rounded-lg border border-rose-200">
+                            <strong>Refund note:</strong> {cancellation.refundError}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-between space-x-2 pt-4 border-t">
               <Button 

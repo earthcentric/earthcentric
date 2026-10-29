@@ -104,6 +104,7 @@ export interface OrderDetail {
       notes?: string | null;
     } | null;
   };
+  cancellations?: any[];
   cashfreeOrderId?: string;
   cashfreePaymentSessionId?: string;
   timeline: {
@@ -1197,6 +1198,12 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         timeline: {
           orderBy: { createdAt: "asc" },
         },
+        cancellations: {
+          include: {
+            returnCollection: true,
+          },
+          orderBy: { requestedAt: "desc" },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -1253,7 +1260,9 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         user: {
           name: order.user?.name || "Anonymous User",
           email: order.user?.email || "unknown@email.com",
-        }
+        },
+        cancellation: mapLatestCancellation(order.cancellations),
+        cancellations: order.cancellations || [],
       };
     });
   } catch (e) {
