@@ -84,18 +84,14 @@ export function validateGSTIN(gstin: string): { valid: boolean; error?: string; 
 }
 
 // PAN Validation: 10 alphanumeric characters (5 letters + 4 digits + 1 letter)
-const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+export const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
-export function validatePAN(pan: string): { valid: boolean; error?: string; normalized?: string } {
-  if (!pan || typeof pan !== "string") {
+export function validatePAN(pan?: string | null): { valid: boolean; error?: string; normalized?: string } {
+  if (!pan || typeof pan !== "string" || !pan.trim()) {
     return { valid: false, error: "PAN number is required." };
   }
 
   const normalized = pan.trim().toUpperCase().replace(/\s+/g, "");
-
-  if (normalized.length !== 10) {
-    return { valid: false, error: "PAN must be exactly 10 characters long." };
-  }
 
   if (!PAN_REGEX.test(normalized)) {
     return { valid: false, error: "Invalid PAN format. Expected format: ABCDE1234F." };
@@ -249,7 +245,7 @@ export function validateStep2(data: Partial<Step2LegalData>): { valid: boolean; 
   } else {
     const panRes = validatePAN(data.panNumber);
     if (!panRes.valid) {
-      errors.panNumber = panRes.error || "Invalid PAN format.";
+      errors.panNumber = panRes.error || "Invalid PAN format. Expected format: ABCDE1234F.";
     }
   }
 

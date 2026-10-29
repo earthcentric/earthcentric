@@ -249,7 +249,7 @@ export function SellerRegistrationWizard({ userId, onSuccess }: SellerRegistrati
           if (draft.certDocs) setCertDocs(draft.certDocs);
           if (draft.bankProofDoc) setBankProofDoc(draft.bankProofDoc);
           if (draft.gstNumber) setGstNumber(draft.gstNumber);
-          if (draft.panNumber) setPanNumber(draft.panNumber);
+          if (draft.panNumber) setPanNumber(draft.panNumber.trim().toUpperCase().replace(/\s+/g, ""));
           if (draft.aadharNumber) setAadharNumber(draft.aadharNumber);
           if (draft.bankName) setBankName(draft.bankName);
           if (draft.bankAccountNo) setBankAccountNo(draft.bankAccountNo);
@@ -276,7 +276,7 @@ export function SellerRegistrationWizard({ userId, onSuccess }: SellerRegistrati
           if (!draft?.website && p.website) setWebsite(p.website);
           if (!draft?.description && p.description) setDescription(p.description);
           if (!draft?.gstNumber && p.gstNumber) setGstNumber(p.gstNumber);
-          if (!draft?.panNumber && p.panNumber) setPanNumber(p.panNumber);
+          if (!draft?.panNumber && p.panNumber) setPanNumber(p.panNumber.trim().toUpperCase().replace(/\s+/g, ""));
           if (!draft?.aadharNumber && p.aadharNumber) setAadharNumber(p.aadharNumber);
           if (!draft?.companyAddress && p.companyAddress) setCompanyAddress(p.companyAddress);
           if (!draft?.factoryAddress && p.factoryAddress) setFactoryAddress(p.factoryAddress);
@@ -1136,8 +1136,28 @@ export function SellerRegistrationWizard({ userId, onSuccess }: SellerRegistrati
                   placeholder="ABCDE1234F (10 Characters)"
                   value={panNumber}
                   onChange={(e) => {
-                    setPanNumber(e.target.value.toUpperCase().replace(/\s+/g, ""));
+                    const normalized = e.target.value.toUpperCase().replace(/\s+/g, "");
+                    setPanNumber(normalized);
                     clearFieldError("panNumber");
+                  }}
+                  onBlur={() => {
+                    const normalized = panNumber.trim().toUpperCase().replace(/\s+/g, "");
+                    if (normalized !== panNumber) {
+                      setPanNumber(normalized);
+                    }
+                    if (normalized.length > 0) {
+                      const res = validatePAN(normalized);
+                      if (!res.valid) {
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          panNumber: res.error || "Invalid PAN format. Expected format: ABCDE1234F.",
+                        }));
+                      } else {
+                        clearFieldError("panNumber");
+                      }
+                    } else {
+                      clearFieldError("panNumber");
+                    }
                   }}
                 />
                 {fieldErrors.panNumber && <p className="text-[11px] text-red-600 mt-1">{fieldErrors.panNumber}</p>}
