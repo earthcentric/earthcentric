@@ -32,6 +32,7 @@ import {
 import { SellerProfile } from "@/actions/sellers";
 import { getAdminNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getIntegrationCredentials, updateIntegrationCredential, CredentialItem } from "@/actions/credentials";
+import { adminCreateCategory, normalizeCategorySlug } from "@/actions/categories";
 import { Button, Card, Badge, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, Input, LiquidButton, Label, Textarea } from "@/components/ui/shared";
 import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { AdminAnalyticsCharts, AdminAnalyticsData } from "@/components/ui/admin-analytics-charts";
@@ -1461,38 +1462,96 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [approveId, setApproveId] = useState<string | null>(null);
+  const [approveProductItem, setApproveProductItem] = useState<any | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
-  const [allCategories, setAllCategories] = useState<{id: string; name: string; slug: string}[]>([]);
+  const [categoryActionOption, setCategoryActionOption] = useState<"keep" | "change" | "create">("keep");
+  const [categoryFilterSearch, setCategoryFilterSearch] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategorySlug, setNewCategorySlug] = useState("");
+  const [newCategoryDesc, setNewCategoryDesc] = useState("");
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [allCategories, setAllCategories] = useState<{id: string; name: string; slug: string; description?: string; productCount?: number}[]>([]);
   const [inspectProductId, setInspectProductId] = useState<string | null>(null);
 
-  // Fetch categories when component mounts
-  React.useEffect(() => {
-    fetch("/api/categories")
-      .then(r => r.json())
-      .then(data => setAllCategories(data.categories || []))
-      .catch(() => setAllCategories([]));
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/categories?for=seller");
+      const data = await res.json();
+      setAllCategories(data.categories || []);
+    } catch {
+      setAllCategories([]);
+    }
   }, []);
+
+  React.useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   const handleApproveClick = (p: any) => {
     setApproveId(p.id);
+    setApproveProductItem(p);
     setSelectedCategoryId(p.categoryId || "");
+    setCategoryActionOption("keep");
+    setCategoryFilterSearch("");
+    setNewCategoryName("");
+    setNewCategorySlug("");
+    setNewCategoryDesc("");
+  };
+
+  const handleCreateCategoryDuringReview = async () => {
+    if (!newCategoryName.trim()) {
+      toast.error("Please enter a category name");
+      return;
+    }
+    setIsCreatingCategory(true);
+    try {
+      const res = await adminCreateCategory({
+        name: newCategoryName.trim(),
+        slug: newCategorySlug.trim() || undefined,
+        description: newCategoryDesc.trim() || undefined,
+      }, adminEmail || "admin@earthcentric.com");
+
+      if (res.success && res.category) {
+        toast.success(`Category "${res.category.name}" created and assigned!`);
+        await loadCategories();
+        setSelectedCategoryId(res.category.id);
+        setCategoryActionOption("change");
+        setNewCategoryName("");
+        setNewCategorySlug("");
+        setNewCategoryDesc("");
+      } else {
+        toast.error(res.error || "Failed to create category");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to create category");
+    } finally {
+      setIsCreatingCategory(false);
+    }
   };
 
   const handleApproveConfirm = async () => {
     if (!approveId) return;
+    setIsApproving(true);
     try {
-      const ok = await approveProduct(approveId, adminEmail || "admin@earthcentric.com", selectedCategoryId || undefined);
+      const ok = await approveProduct(
+        approveId,
+        adminEmail || "admin@earthcentric.com",
+        selectedCategoryId || undefined
+      );
       if (ok) {
         toast.success("Product approved and is now live on the marketplace!");
+        setApproveId(null);
+        setApproveProductItem(null);
+        setSelectedCategoryId("");
+        reload();
       } else {
         toast.error("Failed to approve product.");
       }
     } catch (e: any) {
       toast.error(e?.message || "Failed to approve product.");
     } finally {
-      setApproveId(null);
-      setSelectedCategoryId("");
-      reload();
+      setIsApproving(false);
     }
   };
 
@@ -1628,29 +1687,242 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
         </Table>
       </Card>
 
-      {/* ── Category Assignment + Approve Modal ── */}
-      {approveId && (
+      {/* ── Super Admin Category Assignment + Approve Modal (Option A / B / C) ── */}
+      {approveId && approveProductItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setApproveId(null)} />
-          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
-            <h3 className="font-bold text-sm text-[#1a3321]">✅ Approve Product</h3>
-            <p className="text-xs text-muted-foreground">Assign a category to this product before approving. This determines where it appears in the marketplace.</p>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Category</Label>
-              <select
-                value={selectedCategoryId}
-                onChange={(e) => setSelectedCategoryId(e.target.value)}
-                className="w-full border border-input rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
-              >
-                <option value="">-- Select a Category --</option>
-                {allCategories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-              </select>
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => !isApproving && setApproveId(null)} />
+          <Card className="relative w-full max-w-lg p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b pb-3">
+              <div>
+                <h3 className="font-bold text-base text-[#1a3321] flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  Product Approval &amp; Category Verification
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Confirm the canonical category before approving this item for the live marketplace.
+                </p>
+              </div>
             </div>
-            <div className="flex justify-end space-x-2">
-              <Button variant="ghost" onClick={() => setApproveId(null)}>Cancel</Button>
-              <Button className="bg-[#1a3321] hover:bg-[#25422d] text-white" onClick={handleApproveConfirm}>Confirm Approve</Button>
+
+            {/* Product summary card */}
+            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center gap-3">
+              <img
+                src={approveProductItem.images?.[0] || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"}
+                className="h-12 w-12 rounded-lg object-cover border border-slate-200"
+                alt="Product"
+              />
+              <div className="min-w-0 flex-1 text-xs">
+                <p className="font-bold text-slate-900 truncate">{approveProductItem.name}</p>
+                <p className="text-[11px] text-slate-500">Seller: <strong className="text-slate-700">{approveProductItem.seller?.companyName}</strong> · Price: <strong className="text-emerald-700">₹{approveProductItem.price}</strong></p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Submitted Category:</span>
+                  <Badge variant="outline" className="text-[10px] bg-white font-medium">
+                    {approveProductItem.category || "Uncategorized"}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* 3 Decision Options */}
+            <div className="space-y-3">
+              <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                Category Selection Action
+              </Label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryActionOption("keep");
+                    setSelectedCategoryId(approveProductItem.categoryId || "");
+                  }}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer text-xs
+                    ${categoryActionOption === "keep" 
+                      ? "border-[#1a3321] bg-[#1a3321]/5 text-[#1a3321] font-bold shadow-xs" 
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"}
+                  `}
+                >
+                  <p className="font-semibold text-xs leading-tight">Option A</p>
+                  <p className="text-[11px] mt-0.5 opacity-80">Keep Existing</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCategoryActionOption("change")}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer text-xs
+                    ${categoryActionOption === "change" 
+                      ? "border-[#1a3321] bg-[#1a3321]/5 text-[#1a3321] font-bold shadow-xs" 
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"}
+                  `}
+                >
+                  <p className="font-semibold text-xs leading-tight">Option B</p>
+                  <p className="text-[11px] mt-0.5 opacity-80">Change Category</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCategoryActionOption("create")}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer text-xs
+                    ${categoryActionOption === "create" 
+                      ? "border-emerald-600 bg-emerald-50 text-emerald-800 font-bold shadow-xs" 
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"}
+                  `}
+                >
+                  <p className="font-semibold text-xs leading-tight">Option C</p>
+                  <p className="text-[11px] mt-0.5 opacity-80">+ Create New</p>
+                </button>
+              </div>
+
+              {/* Option A: Keep Existing Category */}
+              {categoryActionOption === "keep" && (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1 text-xs">
+                  <div className="flex items-center gap-2 text-emerald-800 font-semibold">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <span>Using Submitted Category</span>
+                  </div>
+                  <p className="text-slate-600 text-[11px] pl-6">
+                    Product will be approved under <strong>"{approveProductItem.category || "General"}"</strong>.
+                  </p>
+                </div>
+              )}
+
+              {/* Option B: Change to another existing category */}
+              {categoryActionOption === "change" && (
+                <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-white">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                      type="text"
+                      placeholder="Search existing approved categories..."
+                      value={categoryFilterSearch}
+                      onChange={(e) => setCategoryFilterSearch(e.target.value)}
+                      className="pl-8 text-xs h-8 bg-slate-50"
+                    />
+                  </div>
+
+                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-100">
+                    {allCategories
+                      .filter((c) =>
+                        !categoryFilterSearch.trim() ||
+                        c.name.toLowerCase().includes(categoryFilterSearch.toLowerCase()) ||
+                        c.slug.toLowerCase().includes(categoryFilterSearch.toLowerCase())
+                      )
+                      .map((cat) => {
+                        const isSelected = selectedCategoryId === cat.id;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setSelectedCategoryId(cat.id)}
+                            className={`w-full text-left px-3 py-2 flex items-center justify-between text-xs transition-colors cursor-pointer
+                              ${isSelected ? "bg-emerald-50 text-emerald-900 font-bold" : "hover:bg-slate-50 text-slate-700"}
+                            `}
+                          >
+                            <span className="truncate">{cat.name}</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] text-slate-400 font-mono">/category/{cat.slug}</span>
+                              {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+
+                  {selectedCategoryId && (
+                    <div className="text-[11px] text-emerald-800 font-medium flex items-center gap-1">
+                      <span>Selected for approval:</span>
+                      <strong className="underline">
+                        {allCategories.find((c) => c.id === selectedCategoryId)?.name || selectedCategoryId}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Option C: Create new category during review */}
+              {categoryActionOption === "create" && (
+                <div className="p-3.5 border border-emerald-200 bg-emerald-50/40 rounded-xl space-y-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                      <Plus className="h-3.5 w-3.5 text-emerald-700" />
+                      Create New Category During Review
+                    </h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      The new category will be added to the marketplace taxonomy and assigned to this product.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <Label className="text-[11px] font-semibold text-slate-700">Category Name *</Label>
+                      <Input
+                        value={newCategoryName}
+                        onChange={(e) => {
+                          setNewCategoryName(e.target.value);
+                          if (!newCategorySlug || newCategorySlug === normalizeCategorySlug(newCategoryName)) {
+                            setNewCategorySlug(normalizeCategorySlug(e.target.value));
+                          }
+                        }}
+                        placeholder="e.g. Organic Cotton Linens"
+                        className="text-xs h-8 bg-white mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-[11px] font-semibold text-slate-700">URL Slug *</Label>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-xs text-slate-400 font-mono">/category/</span>
+                        <Input
+                          value={newCategorySlug}
+                          onChange={(e) => setNewCategorySlug(normalizeCategorySlug(e.target.value))}
+                          placeholder="cotton-linens"
+                          className="text-xs h-8 font-mono bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-[11px] font-semibold text-slate-700">Description (Optional)</Label>
+                      <Input
+                        value={newCategoryDesc}
+                        onChange={(e) => setNewCategoryDesc(e.target.value)}
+                        placeholder="Brief description..."
+                        className="text-xs h-8 bg-white mt-1"
+                      />
+                    </div>
+
+                    <div className="pt-1 flex items-center justify-between">
+                      <p className="text-[10px] text-slate-400 italic">
+                        Creating category does not auto-approve product.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isCreatingCategory || !newCategoryName.trim()}
+                        onClick={handleCreateCategoryDuringReview}
+                        className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs h-7.5 px-3 cursor-pointer"
+                      >
+                        {isCreatingCategory ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
+                        Create &amp; Select
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-3 border-t">
+              <Button variant="ghost" size="sm" onClick={() => setApproveId(null)} disabled={isApproving}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs px-4 cursor-pointer gap-1.5"
+                onClick={handleApproveConfirm}
+                disabled={isApproving}
+              >
+                {isApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                Confirm &amp; Approve Product
+              </Button>
             </div>
           </Card>
         </div>

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
 import { createAdminNotification } from "@/actions/notifications";
 import { verifyAuthenticatedUser } from "@/lib/auth-server";
-import { upsertCategory } from "@/actions/categories";
+import { upsertCategory, findExistingCategory } from "@/actions/categories";
 
 export interface ProductFilter {
   category?: string;
@@ -2484,6 +2484,7 @@ export async function createProduct(data: {
   stock: number;
   productDate?: string | Date;
   categoryName: string;
+  categoryId?: string;
   sustainabilityScore?: number;
   sustainabilityDetail?: string;
   imageUrls: string[];
@@ -2523,8 +2524,9 @@ export async function createProduct(data: {
   const rawImages = (data.imageUrls && Array.isArray(data.imageUrls) && data.imageUrls.length > 0)
     ? data.imageUrls
     : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=60"];
-  if (!data.categoryName || typeof data.categoryName !== "string" || data.categoryName.trim().length === 0) {
-    throw new Error("Category name is required.");
+  const hasCategory = Boolean((data.categoryId && String(data.categoryId).trim().length > 0) || (data.categoryName && String(data.categoryName).trim().length > 0));
+  if (!hasCategory) {
+    throw new Error("Category is required.");
   }
 
   // Validate promotional rules ONLY if explicitly enabled
@@ -2663,8 +2665,12 @@ export async function createProduct(data: {
     }
     const resolvedSellerId = seller.id;
 
-    // Handle Category look-up/creation (case-insensitive, normalized, and race-condition safe)
-    const category = await upsertCategory(data.categoryName);
+    // Handle Category look-up: only pre-approved categories allowed for sellers
+    const categoryIdentifier = data.categoryId || data.categoryName;
+    const category = await findExistingCategory(categoryIdentifier);
+    if (!category) {
+      throw new Error(`Invalid category: "${categoryIdentifier}". Only categories created by the Super Admin can be selected. Please choose an existing category.`);
+    }
 
     const scoreVal = Number.isFinite(Number(data.sustainabilityScore))
       ? Math.round(Number(data.sustainabilityScore))
@@ -2840,6 +2846,7 @@ export async function updateProduct(
     stock: number;
     productDate?: string | Date;
     categoryName: string;
+    categoryId?: string;
     sustainabilityScore?: number;
     sustainabilityDetail?: string;
     moq?: number;
@@ -2972,8 +2979,12 @@ export async function updateProduct(
     if (data.highlights !== undefined) updatePayload.highlights = data.highlights;
     if (data.technicalSpecs !== undefined) updatePayload.technicalSpecs = data.technicalSpecs;
 
-    if (data.categoryName) {
-      const category = await upsertCategory(data.categoryName);
+    if (data.categoryName || data.categoryId) {
+      const categoryIdentifier = data.categoryId || data.categoryName;
+      const category = await findExistingCategory(categoryIdentifier);
+      if (!category) {
+        throw new Error(`Invalid category: "${categoryIdentifier}". Only categories created by the Super Admin can be selected. Please choose an existing category.`);
+      }
       updatePayload.categoryId = category.id;
     }
 

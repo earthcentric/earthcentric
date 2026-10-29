@@ -11,13 +11,21 @@ import {
   FolderTree, 
   Tag, 
   Loader2, 
-  ArrowRight, 
   AlertTriangle,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Trash2,
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react";
 import { Card, Button, Input, Label, Badge } from "@/components/ui/shared";
-import { renameCategory, mergeCategories, upsertCategory } from "@/actions/categories";
+import { 
+  adminCreateCategory, 
+  adminUpdateCategory, 
+  mergeCategories, 
+  deleteCategory,
+  normalizeCategorySlug
+} from "@/actions/categories";
 import Link from "next/link";
 
 interface CategoryItem {
@@ -38,17 +46,28 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  // Modals state
-  const [renameTarget, setRenameTarget] = useState<CategoryItem | null>(null);
-  const [newName, setNewName] = useState("");
-  const [renameLoading, setRenameLoading] = useState(false);
+  // Modals state: Edit / Rename Details
+  const [editTarget, setEditTarget] = useState<CategoryItem | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSlug, setEditSlug] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
 
+  // Modals state: Merge
   const [mergeSource, setMergeSource] = useState<CategoryItem | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [mergeLoading, setMergeLoading] = useState(false);
 
+  // Modals state: Delete
+  const [deleteTarget, setDeleteTarget] = useState<CategoryItem | null>(null);
+  const [deleteReassignId, setDeleteReassignId] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Modals state: Create
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createName, setCreateName] = useState("");
+  const [createSlug, setCreateSlug] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
 
   const loadCategories = async () => {
@@ -57,7 +76,7 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
       const res = await fetch("/api/categories?for=seller");
       const data = await res.json();
       setCategories(data.categories || []);
-    } catch (e) {
+    } catch {
       toast.error("Failed to load categories");
     } finally {
       setLoading(false);
@@ -77,26 +96,41 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
 
   const totalProducts = categories.reduce((sum, c) => sum + (c.productCount || 0), 0);
 
-  // Handle Rename
-  const handleRename = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!renameTarget || !newName.trim()) return;
+  // Open Edit Modal
+  const openEditModal = (cat: CategoryItem) => {
+    setEditTarget(cat);
+    setEditName(cat.name);
+    setEditSlug(cat.slug);
+    setEditDescription(cat.description || "");
+  };
 
-    setRenameLoading(true);
+  // Handle Edit / Rename
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTarget || !editName.trim()) return;
+
+    setEditLoading(true);
     try {
-      const res = await renameCategory(renameTarget.id, newName.trim(), adminEmail);
-      if (res.success) {
-        toast.success(`Category renamed to "${newName.trim()}"`);
-        setRenameTarget(null);
-        setNewName("");
+      const res = await adminUpdateCategory(
+        editTarget.id,
+        {
+          name: editName.trim(),
+          slug: editSlug.trim() || undefined,
+          description: editDescription.trim() || undefined,
+        },
+        adminEmail
+      );
+      if (res.success && res.category) {
+        toast.success(`Category "${res.category.name}" updated successfully.`);
+        setEditTarget(null);
         loadCategories();
       } else {
-        toast.error(res.error || "Failed to rename category");
+        toast.error(res.error || "Failed to update category.");
       }
     } catch (e: any) {
-      toast.error(e?.message || "An unexpected error occurred");
+      toast.error(e?.message || "An unexpected error occurred.");
     } finally {
-      setRenameLoading(false);
+      setEditLoading(false);
     }
   };
 
@@ -108,15 +142,11 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
     const targetCat = categories.find(c => c.id === mergeTargetId);
     if (!targetCat) return;
 
-    if (!confirm(`Are you sure you want to merge "${mergeSource.name}" into "${targetCat.name}"? All ${mergeSource.productCount} product(s) will be transferred and "${mergeSource.name}" will be deleted.`)) {
-      return;
-    }
-
     setMergeLoading(true);
     try {
       const res = await mergeCategories(mergeSource.id, mergeTargetId, adminEmail);
       if (res.success) {
-        toast.success(`Successfully merged! ${res.movedCount || 0} products transferred.`);
+        toast.success(`Successfully merged! ${res.movedCount || 0} product(s) transferred.`);
         setMergeSource(null);
         setMergeTargetId("");
         loadCategories();
@@ -130,18 +160,69 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
     }
   };
 
-  // Handle Manual Create
-  const handleCreate = async (e: React.FormEvent) => {
+  // Handle Delete
+  const handleDeleteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deleteTarget) return;
+
+    if (deleteTarget.productCount > 0 && !deleteReassignId) {
+      toast.error("Please choose a destination category to reassign active products before deleting.");
+      return;
+    }
+
+    setDeleteLoading(true);
+    try {
+      const res = await deleteCategory(
+        deleteTarget.id,
+        { reassignToCategoryId: deleteReassignId || undefined },
+        adminEmail
+      );
+
+      if (res.success) {
+        toast.success(
+          res.movedCount && res.movedCount > 0
+            ? `Category deleted. ${res.movedCount} product(s) reassigned successfully.`
+            : `Category "${deleteTarget.name}" deleted successfully.`
+        );
+        setDeleteTarget(null);
+        setDeleteReassignId("");
+        loadCategories();
+      } else {
+        toast.error(res.error || "Failed to delete category.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to delete category.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // Handle Create Category
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createName.trim()) return;
 
     setCreateLoading(true);
     try {
-      const cat = await upsertCategory(createName.trim());
-      toast.success(`Category "${cat.name}" is ready!`);
-      setShowCreateModal(false);
-      setCreateName("");
-      loadCategories();
+      const res = await adminCreateCategory(
+        {
+          name: createName.trim(),
+          slug: createSlug.trim() || undefined,
+          description: createDescription.trim() || undefined,
+        },
+        adminEmail
+      );
+
+      if (res.success && res.category) {
+        toast.success(`Category "${res.category.name}" created and live!`);
+        setShowCreateModal(false);
+        setCreateName("");
+        setCreateSlug("");
+        setCreateDescription("");
+        loadCategories();
+      } else {
+        toast.error(res.error || "Failed to create category");
+      }
     } catch (e: any) {
       toast.error(e?.message || "Failed to create category");
     } finally {
@@ -168,14 +249,19 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
             size="sm" 
             onClick={loadCategories} 
             disabled={loading}
-            className="text-xs h-9 gap-1.5"
+            className="text-xs h-9 gap-1.5 cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
           <Button 
-            onClick={() => setShowCreateModal(true)} 
-            className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs h-9 gap-1.5 shadow-sm"
+            onClick={() => {
+              setShowCreateModal(true);
+              setCreateName("");
+              setCreateSlug("");
+              setCreateDescription("");
+            }} 
+            className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs h-9 gap-1.5 shadow-sm cursor-pointer"
           >
             <Plus className="h-3.5 w-3.5" />
             Add Category
@@ -267,7 +353,12 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
                     <td className="py-3.5 px-4 font-semibold text-slate-800">
                       <div className="flex items-center gap-2">
                         <Tag className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        <span>{cat.name}</span>
+                        <div>
+                          <span>{cat.name}</span>
+                          {cat.description && (
+                            <p className="text-[10px] text-slate-400 font-normal line-clamp-1">{cat.description}</p>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
@@ -307,14 +398,11 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            setRenameTarget(cat);
-                            setNewName(cat.name);
-                          }}
-                          className="h-7 text-[11px] px-2.5 gap-1 border-slate-200 hover:bg-slate-100"
+                          onClick={() => openEditModal(cat)}
+                          className="h-7 text-[11px] px-2.5 gap-1 border-slate-200 hover:bg-slate-100 cursor-pointer"
                         >
                           <Edit3 className="h-3 w-3" />
-                          Rename
+                          Edit
                         </Button>
                         <Button
                           variant="outline"
@@ -323,10 +411,22 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
                             setMergeSource(cat);
                             setMergeTargetId("");
                           }}
-                          className="h-7 text-[11px] px-2.5 gap-1 border-amber-200 text-amber-700 hover:bg-amber-50"
+                          className="h-7 text-[11px] px-2.5 gap-1 border-amber-200 text-amber-700 hover:bg-amber-50 cursor-pointer"
                         >
                           <GitMerge className="h-3 w-3" />
                           Merge
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setDeleteTarget(cat);
+                            setDeleteReassignId("");
+                          }}
+                          className="h-7 text-[11px] px-2 gap-1 border-rose-200 text-rose-600 hover:bg-rose-50 cursor-pointer"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Delete
                         </Button>
                       </div>
                     </td>
@@ -338,40 +438,70 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
         )}
       </Card>
 
-      {/* ── Modal: Rename Category ── */}
-      {renameTarget && (
+      {/* ── Modal: Edit / Rename Category ── */}
+      {editTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setRenameTarget(null)} />
-          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setEditTarget(null)} />
+          <Card className="relative w-full max-w-md p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
             <h3 className="font-bold text-sm text-[#1a3321] flex items-center gap-2">
               <Edit3 className="h-4 w-4 text-emerald-600" />
-              Rename Category
+              Edit Category Details
             </h3>
             <p className="text-xs text-muted-foreground">
-              Renaming will update the category across all associated products and preserve existing URL redirects where possible.
+              Update category display name, slug, and optional description. Changes propagate instantly to all category selectors.
             </p>
-            <form onSubmit={handleRename} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">New Category Name</Label>
+            <form onSubmit={handleEditSubmit} className="space-y-3.5">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Category Name *</Label>
                 <Input
                   required
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Enter new category name..."
+                  value={editName}
+                  onChange={(e) => {
+                    setEditName(e.target.value);
+                    if (!editSlug || editSlug === normalizeCategorySlug(editTarget.name)) {
+                      setEditSlug(normalizeCategorySlug(e.target.value));
+                    }
+                  }}
+                  placeholder="e.g. Biodegradable Cutlery"
                   className="text-xs"
                 />
               </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" onClick={() => setRenameTarget(null)} disabled={renameLoading}>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">URL Slug *</Label>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-400 font-mono">/category/</span>
+                  <Input
+                    required
+                    value={editSlug}
+                    onChange={(e) => setEditSlug(normalizeCategorySlug(e.target.value))}
+                    placeholder="cutlery"
+                    className="text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Description (Optional)</Label>
+                <Input
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Brief description of products in this category..."
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="ghost" onClick={() => setEditTarget(null)} disabled={editLoading}>
                   Cancel
                 </Button>
                 <Button 
                   type="submit" 
-                  disabled={renameLoading || !newName.trim() || newName.trim() === renameTarget.name}
-                  className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs"
+                  disabled={editLoading || !editName.trim()}
+                  className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs cursor-pointer"
                 >
-                  {renameLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-                  Save Rename
+                  {editLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                  Save Changes
                 </Button>
               </div>
             </form>
@@ -391,12 +521,12 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5">
               <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-800 leading-relaxed">
-                All <strong>{mergeSource.productCount}</strong> products currently inside <strong>"{mergeSource.name}"</strong> will be reassigned to the target category. The source category will then be removed permanently.
+                All <strong>{mergeSource.productCount}</strong> products currently inside <strong>"{mergeSource.name}"</strong> will be reassigned to the target category in a database transaction. The source category will then be deleted permanently.
               </p>
             </div>
             <form onSubmit={handleMerge} className="space-y-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Select Target Category</Label>
+                <Label className="text-xs font-semibold">Select Destination Category *</Label>
                 <select
                   required
                   value={mergeTargetId}
@@ -420,7 +550,7 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
                 <Button 
                   type="submit" 
                   disabled={mergeLoading || !mergeTargetId}
-                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs gap-1.5"
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs gap-1.5 cursor-pointer"
                 >
                   {mergeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
                   Confirm Merge
@@ -431,37 +561,146 @@ export function CategoryManagementView({ adminEmail = "admin@earthcentric.com", 
         </div>
       )}
 
-      {/* ── Modal: Create Category ── */}
+      {/* ── Modal: Delete Category (With Dependency Safeguards) ── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setDeleteTarget(null)} />
+          <Card className="relative w-full max-w-md p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+            <h3 className="font-bold text-sm text-rose-700 flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-rose-600" />
+              Delete Category: "{deleteTarget.name}"
+            </h3>
+
+            {deleteTarget.productCount > 0 ? (
+              <div className="space-y-3">
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5">
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-rose-900 leading-relaxed">
+                    <strong>Safeguard Active:</strong> This category contains <strong>{deleteTarget.productCount}</strong> active product(s). To prevent orphaned products, you must choose a category to reassign these products to before deletion.
+                  </div>
+                </div>
+
+                <form onSubmit={handleDeleteSubmit} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Reassign Products To *</Label>
+                    <select
+                      required
+                      value={deleteReassignId}
+                      onChange={(e) => setDeleteReassignId(e.target.value)}
+                      className="w-full border border-input rounded-lg px-3 py-2 text-xs bg-background focus:outline-none focus:ring-2 focus:ring-rose-600"
+                    >
+                      <option value="">-- Choose reassignment category --</option>
+                      {categories
+                        .filter(c => c.id !== deleteTarget.id)
+                        .map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name} ({cat.productCount} existing products)
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button type="button" variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleteLoading}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      type="submit" 
+                      disabled={deleteLoading || !deleteReassignId}
+                      className="bg-rose-600 hover:bg-rose-700 text-white text-xs gap-1.5 cursor-pointer"
+                    >
+                      {deleteLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                      Reassign &amp; Delete
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Are you sure you want to delete category <strong>"{deleteTarget.name}"</strong>? This category currently has 0 associated products.
+                </p>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleteLoading}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="button" 
+                    onClick={handleDeleteSubmit}
+                    disabled={deleteLoading}
+                    className="bg-rose-600 hover:bg-rose-700 text-white text-xs gap-1.5 cursor-pointer"
+                  >
+                    {deleteLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                    Confirm Delete
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ── Modal: Add New Category ── */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
-          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+          <Card className="relative w-full max-w-md p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
             <h3 className="font-bold text-sm text-[#1a3321] flex items-center gap-2">
               <Plus className="h-4 w-4 text-emerald-600" />
               Add New Category
             </h3>
             <p className="text-xs text-muted-foreground">
-              Add a standard category to the marketplace taxonomy. Duplicate names will be safely normalized.
+              Create a standard category in the marketplace taxonomy. Only Super Admins can add categories.
             </p>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Category Name</Label>
+            <form onSubmit={handleCreateSubmit} className="space-y-3.5">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Category Name *</Label>
                 <Input
                   required
                   value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
+                  onChange={(e) => {
+                    setCreateName(e.target.value);
+                    if (!createSlug || createSlug === normalizeCategorySlug(createName)) {
+                      setCreateSlug(normalizeCategorySlug(e.target.value));
+                    }
+                  }}
                   placeholder="e.g. Biodegradable Straws"
                   className="text-xs"
                 />
               </div>
-              <div className="flex justify-end gap-2">
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">URL Slug *</Label>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-400 font-mono">/category/</span>
+                  <Input
+                    required
+                    value={createSlug}
+                    onChange={(e) => setCreateSlug(normalizeCategorySlug(e.target.value))}
+                    placeholder="straws"
+                    className="text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Description (Optional)</Label>
+                <Input
+                  value={createDescription}
+                  onChange={(e) => setCreateDescription(e.target.value)}
+                  placeholder="Description of products in this category..."
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="ghost" onClick={() => setShowCreateModal(false)} disabled={createLoading}>
                   Cancel
                 </Button>
                 <Button 
                   type="submit" 
                   disabled={createLoading || !createName.trim()}
-                  className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs"
+                  className="bg-[#1a3321] hover:bg-[#25422d] text-white text-xs cursor-pointer"
                 >
                   {createLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
                   Create Category

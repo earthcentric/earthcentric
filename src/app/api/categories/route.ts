@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/lib/db";
+import { verifyAdminAuth } from "@/lib/auth-server";
+import { 
+  adminCreateCategory, 
+  adminUpdateCategory, 
+  deleteCategory,
+  mergeCategories 
+} from "@/actions/categories";
 
 // Predefined sustainable categories (always available as fallback)
 const FALLBACK_CATEGORIES = [
@@ -62,7 +69,7 @@ export async function GET(request: Request) {
             );
             const approvedProductCount = (c as any)._count?.products ?? 0;
             // Predefined default categories can stay visible;
-            // Any newly entered custom category displays in marketplace ONLY IF the seller is approved by Super Admin
+            // Any custom category displays in marketplace ONLY IF it has approved products
             return isPredefined ? true : approvedProductCount > 0;
           });
 
@@ -89,4 +96,98 @@ export async function GET(request: Request) {
   // Always return fallback categories so the UI is never empty
   const categories = FALLBACK_CATEGORIES.map((c) => ({ ...c, productCount: 0 }));
   return NextResponse.json({ categories });
+}
+
+// ── Super Admin category mutations (Enforces verifyAdminAuth) ───────────────
+
+export async function POST(request: Request) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) {
+    return NextResponse.json(
+      { error: "Unauthorized: Super Admin permissions required to create categories." },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const body = await request.json();
+    if (body.action === "merge") {
+      const res = await mergeCategories(body.sourceCategoryId, body.targetCategoryId, auth.email);
+      if (!res.success) {
+        return NextResponse.json({ error: res.error }, { status: 400 });
+      }
+      return NextResponse.json(res);
+    }
+
+    const res = await adminCreateCategory({
+      name: body.name,
+      slug: body.slug,
+      description: body.description,
+    }, auth.email);
+
+    if (!res.success) {
+      return NextResponse.json({ error: res.error }, { status: 400 });
+    }
+    return NextResponse.json(res);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to create category" }, { status: 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) {
+    return NextResponse.json(
+      { error: "Unauthorized: Super Admin permissions required to update categories." },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const body = await request.json();
+    if (!body.id) {
+      return NextResponse.json({ error: "Category ID is required" }, { status: 400 });
+    }
+
+    const res = await adminUpdateCategory(body.id, {
+      name: body.name,
+      slug: body.slug,
+      description: body.description,
+    }, auth.email);
+
+    if (!res.success) {
+      return NextResponse.json({ error: res.error }, { status: 400 });
+    }
+    return NextResponse.json(res);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to update category" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) {
+    return NextResponse.json(
+      { error: "Unauthorized: Super Admin permissions required to delete categories." },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    const reassignToCategoryId = searchParams.get("reassignTo") || undefined;
+
+    if (!id) {
+      return NextResponse.json({ error: "Category ID is required" }, { status: 400 });
+    }
+
+    const res = await deleteCategory(id, { reassignToCategoryId }, auth.email);
+    if (!res.success) {
+      return NextResponse.json({ error: res.error, productCount: res.productCount }, { status: 400 });
+    }
+    return NextResponse.json(res);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to delete category" }, { status: 500 });
+  }
 }

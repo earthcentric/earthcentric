@@ -8,6 +8,7 @@ import { getOrdersBySeller } from "./orders";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { setEarthcentricSessionCookie } from "@/lib/session";
 import { validateFullApplication } from "@/lib/seller-validation";
+import { findExistingCategory } from "@/actions/categories";
 
 export interface SellerRemovalRecord {
   sellerId: string;
@@ -1489,6 +1490,13 @@ export async function submit3StepSellerVerification(data: {
 
   if (!data.product.imageUrls || data.product.imageUrls.length < 5) {
     throw new Error("Validation Error: Step 3 requires at least 5 uploaded product images.");
+  }
+
+  const existingCat = await findExistingCategory(data.product.categoryName);
+  if (!existingCat) {
+    throw new Error(
+      `Validation Error: Category "${data.product.categoryName}" is not recognized. Please choose from existing marketplace categories.`
+    );
   }
 
   const sellerProfile = await submitSellerVerification({
