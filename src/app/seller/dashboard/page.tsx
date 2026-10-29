@@ -660,13 +660,15 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
   const feeAmount = onboarding.feeAmount || 1.0;
 
   const handlePayFee = async () => {
+    if (payingFee) return;
     setPayingFee(true);
     setErrorNotice(null);
     try {
       const res = await createRegistrationFeeOrder(sellerId);
       if (!res.success) {
-        setErrorNotice(res.error || "Failed to initialize registration payment session.");
-        toast.error(res.error || "Failed to initialize registration payment.");
+        const errMsg = res.error || "Failed to initialize registration payment session.";
+        setErrorNotice(errMsg);
+        toast.error(errMsg);
         setPayingFee(false);
         return;
       }
@@ -678,38 +680,55 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
         return;
       }
 
-      if (res.paymentSessionId && res.orderId) {
-        setLastOrderId(res.orderId);
-        try {
-          const { load } = await import("@cashfreepayments/cashfree-js");
-          const envMode = process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT?.toLowerCase() === "production" ? "production" : "sandbox";
-          const cashfree = await load({ mode: envMode });
-          const checkoutResult = await cashfree.checkout({
-            paymentSessionId: res.paymentSessionId,
-            redirectTarget: "_modal",
-          });
+      if (!res.paymentSessionId || typeof res.paymentSessionId !== "string" || !res.paymentSessionId.trim() || res.paymentSessionId.startsWith("mock_session_")) {
+        const errMsg = "Cashfree did not return a valid payment session ID. Please check API credentials.";
+        setErrorNotice(errMsg);
+        toast.error(errMsg);
+        setPayingFee(false);
+        return;
+      }
 
-          if (checkoutResult?.error) {
-            console.warn("Cashfree checkout closed or errored:", checkoutResult.error);
-          }
+      if (!res.orderId) {
+        const errMsg = "Order reference missing from gateway response.";
+        setErrorNotice(errMsg);
+        toast.error(errMsg);
+        setPayingFee(false);
+        return;
+      }
 
-          // Verify with backend
-          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
-          if (verification.success && verification.paid) {
-            toast.success("₹1 Registration Fee verified successfully! Welcome aboard.");
-            await onSuccess();
-          } else {
-            toast.info("If payment was completed, click 'Check Payment Status' below to refresh.");
-          }
-        } catch (sdkErr: any) {
-          console.warn("Cashfree JS dropin fallback:", sdkErr);
-          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
-          if (verification.success && verification.paid) {
-            toast.success("Registration fee verified successfully!");
-            await onSuccess();
-          } else {
-            setErrorNotice("Payment session initialized. If popup was blocked, complete payment and click Check Status.");
-          }
+      setLastOrderId(res.orderId);
+
+      try {
+        const { load } = await import("@cashfreepayments/cashfree-js");
+        const envMode = (res.environment || process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT || "sandbox").toLowerCase() as "sandbox" | "production";
+        console.log(`[Seller Fee Checkout] Initializing Cashfree SDK: env=${envMode}, sessionPrefix=${res.paymentSessionId.slice(0, 10)}...`);
+        const cashfree = await load({ mode: envMode });
+        const checkoutResult = await cashfree.checkout({
+          paymentSessionId: res.paymentSessionId,
+          redirectTarget: "_modal",
+        });
+
+        if (checkoutResult?.error) {
+          console.warn("Cashfree checkout closed or errored:", checkoutResult.error);
+          setErrorNotice(checkoutResult.error.message || "Payment modal was closed or interrupted.");
+        }
+
+        // Verify with backend
+        const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
+        if (verification.success && verification.paid) {
+          toast.success("₹1 Registration Fee verified successfully! Welcome aboard.");
+          await onSuccess();
+        } else {
+          toast.info("If payment was completed, click 'Check Payment Status' below to refresh.");
+        }
+      } catch (sdkErr: any) {
+        console.warn("Cashfree JS dropin fallback:", sdkErr);
+        const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
+        if (verification.success && verification.paid) {
+          toast.success("Registration fee verified successfully!");
+          await onSuccess();
+        } else {
+          setErrorNotice("Payment session initialized. If popup was blocked, complete payment and click Check Status.");
         }
       }
     } catch (err: any) {
@@ -4650,7 +4669,7 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
 
   // Handle ₹1 Registration Fee Payment via Cashfree
   const handlePayRegistrationFee = async () => {
-    if (!sellerId) return;
+    if (!sellerId || payingFee) return;
     setPayingFee(true);
     setPayoutError("");
     try {
@@ -4668,39 +4687,53 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
         return;
       }
 
-      if (res.paymentSessionId && res.orderId) {
-        try {
-          const { load } = await import("@cashfreepayments/cashfree-js");
-          const envMode = process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT?.toLowerCase() === "production" ? "production" : "sandbox";
-          const cashfree = await load({ mode: envMode });
-          const checkoutResult = await cashfree.checkout({
-            paymentSessionId: res.paymentSessionId,
-            redirectTarget: "_modal",
-          });
+      if (!res.paymentSessionId || typeof res.paymentSessionId !== "string" || !res.paymentSessionId.trim() || res.paymentSessionId.startsWith("mock_session_")) {
+        const errMsg = "Cashfree did not return a valid payment session ID. Please check API credentials.";
+        toast.error(errMsg);
+        setPayoutError(errMsg);
+        setPayingFee(false);
+        return;
+      }
 
-          if (checkoutResult?.error) {
-            console.warn("Cashfree checkout error / closed:", checkoutResult.error);
-          }
+      if (!res.orderId) {
+        toast.error("Order reference missing from gateway response.");
+        setPayingFee(false);
+        return;
+      }
 
-          // Verify with backend using orderId and sellerId
-          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
-          if (verification.success && verification.paid) {
-            toast.success("₹1 Registration Fee verified successfully! You can now configure payout details.");
-            await loadOnboarding();
-            reload();
-          } else {
-            toast.info("Payment initiated. Please check status if you completed the payment.");
-          }
-        } catch (sdkErr) {
-          console.warn("Cashfree JS dropin failed or was blocked, verifying order directly:", sdkErr);
-          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
-          if (verification.success && verification.paid) {
-            toast.success("Registration fee verified successfully!");
-            await loadOnboarding();
-            reload();
-          } else {
-            toast.info("Payment session created. If payment succeeded, verification will complete shortly.");
-          }
+      try {
+        const { load } = await import("@cashfreepayments/cashfree-js");
+        const envMode = (res.environment || process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT || "sandbox").toLowerCase() as "sandbox" | "production";
+        console.log(`[Seller Dashboard] Initializing Cashfree SDK: env=${envMode}, sessionPrefix=${res.paymentSessionId.slice(0, 10)}...`);
+        const cashfree = await load({ mode: envMode });
+        const checkoutResult = await cashfree.checkout({
+          paymentSessionId: res.paymentSessionId,
+          redirectTarget: "_modal",
+        });
+
+        if (checkoutResult?.error) {
+          console.warn("Cashfree checkout error / closed:", checkoutResult.error);
+          setPayoutError(checkoutResult.error.message || "Payment modal closed.");
+        }
+
+        // Verify with backend using orderId and sellerId
+        const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
+        if (verification.success && verification.paid) {
+          toast.success("₹1 Registration Fee verified successfully! You can now configure payout details.");
+          await loadOnboarding();
+          reload();
+        } else {
+          toast.info("Payment initiated. Please check status if you completed the payment.");
+        }
+      } catch (sdkErr: any) {
+        console.warn("Cashfree JS dropin failed or was blocked, verifying order directly:", sdkErr);
+        const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
+        if (verification.success && verification.paid) {
+          toast.success("Registration fee verified successfully!");
+          await loadOnboarding();
+          reload();
+        } else {
+          toast.info("Payment session created. If payment succeeded, verification will complete shortly.");
         }
       }
     } catch (err: any) {

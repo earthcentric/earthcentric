@@ -19,7 +19,7 @@ import {
   maskPayoutDestination,
 } from "@/lib/cashfree-payouts";
 import { decrypt } from "@/lib/encryption";
-import { createCashfreeOrder, verifyPaymentSignature, fetchCashfreeOrderPayments } from "@/lib/cashfree";
+import { createCashfreeOrder, verifyPaymentSignature, fetchCashfreeOrderPayments, getSecureAppUrl } from "@/lib/cashfree";
 import { verifyAdminAuth, verifySellerAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
 
 export type PayoutStatus =
@@ -254,6 +254,7 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
   alreadyPaid?: boolean;
   paymentSessionId?: string;
   orderId?: string;
+  environment?: string;
   error?: string;
 }> {
   try {
@@ -293,11 +294,10 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
     const amount = await getSellerRegistrationFeeAmount();
     const orderId = `SELLER-FEE-${seller.id.slice(-6).toUpperCase()}-${Date.now()}`;
 
-    // Create Cashfree payment order session
+    // Create Cashfree payment order session with verified HTTPS return URL
     const customerPhone = seller.phone ? seller.phone.replace(/\D/g, "").slice(-10) : "9999999999";
-    const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const appUrl = new URL(rawAppUrl);
-    const returnUrl = new URL(`/seller/dashboard?fee_order_id=${orderId}`, appUrl).toString();
+    const baseUrl = getSecureAppUrl();
+    const returnUrl = `${baseUrl}/seller/dashboard?fee_order_id=${orderId}`;
 
     const session = await createCashfreeOrder({
       amount,
@@ -311,6 +311,14 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
       returnUrl,
     });
 
+    if (!session?.payment_session_id || typeof session.payment_session_id !== "string" || !session.payment_session_id.trim() || session.payment_session_id.startsWith("mock_session_")) {
+      console.error("[Seller Registration Fee] Invalid session received:", session);
+      return {
+        success: false,
+        error: "Cashfree did not return a valid payment session ID. Please verify Cashfree API credentials.",
+      };
+    }
+
     // Record in DB
     await db.sellerRegistrationPayment.create({
       data: {
@@ -321,12 +329,15 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
       },
     });
 
+    console.log(`[Seller Registration Fee] Order created: sellerId=${seller.id}, orderId=${orderId}, env=${session.mode}, sessionPrefix=${session.payment_session_id.slice(0, 10)}...`);
+
     return {
       success: true,
       feeRequired: true,
       alreadyPaid: false,
       paymentSessionId: session.payment_session_id,
       orderId,
+      environment: (session.mode || "SANDBOX").toLowerCase(),
     };
   } catch (error: any) {
     console.error("createRegistrationFeeOrder error:", error);
@@ -365,21 +376,26 @@ export async function verifyRegistrationFeePayment(
 
     const payments = await fetchCashfreeOrderPayments(orderId);
     const successfulPayment = payments.find((p: any) => p.payment_status === "SUCCESS");
-    const isVerified = Boolean(successfulPayment) || (await verifyPaymentSignature(orderId));
+    const paymentAmount = successfulPayment?.payment_amount ?? successfulPayment?.order_amount;
+    const isAmountValid = paymentAmount === undefined || Number(paymentAmount) >= 1.0;
+
+    const isVerified = (Boolean(successfulPayment) && isAmountValid) || (await verifyPaymentSignature(orderId));
 
     if (!isVerified) {
       return { success: false, paid: false, error: "Cashfree has not confirmed this payment yet." };
     }
 
     const transactionId = successfulPayment?.cf_payment_id ? String(successfulPayment.cf_payment_id) : undefined;
+    const paymentMethod = successfulPayment?.payment_group || successfulPayment?.payment_method;
 
     await db.$transaction(async (tx) => {
       await tx.sellerRegistrationPayment.updateMany({
-        where: { cashfreeOrderId: orderId },
+        where: { cashfreeOrderId: orderId, sellerId: seller.id },
         data: {
           status: "COMPLETED",
           paidAt: new Date(),
           ...(transactionId ? { cashfreePaymentId: transactionId } : {}),
+          ...(paymentMethod ? { paymentMethod: String(paymentMethod) } : {}),
         },
       });
 
@@ -393,6 +409,8 @@ export async function verifyRegistrationFeePayment(
         },
       });
     });
+
+    console.log(`[Seller Registration Fee] Payment verified: sellerId=${seller.id}, orderId=${orderId}, txId=${transactionId}`);
 
     await createNotification(
       seller.userId,

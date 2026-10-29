@@ -21,13 +21,18 @@ export interface CashfreeRefundResult {
 }
 
 let cashfreeClient: Cashfree | null = null;
+let cashfreeClientMode: "SANDBOX" | "PRODUCTION" | null = null;
 
-export function getCashfreeMode(): Exclude<CashfreeMode, "MOCK"> {
-  const env = (process.env.CASHFREE_ENVIRONMENT || "SANDBOX").toUpperCase();
-  if (env !== "SANDBOX" && env !== "PRODUCTION") {
-    throw new Error("CASHFREE_ENVIRONMENT must be SANDBOX or PRODUCTION.");
+export function getCashfreeMode(secretKey?: string): Exclude<CashfreeMode, "MOCK"> {
+  // If the secret key has an explicit environment prefix, respect the key's native environment
+  if (secretKey?.startsWith("cfsk_ma_prod_")) {
+    return "PRODUCTION";
   }
-  return env;
+  if (secretKey?.startsWith("cfsk_ma_test_")) {
+    return "SANDBOX";
+  }
+  const env = (process.env.CASHFREE_ENVIRONMENT || "SANDBOX").toUpperCase();
+  return env === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
 }
 
 export async function isCashfreeConfigured(): Promise<boolean> {
@@ -36,12 +41,9 @@ export async function isCashfreeConfigured(): Promise<boolean> {
   return !!appId && !!secretKey;
 }
 
-export async function getCashfreeClient(): Promise<Cashfree | null> {
-  if (cashfreeClient) return cashfreeClient;
-
-  const appId = await getCredential("CASHFREE_APP_ID") || process.env.CASHFREE_APP_ID;
-  const secretKey = await getCredential("CASHFREE_SECRET_KEY") || process.env.CASHFREE_SECRET_KEY;
-  const mode = getCashfreeMode();
+export async function getCashfreeClient(): Promise<{ client: Cashfree; mode: "SANDBOX" | "PRODUCTION" } | null> {
+  const appId = (await getCredential("CASHFREE_APP_ID")) || process.env.CASHFREE_APP_ID;
+  const secretKey = (await getCredential("CASHFREE_SECRET_KEY")) || process.env.CASHFREE_SECRET_KEY;
 
   if (!appId || !secretKey) {
     if (process.env.NODE_ENV === "production") {
@@ -50,9 +52,30 @@ export async function getCashfreeClient(): Promise<Cashfree | null> {
     return null;
   }
 
+  const mode = getCashfreeMode(secretKey);
+
+  if (cashfreeClient && cashfreeClientMode === mode) {
+    return { client: cashfreeClient, mode };
+  }
+
   const environment = mode === "PRODUCTION" ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
   cashfreeClient = new Cashfree(environment, appId, secretKey);
-  return cashfreeClient;
+  cashfreeClientMode = mode;
+  return { client: cashfreeClient, mode };
+}
+
+export function getSecureAppUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL;
+  if (configured && configured.startsWith("https://")) {
+    return configured.replace(/\/$/, "");
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
+  }
+  if (configured && !configured.includes("localhost")) {
+    return `https://${configured.replace(/^https?:\/\//, "")}`.replace(/\/$/, "");
+  }
+  return "https://earthcentric-2ug9.vercel.app";
 }
 
 export async function createCashfreeOrder(options: {
@@ -61,30 +84,24 @@ export async function createCashfreeOrder(options: {
   customer: { id: string; name: string; email: string; phone: string };
   returnUrl?: string;
 }): Promise<CashfreeOrderSession> {
-  const mode = getCashfreeMode();
   const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   if (isMockDatabase && process.env.NODE_ENV === "production") {
     throw new Error("The production database is not configured for live payments.");
   }
 
-  const client = await getCashfreeClient();
+  const instance = await getCashfreeClient();
 
-  if (!client || isMockDatabase) {
-    return {
-      payment_session_id: `mock_session_${Math.random().toString(36).substring(2, 9)}`,
-      order_id: `order_mock_${options.orderId}`,
-      mode: "MOCK",
-    };
+  if (!instance) {
+    throw new Error("Cashfree credentials are not configured. Please configure CASHFREE_APP_ID and CASHFREE_SECRET_KEY.");
   }
 
-  try {
-    const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
-    const appUrl = new URL(rawAppUrl);
-    if (process.env.NODE_ENV === "production" && appUrl.protocol !== "https:") {
-      throw new Error("NEXT_PUBLIC_APP_URL must use HTTPS in production.");
-    }
+  const { client, mode } = instance;
 
-    const returnUrl = options.returnUrl || new URL("/checkout?order_id={order_id}", appUrl).toString();
+  try {
+    const baseUrl = getSecureAppUrl();
+    const returnUrl = options.returnUrl && options.returnUrl.startsWith("https://")
+      ? options.returnUrl
+      : `${baseUrl}/checkout?order_id={order_id}`;
 
     // Sanitize customer_id: alphanumeric, underscores, and hyphens only (max 50 chars)
     const sanitizedCustomerId = (options.customer.id || `cust_${Date.now()}`)
@@ -118,67 +135,50 @@ export async function createCashfreeOrder(options: {
 
     // According to v6 SDK, we call instance methods without API version param first
     const response = await client.PGCreateOrder(request);
-    const paymentSessionId = response.data.payment_session_id;
-    const cashfreeOrderId = response.data.order_id;
-    if (!paymentSessionId || !cashfreeOrderId) {
-      console.error("Cashfree created an incomplete order response:", {
-        orderId: response.data.order_id,
+    const paymentSessionId = response.data?.payment_session_id;
+    const cashfreeOrderId = response.data?.order_id;
+    if (!paymentSessionId || typeof paymentSessionId !== "string" || !paymentSessionId.trim() || paymentSessionId.startsWith("mock_session_")) {
+      console.error("[Cashfree] Incomplete or invalid session returned:", {
+        orderId: response.data?.order_id,
         hasPaymentSessionId: Boolean(paymentSessionId),
       });
-      throw new Error("Cashfree did not return a payment session. Check the Cashfree API response and credentials.");
+      throw new Error("Cashfree did not return a valid payment session. Check the Cashfree API response and credentials.");
     }
+
+    // Safe diagnostic log without leaking full session ID or secrets
+    console.log(`[Cashfree Order Created] orderId=${cashfreeOrderId}, env=${mode}, sessionPrefix=${paymentSessionId.slice(0, 10)}...`);
+
     return {
       payment_session_id: paymentSessionId,
-      order_id: cashfreeOrderId,
+      order_id: cashfreeOrderId || options.orderId,
       mode,
     };
-  } catch (error) {
-    const responseError =
-      typeof error === "object" && error !== null && "response" in error
-        ? error.response
-        : undefined;
-    const errorData =
-      typeof responseError === "object" &&
-      responseError !== null &&
-      "data" in responseError
-        ? responseError.data
-        : undefined;
-    const providerMessage =
-      typeof errorData === "object" &&
-      errorData !== null &&
-      "message" in errorData &&
-      typeof errorData.message === "string"
-        ? errorData.message
-        : error instanceof Error
-          ? error.message
-          : "Unknown Cashfree API error.";
-    console.error("Cashfree order creation failed:", {
+  } catch (error: any) {
+    const responseError = error?.response;
+    const errorData = responseError?.data;
+    const providerMessage = errorData?.message || error?.message || "Unknown Cashfree API error.";
+    const providerCode = errorData?.code;
+    console.error("[Cashfree Order Failed]", {
+      orderId: options.orderId,
       message: providerMessage,
-      code:
-        typeof errorData === "object" &&
-        errorData !== null &&
-        "code" in errorData
-          ? errorData.code
-          : undefined,
+      code: providerCode,
     });
     throw new Error(`Cashfree could not create a payment session: ${providerMessage}`);
   }
 }
 
 export async function fetchCashfreeOrderPayments(orderId: string): Promise<any[]> {
-  const client = await getCashfreeClient();
-  const isMock =
-    process.env.NODE_ENV !== "production" &&
-    (!client || !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"));
-  if (isMock || orderId.startsWith("order_mock_")) {
-    return [{ payment_status: "SUCCESS", cf_payment_id: `mock_cf_${Date.now()}` }];
+  const instance = await getCashfreeClient();
+  if (!instance) {
+    console.warn("[Cashfree] Cannot fetch order payments: client not configured.");
+    return [];
   }
 
   try {
-    const response = await client!.PGOrderFetchPayments(orderId);
+    const response = await instance.client.PGOrderFetchPayments(orderId);
     return Array.isArray(response.data) ? response.data : [];
   } catch (error: any) {
-    console.error("Failed to fetch Cashfree payments for order:", orderId, error?.response?.data || error);
+    console.error("[Cashfree] Failed to fetch Cashfree payments for order:", orderId, error?.response?.data || error?.message || error);
     return [];
   }
 }
@@ -202,14 +202,14 @@ export async function createCashfreeRefund(options: {
     throw new Error("Cashfree refund identifiers are required.");
   }
 
-  const client = await getCashfreeClient();
+  const instance = await getCashfreeClient();
   const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  if (!client || isMockDatabase) {
+  if (!instance || isMockDatabase) {
     throw new Error("Cashfree refunds are unavailable in mock mode.");
   }
 
   try {
-    const response = await client.PGOrderCreateRefund(
+    const response = await instance.client.PGOrderCreateRefund(
       options.orderId,
       {
         refund_amount: Math.round(options.amount * 100) / 100,
@@ -231,14 +231,14 @@ export async function fetchCashfreeRefund(
   orderId: string,
   refundId: string
 ): Promise<CashfreeRefundResult> {
-  const client = await getCashfreeClient();
+  const instance = await getCashfreeClient();
   const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  if (!client || isMockDatabase) {
+  if (!instance || isMockDatabase) {
     throw new Error("Cashfree refund status is unavailable in mock mode.");
   }
 
   try {
-    const response = await client.PGOrderFetchRefund(orderId, refundId);
+    const response = await instance.client.PGOrderFetchRefund(orderId, refundId);
     return response.data;
   } catch {
     console.error("Cashfree refund status lookup failed.");
