@@ -775,6 +775,10 @@ export async function requestPayout(
       return record;
     });
 
+    console.log(
+      `[Payout] New withdrawal request created successfully: id=${payoutRequest.id}, sellerId=${seller.id}, companyName="${seller.companyName}", amount=₹${roundedAmount}, method=${onboarding.paymentMethod}, status=${payoutRequest.status}`
+    );
+
     // Notify Super Admin
     await createAdminNotification(
       "New Withdrawal Request",
@@ -806,6 +810,15 @@ export async function requestPayout(
 // 6. FETCH PAYOUT REQUESTS
 // --------------------------------------------------------------------------
 
+function safeSerializableJson<T>(val: T): T | undefined {
+  if (val === null || val === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(val));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getSellerPayoutRequests(sellerIdOrUserId: string): Promise<PayoutRequestInfo[]> {
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
@@ -827,6 +840,8 @@ export async function getSellerPayoutRequests(sellerIdOrUserId: string): Promise
       orderBy: { requestedAt: "desc" },
     });
 
+    console.log(`[Payout Query] getSellerPayoutRequests for seller ${seller.id}: ${requests.length} records found.`);
+
     return requests.map((r) => {
       let maskedDestination = "";
       if (r.paymentMethod === "UPI") {
@@ -840,15 +855,15 @@ export async function getSellerPayoutRequests(sellerIdOrUserId: string): Promise
       return {
         id: r.id,
         sellerId: r.sellerId,
-        companyName: r.seller.companyName,
-        sellerName: r.seller.ownerName || r.seller.founderName || "Seller",
+        companyName: r.seller?.companyName || "Eco Store",
+        sellerName: r.seller?.ownerName || r.seller?.founderName || "Seller",
         amount: r.amount,
         remainingAmount: r.remainingAmount !== null ? r.remainingAmount : r.amount,
-        status: r.status as PayoutStatus,
-        requestedAt: r.requestedAt,
-        settledAt: r.settledAt,
-        approvedAt: r.approvedAt,
-        paidAt: r.paidAt,
+        status: (String(r.status || "PENDING").trim().toUpperCase()) as PayoutStatus,
+        requestedAt: r.requestedAt ? new Date(r.requestedAt) : new Date(),
+        settledAt: r.settledAt ? new Date(r.settledAt) : null,
+        approvedAt: r.approvedAt ? new Date(r.approvedAt) : null,
+        paidAt: r.paidAt ? new Date(r.paidAt) : null,
         adminEmail: r.adminEmail,
         isUrgent: r.isUrgent,
         reason: r.reason,
@@ -856,21 +871,21 @@ export async function getSellerPayoutRequests(sellerIdOrUserId: string): Promise
         notes: r.notes,
         paymentMethod: r.paymentMethod,
         maskedDestination,
-        bankDetails: r.bankDetails ?? undefined,
-        upiDetails: r.upiDetails ?? undefined,
+        bankDetails: safeSerializableJson(r.bankDetails),
+        upiDetails: safeSerializableJson(r.upiDetails),
         rejectedReason: r.rejectedReason,
-        settlementHistory: r.settlementHistory ?? undefined,
+        settlementHistory: safeSerializableJson(r.settlementHistory),
         cfTransferId: r.cfTransferId,
         cfReferenceId: r.cfReferenceId,
         cfUtr: r.cfUtr,
         cfStatus: r.cfStatus,
         cfFailureReason: r.cfFailureReason,
-        initiatedAt: r.initiatedAt,
-        auditHistory: r.auditHistory ?? undefined,
+        initiatedAt: r.initiatedAt ? new Date(r.initiatedAt) : null,
+        auditHistory: safeSerializableJson(r.auditHistory),
       };
     });
   } catch (error) {
-    console.error("getSellerPayoutRequests error:", error);
+    console.error("[Payout Query] getSellerPayoutRequests error:", error);
     return [];
   }
 }
@@ -898,6 +913,11 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
       orderBy: { requestedAt: "desc" },
     });
 
+    const pendingCount = requests.filter((r) =>
+      ["PENDING", "APPROVED", "PROCESSING"].includes(String(r.status || "").trim().toUpperCase())
+    ).length;
+    console.log(`[Payout Query] getAdminPayoutRequests returned ${requests.length} records (${pendingCount} pending/actionable)`);
+
     return requests.map((r) => {
       let maskedDestination = "";
       if (r.paymentMethod === "UPI") {
@@ -911,16 +931,16 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
       return {
         id: r.id,
         sellerId: r.sellerId,
-        companyName: r.seller.companyName || "Eco Store",
-        sellerName: r.seller.ownerName || r.seller.founderName || "Seller Partner",
-        sellerEmail: r.seller.user?.email || "N/A",
+        companyName: r.seller?.companyName || "Eco Store",
+        sellerName: r.seller?.ownerName || r.seller?.founderName || "Seller Partner",
+        sellerEmail: r.seller?.user?.email || "N/A",
         amount: r.amount,
         remainingAmount: r.remainingAmount !== null ? r.remainingAmount : r.amount,
-        status: r.status as PayoutStatus,
-        requestedAt: r.requestedAt,
-        settledAt: r.settledAt,
-        approvedAt: r.approvedAt,
-        paidAt: r.paidAt,
+        status: (String(r.status || "PENDING").trim().toUpperCase()) as PayoutStatus,
+        requestedAt: r.requestedAt ? new Date(r.requestedAt) : new Date(),
+        settledAt: r.settledAt ? new Date(r.settledAt) : null,
+        approvedAt: r.approvedAt ? new Date(r.approvedAt) : null,
+        paidAt: r.paidAt ? new Date(r.paidAt) : null,
         adminEmail: r.adminEmail,
         isUrgent: r.isUrgent,
         reason: r.reason,
@@ -928,21 +948,21 @@ export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
         notes: r.notes,
         paymentMethod: r.paymentMethod,
         maskedDestination,
-        bankDetails: r.bankDetails ?? undefined,
-        upiDetails: r.upiDetails ?? undefined,
+        bankDetails: safeSerializableJson(r.bankDetails),
+        upiDetails: safeSerializableJson(r.upiDetails),
         rejectedReason: r.rejectedReason,
-        settlementHistory: r.settlementHistory ?? undefined,
+        settlementHistory: safeSerializableJson(r.settlementHistory),
         cfTransferId: r.cfTransferId,
         cfReferenceId: r.cfReferenceId,
         cfUtr: r.cfUtr,
         cfStatus: r.cfStatus,
         cfFailureReason: r.cfFailureReason,
-        initiatedAt: r.initiatedAt,
-        auditHistory: r.auditHistory ?? undefined,
+        initiatedAt: r.initiatedAt ? new Date(r.initiatedAt) : null,
+        auditHistory: safeSerializableJson(r.auditHistory),
       };
     });
   } catch (error) {
-    console.error("getAdminPayoutRequests error:", error);
+    console.error("[Payout Query] getAdminPayoutRequests error:", error);
     return [];
   }
 }

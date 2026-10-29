@@ -93,6 +93,7 @@ import {
   AlertOctagon,
   Loader2,
   RotateCcw,
+  RefreshCw,
 } from "lucide-react";
 
 // Mock User Data for User Management View Fallback
@@ -139,60 +140,58 @@ export default function AdminDashboard() {
 
   const loadAdminData = async () => {
     setLoading(true);
-    const s = await getPlatformStats(filterType, selectedDate, selectedMonth, selectedYear);
-    setStats(s);
-
-    const aData = await getAdminAnalyticsTimeSeries();
-    setAnalyticsData(aData as AdminAnalyticsData);
-
     try {
-      const sellers = await getPendingSellers();
-      setPendingSellers(sellers);
-    } catch (error) {
-      console.error("Could not refresh seller applications:", error);
-      toast.error(error instanceof Error ? error.message : "Could not load seller applications.");
+      const [
+        sRes,
+        aDataRes,
+        sellersRes,
+        casesRes,
+        revsRes,
+        reqsRes,
+        uDataRes,
+        pProdsRes,
+        pDiscRes,
+        ordersRes,
+        txnsRes,
+        notifsRes,
+        credsRes,
+        unreadRes,
+      ] = await Promise.allSettled([
+        getPlatformStats(filterType, selectedDate, selectedMonth, selectedYear),
+        getAdminAnalyticsTimeSeries(),
+        getPendingSellers(),
+        getDisputes(),
+        getAllSellersRevenue(),
+        getAdminPayoutRequests(),
+        getPlatformUsers(),
+        getPendingProducts(),
+        getPendingDiscounts(),
+        getAllOrdersForAdmin(),
+        getAdminTransactions(),
+        getAdminNotifications(),
+        getIntegrationCredentials(),
+        getUnreadMessageCount("admin-1"),
+      ]);
+
+      if (sRes.status === "fulfilled") setStats(sRes.value);
+      if (aDataRes.status === "fulfilled") setAnalyticsData(aDataRes.value as AdminAnalyticsData);
+      if (sellersRes.status === "fulfilled") setPendingSellers(sellersRes.value);
+      if (casesRes.status === "fulfilled") setDisputes(casesRes.value);
+      if (revsRes.status === "fulfilled") setSellerRevenues(revsRes.value);
+      if (reqsRes.status === "fulfilled") setPayoutRequests(reqsRes.value);
+      if (uDataRes.status === "fulfilled") setUsersData(uDataRes.value);
+      if (pProdsRes.status === "fulfilled") setPendingProducts(pProdsRes.value);
+      if (pDiscRes.status === "fulfilled") setPendingDiscounts(pDiscRes.value);
+      if (ordersRes.status === "fulfilled") setAllOrders(ordersRes.value);
+      if (txnsRes.status === "fulfilled") setTransactions(txnsRes.value);
+      if (notifsRes.status === "fulfilled") setNotifications(notifsRes.value);
+      if (credsRes.status === "fulfilled") setCredentials(credsRes.value);
+      if (unreadRes.status === "fulfilled") setMessagesUnreadCount(unreadRes.value);
+    } catch (err) {
+      console.error("loadAdminData caught an unexpected error:", err);
+    } finally {
+      setLoading(false);
     }
-
-    const cases = await getDisputes();
-    setDisputes(cases);
-
-    const revs = await getAllSellersRevenue();
-    setSellerRevenues(revs);
-
-    const reqs = await getAdminPayoutRequests();
-    setPayoutRequests(reqs);
-
-    const uData = await getPlatformUsers();
-    setUsersData(uData);
-
-    try {
-      const pProds = await getPendingProducts();
-      setPendingProducts(pProds);
-    } catch (error) {
-      console.error("Could not refresh product approval requests:", error);
-      toast.error(error instanceof Error ? error.message : "Could not load product approval requests.");
-    }
-
-    const pDisc = await getPendingDiscounts();
-    setPendingDiscounts(pDisc);
-
-    const orders = await getAllOrdersForAdmin();
-    setAllOrders(orders);
-
-    const txns = await getAdminTransactions();
-    console.log("AdminDashboard got txns:", txns);
-    setTransactions(txns);
-
-    const notifs = await getAdminNotifications();
-    setNotifications(notifs);
-
-    const creds = await getIntegrationCredentials();
-    setCredentials(creds);
-
-    const unreadMsgs = await getUnreadMessageCount("admin-1");
-    setMessagesUnreadCount(unreadMsgs);
-
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -255,6 +254,7 @@ export default function AdminDashboard() {
         onClick={() => {
           setActiveTab(value);
           setIsSidebarOpen(false);
+          void loadAdminData();
         }}
         className={`w-full flex items-center justify-between px-6 py-2.5 text-xs font-semibold transition-colors duration-200 ${
           isActive
@@ -1841,7 +1841,7 @@ function DisputesView({ disputes, onResolve, adminEmail }: { disputes: DisputeCa
 // --------------------------------------------------------------------------
 // PAYMENTS VIEW
 // --------------------------------------------------------------------------
-function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail, globalSearch }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string, globalSearch?: string }) {
+function PaymentsView({ payoutRequests: propPayoutRequests = [], transactions = [], onActionComplete, adminEmail, globalSearch }: { payoutRequests?: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string, globalSearch?: string }) {
   const [subTab, setSubTab] = useState<"sellerOnboarding" | "sellerPending" | "sellerSettled" | "completed" | "pending">("sellerPending");
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
   const [actionType, setActionType] = useState<"APPROVE" | "REJECT" | "PAY" | "CASHFREE_PAY" | null>(null);
@@ -1856,6 +1856,42 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
   const [searchSellerPending, setSearchSellerPending] = useState("");
   const [searchSellerSettled, setSearchSellerSettled] = useState("");
   const [searchOnboarding, setSearchOnboarding] = useState("");
+
+  // Payout requests management inside PaymentsView
+  const [localPayoutRequests, setLocalPayoutRequests] = useState<any[]>(propPayoutRequests || []);
+  const [loadingPayouts, setLoadingPayouts] = useState(false);
+
+  // Sync when prop updates
+  useEffect(() => {
+    if (propPayoutRequests && propPayoutRequests.length > 0) {
+      setLocalPayoutRequests(propPayoutRequests);
+    }
+  }, [propPayoutRequests]);
+
+  const loadPayouts = useCallback(async () => {
+    setLoadingPayouts(true);
+    try {
+      const data = await getAdminPayoutRequests();
+      setLocalPayoutRequests(data);
+    } catch (err) {
+      console.error("Failed to load payout requests in PaymentsView:", err);
+    } finally {
+      setLoadingPayouts(false);
+    }
+  }, []);
+
+  // Fetch immediately on mount & when subTab changes
+  useEffect(() => {
+    void loadPayouts();
+  }, [loadPayouts, subTab]);
+
+  // Periodic polling every 8s to pick up new seller withdrawal requests automatically
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void loadPayouts();
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [loadPayouts]);
 
   // Seller Onboarding & Fee Configuration state
   const [onboardingProfiles, setOnboardingProfiles] = useState<SellerOnboardingProfile[]>([]);
@@ -1956,6 +1992,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
           toast.success(res.message || "Cashfree transfer initiated successfully!");
           setSelectedRequest(null);
           setActionType(null);
+          await loadPayouts();
           onActionComplete();
         } else {
           toast.error(res.error || "Cashfree transfer failed.");
@@ -1987,6 +2024,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
       setTransactionId("");
       setRejectReason("");
       setAdminNotes("");
+      await loadPayouts();
       onActionComplete();
     } else {
       toast.error("Failed to update payout request.");
@@ -2000,6 +2038,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
       const res = await reconcileCashfreePayout(requestId);
       if (res.success) {
         toast.success(`Reconciliation complete. Status: ${res.status}`);
+        await loadPayouts();
         onActionComplete();
       } else {
         toast.error(res.error || "Reconciliation failed.");
@@ -2018,6 +2057,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
       const res = await retryFailedPayout(requestId, adminEmail || "admin@earthcentric.com");
       if (res.success) {
         toast.success(res.message || "Payout retry initiated via Cashfree!");
+        await loadPayouts();
         onActionComplete();
       } else {
         toast.error(res.error || "Retry failed.");
@@ -2048,6 +2088,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
     if (success) {
       toast.success(`Successfully settled Rs.${amt.toLocaleString("en-IN")}!`);
       setSelectedRequest(null); setAmountToSettle(""); setTransactionId(""); setAdminNotes("");
+      await loadPayouts();
       onActionComplete();
     } else { toast.error("Failed to process payout settlement."); }
   };
@@ -2088,11 +2129,17 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
     searchPending
   );
   const sellerPayoutPending = filterPayout(
-    payoutRequests.filter((r: any) => ["PENDING","APPROVED","PROCESSING"].includes(r.status)),
+    localPayoutRequests.filter((r: any) => {
+      const st = String(r.status || "").trim().toUpperCase();
+      return ["PENDING", "APPROVED", "PROCESSING"].includes(st);
+    }),
     searchSellerPending
   );
   const sellerPayoutSettled = filterPayout(
-    payoutRequests.filter((r: any) => ["PAID","SETTLED","PARTIALLY_PAID","FAILED","REJECTED"].includes(r.status)),
+    localPayoutRequests.filter((r: any) => {
+      const st = String(r.status || "").trim().toUpperCase();
+      return ["PAID", "SETTLED", "PARTIALLY_PAID", "FAILED", "REJECTED"].includes(st);
+    }),
     searchSellerSettled
   );
   const filteredOnboarding = filterOnboarding(onboardingProfiles, searchOnboarding);
@@ -2560,13 +2607,25 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                 <p className="text-[10px] text-muted-foreground">Seller payout requests awaiting Super Admin review or Cashfree disbursement</p>
               </div>
             </div>
-            {sellerPayoutPending.length > 0 ? (
-              <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full animate-pulse">
-                {sellerPayoutPending.length} need action
-              </span>
-            ) : (
-              <span className="text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1 rounded-full">0 records</span>
-            )}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loadingPayouts}
+                onClick={() => void loadPayouts()}
+                className="h-8 px-2.5 text-xs gap-1.5 border-slate-200 hover:bg-slate-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${loadingPayouts ? "animate-spin" : ""}`} />
+                <span>Refresh</span>
+              </Button>
+              {sellerPayoutPending.length > 0 ? (
+                <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full animate-pulse">
+                  {sellerPayoutPending.length} need action
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1 rounded-full">0 records</span>
+              )}
+            </div>
           </div>
           <Input type="text" placeholder="Search by Seller, Company, ID, Payment Method..." value={searchSellerPending} onChange={(e) => setSearchSellerPending(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
           {renderPayoutTable(sellerPayoutPending, "No pending seller payout requests.", true)}
@@ -2584,7 +2643,19 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                 <p className="text-[10px] text-muted-foreground">All completed settlements, failed transfers, and administrative payout logs</p>
               </div>
             </div>
-            <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">{sellerPayoutSettled.length} records</span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loadingPayouts}
+                onClick={() => void loadPayouts()}
+                className="h-8 px-2.5 text-xs gap-1.5 border-slate-200 hover:bg-slate-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${loadingPayouts ? "animate-spin" : ""}`} />
+                <span>Refresh</span>
+              </Button>
+              <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">{sellerPayoutSettled.length} records</span>
+            </div>
           </div>
           <Input type="text" placeholder="Search by Seller, Company, ID, Reference..." value={searchSellerSettled} onChange={(e) => setSearchSellerSettled(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
           {renderPayoutTable(sellerPayoutSettled, "No settled seller payout records.", false)}
