@@ -38,15 +38,109 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
     }
 
-    const eventType = payload.type || "";
+    const eventType = payload.type || payload.event || "";
     const orderData = payload.data?.order || payload.order || {};
     const paymentData = payload.data?.payment || payload.payment || {};
     const refundData = payload.data?.refund || payload.refund || {};
+    const transferData = payload.data?.transfer || payload.transfer || (payload.data?.transfer_id || payload.transfer_id ? (payload.data || payload) : {}) || {};
     const cashfreeOrderId = orderData.order_id || payload.order_id || refundData.order_id;
     const cashfreePaymentId = paymentData.cf_payment_id || payload.cf_payment_id || String(paymentData.payment_id || "");
     const paymentStatus = paymentData.payment_status || orderData.order_status || "";
 
     console.log(`[Cashfree Webhook] Verified event ${eventType} for order: ${cashfreeOrderId}, status: ${paymentStatus}`);
+
+    // Check for Cashfree Payout transfer events
+    const isTransferWebhook =
+      eventType.startsWith("TRANSFER_") ||
+      (typeof payload.event === "string" && payload.event.startsWith("TRANSFER_")) ||
+      Boolean(transferData.transfer_id || transferData.transferId);
+
+    if (isTransferWebhook) {
+      if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+        try {
+          const transferId = transferData.transfer_id || transferData.transferId || payload.transfer_id;
+          const cfTransferId = transferData.cf_transfer_id || transferData.cfTransferId;
+          const referenceId = transferData.reference_id || transferData.referenceId;
+          const utr = transferData.utr || transferData.bank_reference;
+          const rawStatus = (transferData.status || eventType.replace("TRANSFER_", "")).toUpperCase();
+          const failureReason = transferData.status_description || transferData.reason || transferData.failure_reason;
+
+          const payoutReq = await db.payoutRequest.findFirst({
+            where: {
+              OR: [
+                ...(referenceId ? [{ id: referenceId }] : []),
+                ...(transferId ? [{ cfTransferId: String(transferId) }] : []),
+                ...(cfTransferId ? [{ cfTransferId: String(cfTransferId) }] : []),
+              ],
+            },
+            include: { seller: { include: { user: true } } },
+          });
+
+          if (payoutReq) {
+            if (rawStatus === "SUCCESS") {
+              const currentHistory = Array.isArray(payoutReq.auditHistory) ? (payoutReq.auditHistory as any[]) : [];
+              await db.payoutRequest.update({
+                where: { id: payoutReq.id },
+                data: {
+                  status: "PAID",
+                  cfStatus: "SUCCESS",
+                  cfUtr: utr ? String(utr) : payoutReq.cfUtr,
+                  paidAt: new Date(),
+                  settledAt: new Date(),
+                  auditHistory: [
+                    ...currentHistory,
+                    {
+                      action: "TRANSFER_SUCCESS_WEBHOOK",
+                      timestamp: new Date().toISOString(),
+                      performedBy: "Cashfree Webhook",
+                      notes: `Payout transferred successfully. UTR: ${utr || "N/A"}`,
+                    },
+                  ],
+                },
+              });
+              if (payoutReq.seller?.userId) {
+                await createNotification(
+                  payoutReq.seller.userId,
+                  "Payout Settled Successfully 🎉",
+                  `Your payout of ₹${payoutReq.amount} has been successfully settled (UTR: ${utr || "N/A"}).`,
+                  "/seller/dashboard"
+                ).catch(() => {});
+              }
+            } else if (rawStatus === "FAILED" || rawStatus === "REVERSED") {
+              const currentHistory = Array.isArray(payoutReq.auditHistory) ? (payoutReq.auditHistory as any[]) : [];
+              await db.payoutRequest.update({
+                where: { id: payoutReq.id },
+                data: {
+                  status: "FAILED",
+                  cfStatus: rawStatus,
+                  cfFailureReason: failureReason || `Transfer ${rawStatus.toLowerCase()} via Cashfree Payouts`,
+                  auditHistory: [
+                    ...currentHistory,
+                    {
+                      action: `TRANSFER_${rawStatus}_WEBHOOK`,
+                      timestamp: new Date().toISOString(),
+                      performedBy: "Cashfree Webhook",
+                      notes: failureReason || `Transfer marked as ${rawStatus}`,
+                    },
+                  ],
+                },
+              });
+              if (payoutReq.seller?.userId) {
+                await createNotification(
+                  payoutReq.seller.userId,
+                  "Payout Transfer Failed ⚠️",
+                  `Your payout request of ₹${payoutReq.amount} could not be completed (${failureReason || "Provider error"}). Your withdrawable balance has been restored.`,
+                  "/seller/dashboard"
+                ).catch(() => {});
+              }
+            }
+          }
+        } catch (err) {
+          console.error("[Cashfree Webhook] Error processing transfer webhook:", err);
+        }
+      }
+      return NextResponse.json({ status: "SUCCESS", message: "Payout transfer webhook processed." });
+    }
 
     if (eventType.includes("REFUND") && cashfreeOrderId && refundData.refund_id && refundData.refund_status) {
       if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
@@ -69,6 +163,58 @@ export async function POST(req: NextRequest) {
       eventType === "PAYMENT_SUCCESS_WEBHOOK" ||
       eventType === "ORDER_PAID" ||
       paymentStatus === "SUCCESS";
+
+    // Handle Seller Registration Fee payments
+    if (cashfreeOrderId && cashfreeOrderId.startsWith("SELLER-FEE-")) {
+      if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+        try {
+          const regPayment = await db.sellerRegistrationPayment.findFirst({
+            where: { cashfreeOrderId },
+            include: { seller: { include: { user: true } } },
+          });
+
+          if (regPayment) {
+            if (isSuccess) {
+              await db.sellerRegistrationPayment.update({
+                where: { id: regPayment.id },
+                data: {
+                  status: "COMPLETED",
+                  cashfreePaymentId: String(cashfreePaymentId || ""),
+                  paidAt: new Date(),
+                },
+              });
+              await db.seller.update({
+                where: { id: regPayment.sellerId },
+                data: {
+                  registrationFeePaid: true,
+                  registrationFeePaidAt: new Date(),
+                  registrationFeeOrderId: cashfreeOrderId,
+                  registrationFeeTransactionId: String(cashfreePaymentId || ""),
+                },
+              });
+              if (regPayment.seller?.userId) {
+                await createNotification(
+                  regPayment.seller.userId,
+                  "Registration Fee Paid ✅",
+                  "Your ₹1 seller registration fee has been successfully verified. Please proceed with your Bank/UPI payout details.",
+                  "/seller/dashboard"
+                ).catch(() => {});
+              }
+            } else if (paymentStatus === "FAILED" || eventType.includes("FAILED")) {
+              await db.sellerRegistrationPayment.update({
+                where: { id: regPayment.id },
+                data: {
+                  status: "FAILED",
+                },
+              });
+            }
+          }
+        } catch (feeErr) {
+          console.error("[Cashfree Webhook] Error updating seller registration fee:", feeErr);
+        }
+      }
+      return NextResponse.json({ status: "SUCCESS", message: "Seller registration fee webhook processed." });
+    }
 
     if (isSuccess && cashfreeOrderId) {
       if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {

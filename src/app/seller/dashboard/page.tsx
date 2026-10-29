@@ -8,7 +8,18 @@ import { getSellerDashboardStats, getSellerProfile, SellerProfile, getSellerAnal
 import { getUserNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getProducts, createProduct, archiveProduct, ProductItem, updateProductStock, updateProduct, TierDiscount, BuyXGetYOffer } from "@/actions/products";
 import { getOrdersBySeller, requestOrderCancellation, updateOrderStatus, trackOrderById, OrderDetail } from "@/actions/orders";
-import { getSellerPayoutStats, requestPayout, getSellerPayoutRequests, SellerPayoutStats, PayoutRequestInfo } from "@/actions/payouts";
+import { 
+  getSellerPayoutStats, 
+  requestPayout, 
+  getSellerPayoutRequests, 
+  getSellerPayoutOnboardingStatus,
+  saveSellerPayoutProfile,
+  createRegistrationFeeOrder,
+  verifyRegistrationFeePayment,
+  SellerPayoutStats, 
+  PayoutRequestInfo,
+  SellerPayoutOnboardingStatus
+} from "@/actions/payouts";
 import { getSellerEnquiries, updateEnquiryStatus, EnquiryData } from "@/actions/enquiries";
 import { getSellerComplaints, updateComplaintStatus, ComplaintData } from "@/actions/complaints";
 import { getUnreadMessageCount } from "@/actions/messages";
@@ -4274,19 +4285,176 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
   const [payoutSuccess, setPayoutSuccess] = useState("");
   const [requestingPayout, setRequestingPayout] = useState(false);
 
-  // New payment method states
-  const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER"); // BANK_TRANSFER or UPI
-  
-  // Bank details states
+  // Onboarding status state
+  const [onboarding, setOnboarding] = useState<SellerPayoutOnboardingStatus | null>(null);
+  const [loadingOnboarding, setLoadingOnboarding] = useState(true);
+  const [isEditingPayoutProfile, setIsEditingPayoutProfile] = useState(false);
+  const [payingFee, setPayingFee] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileFormError, setProfileFormError] = useState("");
+
+  // Payment method and profile form states
+  const [paymentMethod, setPaymentMethod] = useState<"BANK_TRANSFER" | "UPI">("BANK_TRANSFER");
   const [accountNumber, setAccountNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [ifscCode, setIfscCode] = useState("");
   const [accountHolderName, setAccountHolderName] = useState("");
-
-  // UPI details states
   const [upiId, setUpiId] = useState("");
   const [upiAccountHolderName, setUpiAccountHolderName] = useState("");
 
+  const loadOnboarding = useCallback(async () => {
+    if (!sellerId) return;
+    setLoadingOnboarding(true);
+    try {
+      const status = await getSellerPayoutOnboardingStatus(sellerId);
+      setOnboarding(status);
+      if (status.paymentMethod === "UPI") {
+        setPaymentMethod("UPI");
+      }
+      if (status.bankAccountHolderName) setAccountHolderName(status.bankAccountHolderName);
+      if (status.bankName) setBankName(status.bankName);
+      if (status.bankIfsc) setIfscCode(status.bankIfsc);
+      if (status.upiId) setUpiId(status.upiId);
+      if (status.upiHolderName) setUpiAccountHolderName(status.upiHolderName);
+    } catch (e) {
+      console.error("Failed to load payout onboarding status:", e);
+    } finally {
+      setLoadingOnboarding(false);
+    }
+  }, [sellerId]);
+
+  useEffect(() => {
+    loadOnboarding();
+  }, [loadOnboarding]);
+
+  // Handle ₹1 Registration Fee Payment via Cashfree
+  const handlePayRegistrationFee = async () => {
+    if (!sellerId) return;
+    setPayingFee(true);
+    setPayoutError("");
+    try {
+      const res = await createRegistrationFeeOrder(sellerId);
+      if (!res.success) {
+        toast.error(res.error || "Failed to create registration fee order.");
+        setPayingFee(false);
+        return;
+      }
+
+      if (res.alreadyPaid) {
+        toast.success("Registration fee is already paid!");
+        await loadOnboarding();
+        setPayingFee(false);
+        return;
+      }
+
+      if (res.paymentSessionId && res.orderId) {
+        try {
+          const { load } = await import("@cashfreepayments/cashfree-js");
+          const cashfree = await load({
+            mode: (process.env.NEXT_PUBLIC_CASHFREE_MODE as "sandbox" | "production") || "sandbox",
+          });
+          const checkoutResult = await cashfree.checkout({
+            paymentSessionId: res.paymentSessionId,
+            redirectTarget: "_modal",
+          });
+
+          if (checkoutResult?.error) {
+            console.warn("Cashfree checkout error / closed:", checkoutResult.error);
+          }
+
+          // Verify with backend
+          const verification = await verifyRegistrationFeePayment(sellerId, res.orderId);
+          if (verification.success && verification.paid) {
+            toast.success("₹1 Registration Fee verified successfully! You can now configure payout details.");
+            await loadOnboarding();
+            reload();
+          } else {
+            toast.info("Payment initiated. Please check status if you completed the payment.");
+          }
+        } catch (sdkErr) {
+          console.warn("Cashfree JS dropin failed or was blocked, verifying order directly:", sdkErr);
+          const verification = await verifyRegistrationFeePayment(sellerId, res.orderId);
+          if (verification.success && verification.paid) {
+            toast.success("Registration fee verified successfully!");
+            await loadOnboarding();
+            reload();
+          } else {
+            toast.info("Payment session created. If payment succeeded, verification will complete shortly.");
+          }
+        }
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to initiate registration fee payment.");
+    } finally {
+      setPayingFee(false);
+    }
+  };
+
+  // Handle Save Payout Profile
+  const handleSavePayoutProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileFormError("");
+
+    if (paymentMethod === "BANK_TRANSFER") {
+      if (!accountHolderName.trim()) {
+        setProfileFormError("Account holder name is required.");
+        return;
+      }
+      if (!bankName.trim()) {
+        setProfileFormError("Bank name is required.");
+        return;
+      }
+      const cleanAcc = accountNumber.trim();
+      if (!/^\d{9,18}$/.test(cleanAcc)) {
+        setProfileFormError("Please enter a valid bank account number (9 to 18 digits).");
+        return;
+      }
+      const cleanIfsc = ifscCode.trim().toUpperCase();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanIfsc)) {
+        setProfileFormError("Invalid IFSC code format (e.g. HDFC0000123).");
+        return;
+      }
+    } else {
+      if (!upiAccountHolderName.trim()) {
+        setProfileFormError("Account holder name is required.");
+        return;
+      }
+      const cleanUpi = upiId.trim();
+      if (!/^[\w.-]+@[\w.-]+$/.test(cleanUpi)) {
+        setProfileFormError("Invalid UPI ID format (e.g. name@okaxis or user@upi).");
+        return;
+      }
+    }
+
+    setSavingProfile(true);
+    try {
+      const payload = {
+        method: paymentMethod === "BANK_TRANSFER" ? ("BANK" as const) : ("UPI" as const),
+        accountHolderName: paymentMethod === "BANK_TRANSFER" ? accountHolderName.trim() : upiAccountHolderName.trim(),
+        bankName: paymentMethod === "BANK_TRANSFER" ? bankName.trim() : undefined,
+        accountNumber: paymentMethod === "BANK_TRANSFER" ? accountNumber.trim() : undefined,
+        ifscCode: paymentMethod === "BANK_TRANSFER" ? ifscCode.trim().toUpperCase() : undefined,
+        upiId: paymentMethod === "UPI" ? upiId.trim() : undefined,
+      };
+
+      const res = await saveSellerPayoutProfile(sellerId, payload);
+      if (res.success) {
+        toast.success("Payout details submitted for Super Admin verification!");
+        setIsEditingPayoutProfile(false);
+        setAccountNumber("");
+        await loadOnboarding();
+        reload();
+      } else {
+        setProfileFormError(res.error || "Failed to save payout profile.");
+      }
+    } catch (err: any) {
+      setProfileFormError(err?.message || "Failed to save payout profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  // Handle Withdrawal Request
   const handleRequestPayout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !payoutAmount) return;
@@ -4295,7 +4463,7 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
     setRequestingPayout(true);
 
     const amountNum = Number(payoutAmount);
-    if (amountNum <= 0) {
+    if (isNaN(amountNum) || amountNum <= 0) {
       setPayoutError("Withdrawal amount must be greater than zero.");
       setRequestingPayout(false);
       return;
@@ -4307,40 +4475,23 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
       return;
     }
 
-    const methodSelected = paymentMethod === "BANK_TRANSFER" ? "BANK" : "UPI";
-    const bankDetailsPayload = paymentMethod === "BANK_TRANSFER" ? {
-      bankName,
-      accountNumber,
-      ifscCode,
-      accountHolderName
-    } : null;
-    const upiDetailsPayload = paymentMethod === "UPI" ? {
-      upiId,
-      accountHolderName: upiAccountHolderName
-    } : null;
-
     try {
       const res = await requestPayout(
-        sellerId, 
-        amountNum, 
-        methodSelected,
-        bankDetailsPayload,
-        upiDetailsPayload,
-        isUrgent, 
+        sellerId,
+        amountNum,
+        onboarding?.paymentMethod || (paymentMethod === "BANK_TRANSFER" ? "BANK" : "UPI"),
+        undefined,
+        undefined,
+        isUrgent,
         reason
       );
       if (res.success) {
-        setPayoutSuccess(`Successfully requested ₹${amountNum.toLocaleString()}!`);
+        setPayoutSuccess(`Successfully requested ₹${amountNum.toLocaleString("en-IN")}!`);
         setPayoutAmount("");
         setIsUrgent(false);
         setReason("");
-        setAccountNumber("");
-        setBankName("");
-        setIfscCode("");
-        setAccountHolderName("");
-        setUpiId("");
-        setUpiAccountHolderName("");
         reload();
+        await loadOnboarding();
       } else {
         setPayoutError(res.error || "Failed to request payout.");
       }
@@ -4351,147 +4502,359 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
     }
   };
 
+  const sellerApproved = onboarding?.sellerApproved ?? false;
+  const feeEnabled = onboarding?.feeEnabled ?? false;
+  const feePaid = onboarding?.feePaid ?? true;
+  const payoutVerificationStatus = onboarding?.payoutVerificationStatus ?? "NOT_SUBMITTED";
+  const isVerified = payoutVerificationStatus === "VERIFIED";
+  const canWithdraw = onboarding?.canWithdraw ?? false;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div>
-        <h1 className="text-2xl font-bold text-[#2d4a36]">Payments & Settlements</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your wallet balance and review past settlements.</p>
+        <h1 className="text-2xl font-bold text-[#2d4a36]">Payments &amp; Settlements</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage your wallet balance, verify payout destinations, and review past settlements.</p>
       </div>
-      
+
+      {/* 4 Financial Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Simple payout metrics */}
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl">
           <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Withdrawable Balance</p>
-          <h3 className="text-2xl font-black text-emerald-600">₹{(payoutStats?.availableBalance ?? 0).toLocaleString()}</h3>
+          <h3 className="text-2xl font-black text-emerald-600">₹{(payoutStats?.availableBalance ?? 0).toLocaleString("en-IN")}</h3>
         </Card>
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl">
           <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Pending Settlements</p>
-          <h3 className="text-2xl font-black text-amber-500">₹{(payoutStats?.pendingAmount ?? 0).toLocaleString()}</h3>
+          <h3 className="text-2xl font-black text-amber-500">₹{(payoutStats?.pendingAmount ?? 0).toLocaleString("en-IN")}</h3>
         </Card>
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl">
           <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Settled Payouts</p>
-          <h3 className="text-2xl font-black text-[#2d4a36]">₹{(payoutStats?.settledAmount ?? 0).toLocaleString()}</h3>
+          <h3 className="text-2xl font-black text-[#2d4a36]">₹{(payoutStats?.settledAmount ?? 0).toLocaleString("en-IN")}</h3>
         </Card>
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl">
           <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1">Total Sales Revenue</p>
-          <h3 className="text-2xl font-black text-foreground">₹{(payoutStats?.totalSalesRevenue ?? 0).toLocaleString()}</h3>
+          <h3 className="text-2xl font-black text-foreground">₹{(payoutStats?.totalSalesRevenue ?? 0).toLocaleString("en-IN")}</h3>
         </Card>
       </div>
 
+      {/* Seller Application Status Banner if not approved */}
+      {!sellerApproved && (
+        <Card className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex items-center justify-between">
+          <div>
+            <p className="font-bold">Seller Application Under Review</p>
+            <p className="text-[11px] text-amber-800 mt-0.5">
+              Your seller application status is <strong>{onboarding?.sellerStatus || "PENDING"}</strong>. Super Admin approval is required before onboarding payout details or withdrawing funds.
+            </p>
+          </div>
+          <Badge className="bg-amber-100 text-amber-800 border-none font-bold uppercase text-[10px]">
+            {onboarding?.sellerStatus || "PENDING"}
+          </Badge>
+        </Card>
+      )}
+
+      {/* Step 1: Registration Fee Banner if enabled & unpaid */}
+      {sellerApproved && feeEnabled && !feePaid && (
+        <Card className="p-5 bg-gradient-to-r from-emerald-50 via-[#f4f7f4] to-emerald-50 border border-emerald-200 rounded-2xl shadow-sm text-left">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-emerald-600 text-white border-none text-[9px] font-bold uppercase">Required Step</Badge>
+                <h4 className="font-extrabold text-sm text-[#1a3321]">One-Time Seller Onboarding Fee (₹{onboarding?.feeAmount?.toFixed(0) || "1"})</h4>
+              </div>
+              <p className="text-xs text-slate-600 max-w-xl">
+                Earth Centric requires a nominal one-time registration fee of ₹1.00 INR to activate bank verification and seller payout disbursement capabilities via Cashfree.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handlePayRegistrationFee}
+                disabled={payingFee}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs h-9 px-4 rounded-xl border-none shadow-sm"
+              >
+                {payingFee ? "Connecting Cashfree..." : "Pay ₹1 via Cashfree"}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Step 2: Beneficiary / Payout Destination Status or Form */}
+      {sellerApproved && (!feeEnabled || feePaid) && (
+        <Card className="p-6 bg-white border-none shadow-sm rounded-2xl text-left">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#e9ece6] gap-2">
+            <div>
+              <h3 className="font-bold text-sm text-[#2d4a36]">Payout Beneficiary Destination</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Bank account or UPI ID where seller withdrawal earnings will be disbursed.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {payoutVerificationStatus === "VERIFIED" && (
+                <Badge className="bg-emerald-50 text-emerald-700 border-none font-bold text-[10px] uppercase">
+                  Verified Beneficiary
+                </Badge>
+              )}
+              {payoutVerificationStatus === "PENDING_VERIFICATION" && (
+                <Badge className="bg-amber-50 text-amber-700 border-none font-bold text-[10px] uppercase animate-pulse">
+                  Verification Pending
+                </Badge>
+              )}
+              {payoutVerificationStatus === "VERIFICATION_FAILED" && (
+                <Badge className="bg-red-50 text-red-700 border-none font-bold text-[10px] uppercase">
+                  Verification Failed
+                </Badge>
+              )}
+              {payoutVerificationStatus === "UPDATE_REQUIRED" && (
+                <Badge className="bg-cyan-50 text-cyan-700 border-none font-bold text-[10px] uppercase">
+                  Update Required
+                </Badge>
+              )}
+              {payoutVerificationStatus === "NOT_SUBMITTED" && (
+                <Badge className="bg-slate-100 text-slate-700 border-none font-bold text-[10px] uppercase">
+                  Not Submitted
+                </Badge>
+              )}
+              {isVerified && !isEditingPayoutProfile && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsEditingPayoutProfile(true)}
+                  className="text-[11px] h-7 px-3 border-slate-200 text-[#2d4a36]"
+                >
+                  Update Details
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* If already submitted / verified and not editing, show summary card */}
+          {!isEditingPayoutProfile && payoutVerificationStatus !== "NOT_SUBMITTED" && payoutVerificationStatus !== "UPDATE_REQUIRED" && (
+            <div className="mt-4 p-4 bg-[#f8faf8] border border-[#e4ebe4] rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                  {onboarding?.paymentMethod === "UPI" ? "Verified UPI Destination" : "Verified Bank Account"}
+                </p>
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm font-bold text-[#1a3321]">
+                    {onboarding?.paymentMethod === "UPI"
+                      ? (onboarding?.maskedUpiId || "UPI ID")
+                      : (onboarding?.maskedAccountNumber || "Bank Account")}
+                  </span>
+                  {onboarding?.paymentMethod === "BANK" && onboarding?.bankIfsc && (
+                    <span className="text-xs text-slate-500 font-mono">IFSC: {onboarding.bankIfsc}</span>
+                  )}
+                  {onboarding?.bankName && (
+                    <span className="text-xs text-slate-600 font-medium">({onboarding.bankName})</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Holder: <strong>{onboarding?.bankAccountHolderName || "Seller"}</strong>
+                </p>
+              </div>
+
+              {payoutVerificationStatus === "PENDING_VERIFICATION" && (
+                <div className="text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                  Super Admin is verifying your payout credentials. Withdrawals will be enabled once approved.
+                </div>
+              )}
+
+              {payoutVerificationStatus === "VERIFICATION_FAILED" && (
+                <div className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200">
+                  <p className="font-bold">Verification Failed:</p>
+                  <p>{onboarding?.payoutRejectionReason || "Details could not be confirmed."}</p>
+                  <Button
+                    size="sm"
+                    variant="cool"
+                    className="mt-2 text-[10px] h-6"
+                    onClick={() => setIsEditingPayoutProfile(true)}
+                  >
+                    Re-enter Details
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Form to submit or update payout details */}
+          {(isEditingPayoutProfile || payoutVerificationStatus === "NOT_SUBMITTED" || payoutVerificationStatus === "UPDATE_REQUIRED") && (
+            <form onSubmit={handleSavePayoutProfile} className="mt-4 space-y-4">
+              {onboarding?.payoutRejectionReason && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+                  <strong>Previous Rejection Reason:</strong> {onboarding.payoutRejectionReason}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-[#2d4a36]">Payout Method</Label>
+                <div className="grid grid-cols-2 gap-2 max-w-sm">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("BANK_TRANSFER")}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
+                      paymentMethod === "BANK_TRANSFER"
+                        ? "bg-primary text-white border-primary shadow-sm"
+                        : "bg-[#FFFDF8]/40 hover:bg-[#FFFDF8]/80 text-[#2d4a36] border-[#d8dcd3]"
+                    }`}
+                  >
+                    Bank Transfer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("UPI")}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
+                      paymentMethod === "UPI"
+                        ? "bg-primary text-white border-primary shadow-sm"
+                        : "bg-[#FFFDF8]/40 hover:bg-[#FFFDF8]/80 text-[#2d4a36] border-[#d8dcd3]"
+                    }`}
+                  >
+                    UPI
+                  </button>
+                </div>
+              </div>
+
+              {paymentMethod === "BANK_TRANSFER" ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-[#d8dcd3]/60">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px]">Account Holder Name *</Label>
+                    <Input
+                      type="text"
+                      value={accountHolderName}
+                      onChange={(e) => setAccountHolderName(e.target.value)}
+                      placeholder="e.g. Rajesh Kumar"
+                      required
+                      className="h-9 text-xs bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px]">Bank Name *</Label>
+                    <Input
+                      type="text"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="e.g. HDFC Bank"
+                      required
+                      className="h-9 text-xs bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px]">Bank Account Number *</Label>
+                    <Input
+                      type="text"
+                      value={accountNumber}
+                      onChange={(e) => setAccountNumber(e.target.value.replace(/\s+/g, ""))}
+                      placeholder="e.g. 50100234567890"
+                      required
+                      className="h-9 text-xs bg-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px]">IFSC Code *</Label>
+                    <Input
+                      type="text"
+                      value={ifscCode}
+                      onChange={(e) => setIfscCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. HDFC0000123"
+                      required
+                      className="h-9 text-xs bg-white font-mono uppercase"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-[#d8dcd3]/60">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px]">Account Holder Name *</Label>
+                    <Input
+                      type="text"
+                      value={upiAccountHolderName}
+                      onChange={(e) => setUpiAccountHolderName(e.target.value)}
+                      placeholder="e.g. Rajesh Kumar"
+                      required
+                      className="h-9 text-xs bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px]">UPI ID (VPA) *</Label>
+                    <Input
+                      type="text"
+                      value={upiId}
+                      onChange={(e) => setUpiId(e.target.value.trim().toLowerCase())}
+                      placeholder="e.g. rajesh@okaxis"
+                      required
+                      className="h-9 text-xs bg-white font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {profileFormError && <p className="text-xs text-red-500 font-semibold">{profileFormError}</p>}
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 px-4 rounded-xl border-none shadow-sm font-bold"
+                >
+                  {savingProfile ? "Submitting for Verification..." : "Submit Payout Details for Verification"}
+                </Button>
+                {isEditingPayoutProfile && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsEditingPayoutProfile(false)}
+                    className="text-xs h-9"
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          )}
+        </Card>
+      )}
+
+      {/* Main Grid: Request Payment on Left, Settlement History on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Request Payment Form */}
         <Card className="p-6 bg-white border-none shadow-sm rounded-2xl lg:col-span-1 space-y-4">
           <h3 className="font-bold text-sm text-[#2d4a36] pb-2 border-b border-[#e9ece6]">Request Payment</h3>
           <form onSubmit={handleRequestPayout} className="space-y-4">
             <div className="space-y-1.5 text-left">
               <Label>Amount to Withdraw (₹)</Label>
-              <Input type="number" min="1" value={payoutAmount} onChange={(e) => setPayoutAmount(e.target.value)} required />
+              <Input
+                type="number"
+                min="1"
+                max={payoutStats?.availableBalance ?? 0}
+                value={payoutAmount}
+                onChange={(e) => setPayoutAmount(e.target.value)}
+                placeholder="Enter withdrawal amount"
+                required
+                disabled={!canWithdraw}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Max withdrawable: ₹{(payoutStats?.availableBalance ?? 0).toLocaleString("en-IN")}
+              </p>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="space-y-2 text-left">
-              <Label className="text-xs font-bold text-[#2d4a36]">Payment Method</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("BANK_TRANSFER")}
-                  className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
-                    paymentMethod === "BANK_TRANSFER"
-                      ? "bg-primary text-white border-primary shadow-sm"
-                      : "bg-[#FFFDF8]/40 hover:bg-[#FFFDF8]/80 text-[#2d4a36] border-[#d8dcd3]"
-                  }`}
-                >
-                  Bank Transfer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("UPI")}
-                  className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
-                    paymentMethod === "UPI"
-                      ? "bg-primary text-white border-primary shadow-sm"
-                      : "bg-[#FFFDF8]/40 hover:bg-[#FFFDF8]/80 text-[#2d4a36] border-[#d8dcd3]"
-                  }`}
-                >
-                  UPI
-                </button>
-              </div>
+            {/* Destination Preview */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-left space-y-1">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase">Disbursement Destination</p>
+              {isVerified ? (
+                <div className="text-xs text-slate-800">
+                  <p className="font-bold">
+                    {onboarding?.paymentMethod === "UPI" ? "UPI Transfer" : "Direct Bank Transfer"}
+                  </p>
+                  <p className="font-mono text-slate-600 text-[11px]">
+                    {onboarding?.paymentMethod === "UPI" ? onboarding?.maskedUpiId : onboarding?.maskedAccountNumber}
+                  </p>
+                  {onboarding?.paymentMethod === "BANK" && onboarding?.bankIfsc && (
+                    <p className="text-[10px] text-slate-500 font-mono">IFSC: {onboarding.bankIfsc}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-amber-700 italic">
+                  Payout destination must be verified by Super Admin before requesting withdrawals.
+                </p>
+              )}
             </div>
-
-            {/* Dynamic Form details based on Payment Method */}
-            {paymentMethod === "BANK_TRANSFER" ? (
-              <div className="space-y-3 p-3 bg-slate-50 dark:bg-emerald-950/20 rounded-2xl border border-[#d8dcd3]/60 animate-in fade-in duration-200 text-left">
-                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">Bank Account Details</p>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px]">Account Holder Name</Label>
-                  <Input 
-                    type="text" 
-                    value={accountHolderName} 
-                    onChange={(e) => setAccountHolderName(e.target.value)} 
-                    placeholder="E.g. Rajesh Kumar" 
-                    required 
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px]">Bank Name</Label>
-                  <Input 
-                    type="text" 
-                    value={bankName} 
-                    onChange={(e) => setBankName(e.target.value)} 
-                    placeholder="E.g. HDFC Bank" 
-                    required 
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px]">Account Number</Label>
-                  <Input 
-                    type="text" 
-                    value={accountNumber} 
-                    onChange={(e) => setAccountNumber(e.target.value)} 
-                    placeholder="Enter Account Number" 
-                    required 
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px]">IFSC Code</Label>
-                  <Input 
-                    type="text" 
-                    value={ifscCode} 
-                    onChange={(e) => setIfscCode(e.target.value)} 
-                    placeholder="E.g. HDFC0000123" 
-                    required 
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3 p-3 bg-slate-50 dark:bg-emerald-950/20 rounded-2xl border border-[#d8dcd3]/60 animate-in fade-in duration-200 text-left">
-                <p className="text-[10px] font-bold text-[#6a7b6e] uppercase tracking-wider">UPI Details</p>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px]">Account Holder Name</Label>
-                  <Input 
-                    type="text" 
-                    value={upiAccountHolderName} 
-                    onChange={(e) => setUpiAccountHolderName(e.target.value)} 
-                    placeholder="E.g. Rajesh Kumar" 
-                    required 
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px]">UPI ID (VPA)</Label>
-                  <Input 
-                    type="text" 
-                    value={upiId} 
-                    onChange={(e) => setUpiId(e.target.value)} 
-                    placeholder="E.g. rajesh@okaxis" 
-                    required 
-                    className="h-8 text-xs bg-white"
-                  />
-                </div>
-              </div>
-            )}
 
             <div className="flex items-center space-x-2 py-1 text-left">
               <input
@@ -4499,6 +4862,7 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
                 id="isUrgent"
                 checked={isUrgent}
                 onChange={(e) => setIsUrgent(e.target.checked)}
+                disabled={!canWithdraw}
                 className="rounded border-[#d8dcd3] text-emerald-600 focus:ring-emerald-500 cursor-pointer h-4 w-4"
               />
               <Label htmlFor="isUrgent" className="text-xs font-semibold cursor-pointer">
@@ -4519,57 +4883,98 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
               </div>
             )}
 
-            {payoutError && <p className="text-xs text-red-500 text-left">{payoutError}</p>}
-            {payoutSuccess && <p className="text-xs text-emerald-600 text-left">{payoutSuccess}</p>}
-            <MetalButton type="submit" variant="success" className="w-full" disabled={requestingPayout || (payoutStats?.availableBalance ?? 0) <= 0}>
+            {payoutError && <p className="text-xs text-red-500 text-left font-semibold">{payoutError}</p>}
+            {payoutSuccess && <p className="text-xs text-emerald-600 text-left font-semibold">{payoutSuccess}</p>}
+
+            <MetalButton
+              type="submit"
+              variant="success"
+              className="w-full"
+              disabled={requestingPayout || !canWithdraw || (payoutStats?.availableBalance ?? 0) <= 0}
+            >
               {requestingPayout ? "Submitting..." : "Request Payout"}
             </MetalButton>
+
+            {!canWithdraw && (
+              <p className="text-[10px] text-amber-700 text-center font-medium">
+                {!sellerApproved
+                  ? "Seller approval required by Super Admin."
+                  : feeEnabled && !feePaid
+                  ? "₹1 registration fee payment required."
+                  : !isVerified
+                  ? "Bank/UPI beneficiary verification required."
+                  : "Insufficient withdrawable balance."}
+              </p>
+            )}
           </form>
         </Card>
-        
-        <Card className="p-6 bg-white border-none shadow-sm rounded-2xl lg:col-span-2">
-          <h3 className="font-bold text-sm text-[#2d4a36] pb-2 border-b border-[#e9ece6] mb-4">Settlement History</h3>
+
+        {/* Settlement History Table */}
+        <Card className="p-6 bg-white border-none shadow-sm rounded-2xl lg:col-span-2 text-left">
+          <div className="flex items-center justify-between pb-2 border-b border-[#e9ece6] mb-4">
+            <h3 className="font-bold text-sm text-[#2d4a36]">Settlement History</h3>
+            <span className="text-[11px] font-bold text-slate-500">{payoutRequests.length} requests</span>
+          </div>
           <Table>
             <TableHeader>
               <TableRow className="border-[#e9ece6]">
                 <TableHead className="text-xs">Date</TableHead>
-                <TableHead className="text-xs">Requested Amount</TableHead>
-                <TableHead className="text-xs">Payment Method</TableHead>
+                <TableHead className="text-xs">Amount</TableHead>
+                <TableHead className="text-xs">Method</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
-                <TableHead className="text-xs">Transaction ID</TableHead>
-                <TableHead className="text-xs">Admin Notes</TableHead>
+                <TableHead className="text-xs">Transaction / Reference ID</TableHead>
+                <TableHead className="text-xs">Notes / Details</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {payoutRequests.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-xs py-6">No past requests.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-xs py-8 text-muted-foreground">
+                    No past settlement requests recorded.
+                  </TableCell>
+                </TableRow>
               ) : (
                 payoutRequests.map((req: any) => (
                   <TableRow key={req.id} className="border-[#e9ece6]/50">
-                    <TableCell className="text-xs">{new Date(req.requestedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-xs font-bold">
-                      ₹{req.amount.toLocaleString()}
+                    <TableCell className="text-xs">
+                      {new Date(req.requestedAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-xs font-bold text-[#1a3321]">
+                      ₹{req.amount.toLocaleString("en-IN")}
                       {req.status === "PARTIALLY_PAID" && (
                         <div className="text-[10px] text-slate-500 font-normal">
-                          Remaining: ₹{req.remainingAmount?.toLocaleString()}
+                          Remaining: ₹{req.remainingAmount?.toLocaleString("en-IN")}
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-xs font-semibold text-[#2d4a36]">{req.paymentMethod}</TableCell>
+                    <TableCell className="text-xs font-semibold text-[#2d4a36]">
+                      {req.paymentMethod}
+                    </TableCell>
                     <TableCell className="text-xs font-bold">
-                      <span className={`capitalize ${
-                        req.status === "PAID" || req.status === "SETTLED" ? "text-emerald-600" :
-                        req.status === "PARTIALLY_PAID" ? "text-cyan-600" :
-                        req.status === "APPROVED" ? "text-blue-600" :
-                        req.status === "REJECTED" ? "text-red-600" :
-                        "text-amber-500"
-                      }`}>
-                        {req.status === "PARTIALLY_PAID" ? "partially paid" : req.status.toLowerCase().replace("_", " ")}
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          req.status === "PAID" || req.status === "SETTLED"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : req.status === "PROCESSING"
+                            ? "bg-purple-50 text-purple-700 animate-pulse"
+                            : req.status === "APPROVED"
+                            ? "bg-blue-50 text-blue-700"
+                            : req.status === "REJECTED" || req.status === "FAILED"
+                            ? "bg-red-50 text-red-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {req.status.replace("_", " ")}
                       </span>
                     </TableCell>
-                    <TableCell className="text-xs font-mono">{req.transactionId || "-"}</TableCell>
+                    <TableCell className="text-xs font-mono">
+                      {req.transactionId || req.cfReferenceId || req.cfTransferId || "-"}
+                      {req.cfUtr && (
+                        <div className="text-[9px] text-emerald-600 font-mono">UTR: {req.cfUtr}</div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {req.notes || (req.rejectedReason ? `Rejected: ${req.rejectedReason}` : "-")}
+                      {req.notes || (req.rejectedReason ? `Rejected: ${req.rejectedReason}` : req.cfFailureReason ? `Failed: ${req.cfFailureReason}` : "-")}
                     </TableCell>
                   </TableRow>
                 ))

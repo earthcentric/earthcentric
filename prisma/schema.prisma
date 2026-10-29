@@ -119,19 +119,32 @@ model Seller {
   factoryAddress     String?
   pickupAddress      String?
   companyAddress     String?
-  bankAccountNo      String?
-  bankName           String?
-  bankIfsc           String?
-  bankProofUrl       String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  bankAccountNo              String?
+  bankName                   String?
+  bankIfsc                   String?
+  bankProofUrl               String?
+  bankAccountHolderName      String?
+  upiId                      String?
+  upiHolderName              String?
+  payoutVerificationStatus   String                     @default("NOT_SUBMITTED") // NOT_SUBMITTED, PENDING_VERIFICATION, VERIFIED, VERIFICATION_FAILED, UPDATE_REQUIRED
+  payoutRejectionReason      String?
+  payoutVerifiedAt           DateTime?
+  payoutVerifiedBy           String?
+  registrationFeePaid        Boolean                    @default(false)
+  registrationFeePaidAt      DateTime?
+  registrationFeeOrderId     String?
+  registrationFeeTransactionId String?
+  cashfreeBeneficiaryId      String?
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
 
-  documents        SellerDocument[]
-  products         Product[]
-  reviews          Review[] // Direct reviews of the seller
-  payoutRequests   PayoutRequest[]
-  orders           Order[]
-  discountRequests DiscountApprovalRequest[]
+  documents            SellerDocument[]
+  products             Product[]
+  reviews              Review[] // Direct reviews of the seller
+  payoutRequests       PayoutRequest[]
+  registrationPayments SellerRegistrationPayment[]
+  orders               Order[]
+  discountRequests     DiscountApprovalRequest[]
 }
 
 model SellerDocument {
@@ -436,10 +449,12 @@ enum PayoutStatus {
   PENDING
   PARTIALLY_PAID
   APPROVED
+  PROCESSING
   REJECTED
   PAID
   SETTLED
   ON_HOLD
+  FAILED
 }
 
 model PayoutRequest {
@@ -463,6 +478,27 @@ model PayoutRequest {
   paidAt            DateTime?
   rejectedReason    String?
   settlementHistory Json?
+  cfTransferId      String?
+  cfReferenceId     String?
+  cfUtr             String?
+  cfStatus          String?
+  cfFailureReason   String?
+  initiatedAt       DateTime?
+  auditHistory      Json?
+}
+
+model SellerRegistrationPayment {
+  id                String        @id @default(cuid())
+  sellerId          String
+  seller            Seller        @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  cashfreeOrderId   String        @unique
+  cashfreePaymentId String?
+  amount            Float         @default(1.0)
+  status            PaymentStatus @default(PENDING)
+  paymentMethod     String?
+  paidAt            DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 }
 
 model Enquiry {

@@ -1,11 +1,23 @@
 "use client";
 
-import React, { useState, useEffect, useTransition, useMemo, useRef } from "react";
+import React, { useState, useEffect, useTransition, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getPendingSellers, approveSeller, rejectSeller, removeSellerAsSeller, getPlatformStats, PlatformStats, getDisputes, resolveDispute, DisputeCase, getAllSellersRevenue, SellerRevenueInfo, getAdminAnalyticsTimeSeries, getPlatformUsers, UserManagementData, getPendingProducts, approveProduct, rejectProduct, getAdminTransactions, getBuyerProfileById, updateSellerVerificationStatus, updateSellerTrustScore, getPendingDiscounts, approveDiscount, rejectDiscount, getAllProductsForAdminPromotions, updateProductPromotionsByAdmin } from "@/actions/admin";
-import { getAdminPayoutRequests, settlePayoutRequest, PayoutRequestInfo } from "@/actions/payouts";
+import { 
+  getAdminPayoutRequests, 
+  settlePayoutRequest, 
+  executeCashfreePayout,
+  retryFailedPayout,
+  reconcileCashfreePayout,
+  adminReviewPayoutProfile,
+  getAdminSellerOnboardingProfiles,
+  getAdminRegistrationFeeConfig,
+  updateAdminRegistrationFeeConfig,
+  PayoutRequestInfo,
+  SellerOnboardingProfile
+} from "@/actions/payouts";
 import {
   cancelOrderAsAdmin,
   getAllOrdersForAdmin,
@@ -1830,9 +1842,9 @@ function DisputesView({ disputes, onResolve, adminEmail }: { disputes: DisputeCa
 // PAYMENTS VIEW
 // --------------------------------------------------------------------------
 function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adminEmail, globalSearch }: { payoutRequests: any[], transactions?: any[], onActionComplete: () => void, adminEmail?: string, globalSearch?: string }) {
-  const [subTab, setSubTab] = useState("completed");
+  const [subTab, setSubTab] = useState<"sellerOnboarding" | "sellerPending" | "sellerSettled" | "completed" | "pending">("sellerPending");
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
-  const [actionType, setActionType] = useState<"APPROVE" | "REJECT" | "PAY" | null>(null);
+  const [actionType, setActionType] = useState<"APPROVE" | "REJECT" | "PAY" | "CASHFREE_PAY" | null>(null);
   const [transactionId, setTransactionId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
@@ -1843,13 +1855,122 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
   const [searchPending, setSearchPending] = useState("");
   const [searchSellerPending, setSearchSellerPending] = useState("");
   const [searchSellerSettled, setSearchSellerSettled] = useState("");
+  const [searchOnboarding, setSearchOnboarding] = useState("");
 
+  // Seller Onboarding & Fee Configuration state
+  const [onboardingProfiles, setOnboardingProfiles] = useState<SellerOnboardingProfile[]>([]);
+  const [feeConfig, setFeeConfig] = useState<{ enabled: boolean; amount: number }>({ enabled: false, amount: 1.0 });
+  const [loadingOnboarding, setLoadingOnboarding] = useState(false);
+  const [updatingFee, setUpdatingFee] = useState(false);
+  const [selectedSellerForReview, setSelectedSellerForReview] = useState<SellerOnboardingProfile | null>(null);
+  const [reviewDecision, setReviewDecision] = useState<"APPROVE" | "REJECT" | "UPDATE_REQUIRED" | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+
+  const loadOnboardingData = useCallback(async () => {
+    setLoadingOnboarding(true);
+    try {
+      const [profiles, cfg] = await Promise.all([
+        getAdminSellerOnboardingProfiles(),
+        getAdminRegistrationFeeConfig(),
+      ]);
+      setOnboardingProfiles(profiles);
+      setFeeConfig(cfg);
+    } catch (err) {
+      console.error("Failed to load seller onboarding profiles in admin:", err);
+    } finally {
+      setLoadingOnboarding(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOnboardingData();
+  }, [loadOnboardingData]);
+
+  // Handle Toggle of ₹1 Registration Fee
+  const handleToggleRegistrationFee = async (nextEnabled: boolean) => {
+    setUpdatingFee(true);
+    try {
+      const res = await updateAdminRegistrationFeeConfig(nextEnabled, 1.0);
+      if (res.success) {
+        setFeeConfig({ enabled: nextEnabled, amount: 1.0 });
+        toast.success(`Seller Registration Fee is now ${nextEnabled ? "ENABLED (₹1.00)" : "DISABLED"}.`);
+        await loadOnboardingData();
+      } else {
+        toast.error(res.error || "Failed to update registration fee configuration.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred updating fee setting.");
+    } finally {
+      setUpdatingFee(false);
+    }
+  };
+
+  // Handle Review of Seller Payout Details
+  const handleReviewSellerPayout = async () => {
+    if (!selectedSellerForReview || !reviewDecision) return;
+    if ((reviewDecision === "REJECT" || reviewDecision === "UPDATE_REQUIRED") && !reviewReason.trim()) {
+      toast.error("A reason is required when rejecting or requesting updated details.");
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const res = await adminReviewPayoutProfile(
+        selectedSellerForReview.sellerId,
+        reviewDecision,
+        adminEmail || "admin@earthcentric.com",
+        reviewReason.trim() || undefined
+      );
+
+      if (res.success) {
+        toast.success(
+          `Payout details for ${selectedSellerForReview.companyName} ${
+            reviewDecision === "APPROVE" ? "approved & verified" : reviewDecision === "REJECT" ? "rejected" : "marked update required"
+          }!`
+        );
+        setSelectedSellerForReview(null);
+        setReviewDecision(null);
+        setReviewReason("");
+        await loadOnboardingData();
+        onActionComplete();
+      } else {
+        toast.error(res.error || "Failed to submit review.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error submitting review.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle Standard / Manual Actions on Payout Request
   const handleAction = async () => {
     if (!selectedRequest || !actionType) return;
     setProcessing(true);
+
+    if (actionType === "CASHFREE_PAY") {
+      try {
+        const res = await executeCashfreePayout(selectedRequest.id, adminEmail || "admin@earthcentric.com");
+        setProcessing(false);
+        if (res.success) {
+          toast.success(res.message || "Cashfree transfer initiated successfully!");
+          setSelectedRequest(null);
+          setActionType(null);
+          onActionComplete();
+        } else {
+          toast.error(res.error || "Cashfree transfer failed.");
+        }
+      } catch (err: any) {
+        setProcessing(false);
+        toast.error(err?.message || "Cashfree execution encountered an error.");
+      }
+      return;
+    }
+
     let status: any = "PAID";
     if (actionType === "APPROVE") status = "APPROVED";
     if (actionType === "REJECT") status = "REJECTED";
+
     const success = await settlePayoutRequest(
       selectedRequest.id,
       adminEmail || "admin@earthcentric.com",
@@ -1861,9 +1982,51 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
     setProcessing(false);
     if (success) {
       toast.success(`Payout request successfully ${status.toLowerCase()}!`);
-      setSelectedRequest(null); setActionType(null); setTransactionId(""); setRejectReason(""); setAdminNotes("");
+      setSelectedRequest(null);
+      setActionType(null);
+      setTransactionId("");
+      setRejectReason("");
+      setAdminNotes("");
       onActionComplete();
-    } else { toast.error("Failed to update payout request."); }
+    } else {
+      toast.error("Failed to update payout request.");
+    }
+  };
+
+  // Handle Cashfree Reconcile Status
+  const handleReconcile = async (requestId: string) => {
+    setProcessing(true);
+    try {
+      const res = await reconcileCashfreePayout(requestId);
+      if (res.success) {
+        toast.success(`Reconciliation complete. Status: ${res.status}`);
+        onActionComplete();
+      } else {
+        toast.error(res.error || "Reconciliation failed.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Reconcile failed.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle Cashfree Retry Failed Payout
+  const handleRetryFailedPayout = async (requestId: string) => {
+    setProcessing(true);
+    try {
+      const res = await retryFailedPayout(requestId, adminEmail || "admin@earthcentric.com");
+      if (res.success) {
+        toast.success(res.message || "Payout retry initiated via Cashfree!");
+        onActionComplete();
+      } else {
+        toast.error(res.error || "Retry failed.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Retry failed.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const handleSettle = async (full = false) => {
@@ -1877,13 +2040,13 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
     const success = await settlePayoutRequest(
       selectedRequest.id,
       adminEmail || "admin@earthcentric.com",
-      adminNotes || `Payout settlement of Rs.${amt.toLocaleString()}`,
+      adminNotes || `Payout settlement of Rs.${amt.toLocaleString("en-IN")}`,
       transactionId || undefined,
       "PAID", undefined, amt
     );
     setProcessing(false);
     if (success) {
-      toast.success(`Successfully settled Rs.${amt.toLocaleString()}!`);
+      toast.success(`Successfully settled Rs.${amt.toLocaleString("en-IN")}!`);
       setSelectedRequest(null); setAmountToSettle(""); setTransactionId(""); setAdminNotes("");
       onActionComplete();
     } else { toast.error("Failed to process payout settlement."); }
@@ -1897,12 +2060,22 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
       return words.every((w: string) => s.includes(w));
     });
   };
+
   const filterPayout = (list: any[], q: string) => {
     if (!q.trim()) return list;
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     return list.filter((r: any) => {
-      const s = `${r.id} ${r.transactionId || ""} ${r.companyName || ""} ${r.sellerName || ""} ${r.sellerEmail || ""} ${r.paymentMethod || ""}`.toLowerCase();
+      const s = `${r.id} ${r.transactionId || ""} ${r.cfTransferId || ""} ${r.companyName || ""} ${r.sellerName || ""} ${r.sellerEmail || ""} ${r.paymentMethod || ""}`.toLowerCase();
       return words.every((w: string) => s.includes(w));
+    });
+  };
+
+  const filterOnboarding = (list: SellerOnboardingProfile[], q: string) => {
+    if (!q.trim()) return list;
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return list.filter((s) => {
+      const str = `${s.companyName} ${s.sellerName} ${s.sellerEmail} ${s.sellerPhone || ""} ${s.maskedBankNumber || ""} ${s.maskedUpiId || ""} ${s.payoutVerificationStatus}`.toLowerCase();
+      return words.every((w) => str.includes(w));
     });
   };
 
@@ -1915,19 +2088,21 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
     searchPending
   );
   const sellerPayoutPending = filterPayout(
-    payoutRequests.filter((r: any) => ["PENDING","APPROVED"].includes(r.status)),
+    payoutRequests.filter((r: any) => ["PENDING","APPROVED","PROCESSING"].includes(r.status)),
     searchSellerPending
   );
   const sellerPayoutSettled = filterPayout(
-    payoutRequests.filter((r: any) => ["PAID","SETTLED","PARTIALLY_PAID","REJECTED"].includes(r.status)),
+    payoutRequests.filter((r: any) => ["PAID","SETTLED","PARTIALLY_PAID","FAILED","REJECTED"].includes(r.status)),
     searchSellerSettled
   );
+  const filteredOnboarding = filterOnboarding(onboardingProfiles, searchOnboarding);
 
   const payoutStatusClass = (status: string) =>
     status === "PAID" || status === "SETTLED" ? "bg-emerald-50 text-emerald-700" :
+    status === "PROCESSING" ? "bg-purple-50 text-purple-700 animate-pulse" :
     status === "PARTIALLY_PAID" ? "bg-cyan-50 text-cyan-700" :
     status === "APPROVED" ? "bg-blue-50 text-blue-700" :
-    status === "REJECTED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700";
+    status === "REJECTED" || status === "FAILED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700";
 
   const renderTransactionTable = (rows: any[], emptyLabel: string, variant: "success" | "warn") => (
     <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
@@ -2006,13 +2181,13 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
   );
 
   const renderPayoutTable = (rows: any[], emptyLabel: string, showActions: boolean) => (
-    <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+    <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden text-left">
       <Table>
         <TableHeader>
           <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
             <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-6">Seller Company</TableHead>
             <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Amount</TableHead>
-            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Method</TableHead>
+            <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Method &amp; Destination</TableHead>
             <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Requested Date</TableHead>
             <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
             <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
@@ -2026,47 +2201,132 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                 {emptyLabel}
               </div>
             </TableCell></TableRow>
-          ) : rows.map((r: any) => (
-            <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-              <TableCell className="py-4 pl-6 align-top">
-                <p className="text-xs font-bold text-[#1a3321]">{r.companyName}</p>
-                {r.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerName}</p>}
-                {r.sellerEmail && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerEmail}</p>}
-                <div className="mt-2 space-y-1">
-                  <p className="text-[10px] text-muted-foreground font-mono">ID: {r.id}</p>
-                  {r.transactionId && <p className="text-[10px] text-blue-600/80 font-mono">Txn: {r.transactionId}</p>}
-                </div>
-              </TableCell>
-              <TableCell className="py-4 text-xs font-black text-[#1a3321] align-top">
-                Rs.{r.amount.toLocaleString()}
-                {r.status === "PARTIALLY_PAID" && (
-                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">
-                    Rem: Rs.{(r.remainingAmount !== undefined && r.remainingAmount !== null ? r.remainingAmount : r.amount).toLocaleString()}
+          ) : rows.map((r: any) => {
+            const maskedDest = r.paymentMethod === "UPI"
+              ? (r.upiDetails?.upiId || "UPI")
+              : (r.bankDetails?.accountNumber || "Bank Account");
+            return (
+              <TableRow key={r.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+                <TableCell className="py-4 pl-6 align-top">
+                  <p className="text-xs font-bold text-[#1a3321]">{r.companyName}</p>
+                  {r.sellerName && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerName}</p>}
+                  {r.sellerEmail && <p className="text-[10px] text-muted-foreground mt-0.5">{r.sellerEmail}</p>}
+                  <div className="mt-2 space-y-0.5">
+                    <p className="text-[9px] text-muted-foreground font-mono">ID: {r.id}</p>
+                    {r.cfReferenceId && <p className="text-[9px] text-emerald-700 font-mono">Ref: {r.cfReferenceId}</p>}
+                    {r.cfTransferId && <p className="text-[9px] text-blue-700 font-mono">CF: {r.cfTransferId}</p>}
+                    {r.cfUtr && <p className="text-[9px] text-purple-700 font-mono">UTR: {r.cfUtr}</p>}
                   </div>
-                )}
-              </TableCell>
-              <TableCell className="py-4 text-xs font-bold uppercase text-[#2d4a36] align-top">{r.paymentMethod}</TableCell>
-              <TableCell className="py-4 text-xs text-muted-foreground align-top">{new Date(r.requestedAt).toLocaleDateString()}</TableCell>
-              <TableCell className="py-4 align-top">
-                <Badge className={`border-none text-[9px] font-bold uppercase ${payoutStatusClass(r.status)}`}>{r.status.replace("_", " ")}</Badge>
-              </TableCell>
-              <TableCell className="py-4 text-right pr-6 space-x-1.5 align-top">
-                <Button size="sm" variant="cool" className="text-[10px] h-7 px-2.5" onClick={() => setSelectedRequest(r)}>View Details</Button>
-                {showActions && r.status === "PENDING" && (
-                  <>
-                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("APPROVE"); }}>Approve</Button>
-                    <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>Reject</Button>
-                  </>
-                )}
-                {showActions && r.status === "APPROVED" && (
-                  <>
-                    <Button size="sm" className="bg-[#1a3321] hover:bg-[#122417] text-white text-[10px] h-7 px-2.5 border-none" onClick={() => { setSelectedRequest(r); setActionType("PAY"); }}>Mark as Paid</Button>
-                    <Button size="sm" variant="destructive" className="text-[10px] h-7 px-2.5" onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}>Reject</Button>
-                  </>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
+                </TableCell>
+                <TableCell className="py-4 text-xs font-black text-[#1a3321] align-top">
+                  ₹{r.amount.toLocaleString("en-IN")}
+                  {r.status === "PARTIALLY_PAID" && (
+                    <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                      Rem: ₹{(r.remainingAmount !== undefined && r.remainingAmount !== null ? r.remainingAmount : r.amount).toLocaleString("en-IN")}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="py-4 text-xs align-top">
+                  <span className="font-bold uppercase text-[#2d4a36]">{r.paymentMethod}</span>
+                  <p className="text-[11px] font-mono text-slate-600 mt-0.5">{maskedDest}</p>
+                  {r.bankDetails?.ifscCode && (
+                    <p className="text-[9px] text-slate-400 font-mono">IFSC: {r.bankDetails.ifscCode}</p>
+                  )}
+                </TableCell>
+                <TableCell className="py-4 text-xs text-muted-foreground align-top">{new Date(r.requestedAt).toLocaleDateString()}</TableCell>
+                <TableCell className="py-4 align-top">
+                  <Badge className={`border-none text-[9px] font-bold uppercase ${payoutStatusClass(r.status)}`}>{r.status.replace("_", " ")}</Badge>
+                  {r.cfFailureReason && (
+                    <p className="text-[9px] text-red-600 max-w-[140px] truncate mt-1" title={r.cfFailureReason}>
+                      {r.cfFailureReason}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell className="py-4 text-right pr-6 space-x-1.5 align-top">
+                  <Button size="sm" variant="cool" className="text-[10px] h-7 px-2.5" onClick={() => setSelectedRequest(r)}>View Details</Button>
+
+                  {/* Pending actions */}
+                  {showActions && r.status === "PENDING" && (
+                    <>
+                      <Button
+                        size="sm"
+                        className="bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] h-7 px-2.5 border-none font-bold"
+                        onClick={() => { setSelectedRequest(r); setActionType("CASHFREE_PAY"); }}
+                      >
+                        Approve &amp; Pay via Cashfree
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-slate-700 hover:bg-slate-800 text-white text-[10px] h-7 px-2.5 border-none"
+                        onClick={() => { setSelectedRequest(r); setActionType("APPROVE"); }}
+                      >
+                        Approve (Manual)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="text-[10px] h-7 px-2.5"
+                        onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}
+                      >
+                        Reject
+                      </Button>
+                    </>
+                  )}
+
+                  {/* Approved actions */}
+                  {showActions && r.status === "APPROVED" && (
+                    <>
+                      <Button
+                        size="sm"
+                        className="bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] h-7 px-2.5 border-none font-bold"
+                        onClick={() => { setSelectedRequest(r); setActionType("CASHFREE_PAY"); }}
+                      >
+                        Pay via Cashfree
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-[#1a3321] hover:bg-[#122417] text-white text-[10px] h-7 px-2.5 border-none"
+                        onClick={() => { setSelectedRequest(r); setActionType("PAY"); }}
+                      >
+                        Mark as Paid (Manual)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="text-[10px] h-7 px-2.5"
+                        onClick={() => { setSelectedRequest(r); setActionType("REJECT"); }}
+                      >
+                        Reject
+                      </Button>
+                    </>
+                  )}
+
+                  {/* Processing actions */}
+                  {r.status === "PROCESSING" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-[10px] h-7 px-2.5 border-purple-300 text-purple-700"
+                      onClick={() => handleReconcile(r.id)}
+                    >
+                      Check Status
+                    </Button>
+                  )}
+
+                  {/* Failed actions */}
+                  {r.status === "FAILED" && (
+                    <Button
+                      size="sm"
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] h-7 px-2.5 border-none"
+                      onClick={() => handleRetryFailedPayout(r.id)}
+                    >
+                      Retry Cashfree Payout
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </Card>
@@ -2076,20 +2336,24 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold text-[#1a3321]">Payments &amp; Payouts</h1>
-        <p className="text-sm text-muted-foreground mt-1">Monitor platform revenue collections, commission cuts, and seller payout schedules.</p>
+        <p className="text-sm text-muted-foreground mt-1">Manage seller bank verification, Cashfree payout disbursements, and customer order transactions.</p>
       </div>
-
 
       {/* Tab Pills */}
       <div className="flex flex-wrap gap-2">
         {([
-          { id: "completed",     label: "Order Completed History",       count: completedTxns.length,        activeCls: "bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm", pillCls: "bg-emerald-100 text-emerald-800" },
-          { id: "pending",       label: "Order Pending Payment History", count: pendingTxns.length,          activeCls: "bg-amber-50 text-amber-700 border-amber-300 shadow-sm",       pillCls: "bg-amber-100 text-amber-800"   },
-          { id: "sellerPending", label: "Seller Payment Pending",        count: sellerPayoutPending.length,   activeCls: "bg-rose-50 text-rose-700 border-rose-300 shadow-sm",          pillCls: "bg-rose-100 text-rose-700"     },
-          { id: "sellerSettled", label: "Seller Payment Settled",        count: sellerPayoutSettled.length,   activeCls: "bg-blue-50 text-blue-700 border-blue-300 shadow-sm",          pillCls: "bg-blue-100 text-blue-800"     },
+          { id: "sellerPending",    label: "Pending Withdrawal Requests",  count: sellerPayoutPending.length,   activeCls: "bg-rose-50 text-rose-700 border-rose-300 shadow-sm",          pillCls: "bg-rose-100 text-rose-700"     },
+          { id: "sellerOnboarding", label: "Seller Payout Onboarding",     count: onboardingProfiles.filter(p => p.payoutVerificationStatus === "PENDING_VERIFICATION").length, activeCls: "bg-purple-50 text-purple-700 border-purple-300 shadow-sm", pillCls: "bg-purple-100 text-purple-800" },
+          { id: "sellerSettled",    label: "Settled & Historical Payouts", count: sellerPayoutSettled.length,   activeCls: "bg-blue-50 text-blue-700 border-blue-300 shadow-sm",          pillCls: "bg-blue-100 text-blue-800"     },
+          { id: "completed",        label: "Order Completed History",      count: completedTxns.length,        activeCls: "bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm", pillCls: "bg-emerald-100 text-emerald-800" },
+          { id: "pending",          label: "Order Pending Payment History",count: pendingTxns.length,          activeCls: "bg-amber-50 text-amber-700 border-amber-300 shadow-sm",       pillCls: "bg-amber-100 text-amber-800"   },
         ] as const).map(t => (
-          <button key={t.id} onClick={() => setSubTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all duration-200 border ${subTab === t.id ? t.activeCls : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"}`}
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all duration-200 border ${
+              subTab === t.id ? t.activeCls : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"
+            }`}
           >
             {t.label}
             <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${subTab === t.id ? t.pillCls : "bg-slate-100 text-slate-500"}`}>{t.count}</span>
@@ -2097,7 +2361,214 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
         ))}
       </div>
 
-      {/* Section 1: Order Completed History */}
+      {/* Section: Seller Payout Onboarding & Verification */}
+      {subTab === "sellerOnboarding" && (
+        <div className="space-y-4 text-left">
+          {/* Registration Fee Config Banner */}
+          <Card className="p-5 bg-gradient-to-r from-slate-50 to-[#f6f9f6] border border-slate-200 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-sm text-[#1a3321]">Optional Seller Registration Fee</h3>
+                <Badge className={feeConfig.enabled ? "bg-emerald-600 text-white border-none text-[9px]" : "bg-slate-200 text-slate-700 border-none text-[9px]"}>
+                  {feeConfig.enabled ? "ENABLED (₹1.00)" : "DISABLED"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                When enabled, approved sellers are asked to pay a one-time ₹1.00 onboarding fee before configuring bank/UPI details. Disabled by default.
+              </p>
+            </div>
+            <div>
+              <Button
+                size="sm"
+                disabled={updatingFee}
+                onClick={() => handleToggleRegistrationFee(!feeConfig.enabled)}
+                className={feeConfig.enabled
+                  ? "bg-slate-700 hover:bg-slate-800 text-white text-xs h-8 px-4"
+                  : "bg-emerald-700 hover:bg-emerald-800 text-white text-xs h-8 px-4 font-bold"}
+              >
+                {updatingFee ? "Updating..." : feeConfig.enabled ? "Disable ₹1 Fee" : "Enable ₹1 Fee"}
+              </Button>
+            </div>
+          </Card>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-extrabold text-[#1a3321]">Seller Payout Beneficiaries</h2>
+              <p className="text-[10px] text-muted-foreground">Review bank accounts and UPI IDs submitted by approved sellers for payout settlement</p>
+            </div>
+            <Input
+              type="text"
+              placeholder="Search by Company, Name, Email, Bank..."
+              value={searchOnboarding}
+              onChange={(e) => setSearchOnboarding(e.target.value)}
+              className="max-w-xs h-9 text-xs border-slate-200"
+            />
+          </div>
+
+          <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4 pl-6">Seller Details</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Seller Approval</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">₹1 Fee Status</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Beneficiary Destination</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Payout Verification</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4 text-right pr-6">Review Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredOnboarding.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-10 text-xs text-muted-foreground">
+                      No seller onboarding records found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredOnboarding.map((s) => (
+                    <TableRow key={s.sellerId} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50">
+                      <TableCell className="py-4 pl-6 align-top">
+                        <p className="text-xs font-bold text-[#1a3321]">{s.companyName}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.sellerName}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{s.sellerEmail}</p>
+                      </TableCell>
+                      <TableCell className="py-4 align-top">
+                        <Badge className={
+                          s.applicationStatus === "APPROVED"
+                            ? "bg-emerald-50 text-emerald-700 border-none text-[9px] font-bold"
+                            : "bg-amber-50 text-amber-700 border-none text-[9px] font-bold"
+                        }>
+                          {s.applicationStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="py-4 align-top">
+                        {!s.registrationFeeEnabled ? (
+                          <span className="text-[10px] text-slate-400">Disabled</span>
+                        ) : s.registrationFeePaid ? (
+                          <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px] font-bold">Paid ✅</Badge>
+                        ) : (
+                          <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] font-bold">Unpaid ⏳</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4 align-top">
+                        {s.maskedBankNumber ? (
+                          <div className="text-xs">
+                            <span className="font-bold text-[#2d4a36]">Bank: </span>
+                            <span className="font-mono text-[11px]">{s.maskedBankNumber}</span>
+                            {s.bankIfsc && <p className="text-[9px] text-slate-500 font-mono">IFSC: {s.bankIfsc}</p>}
+                            {s.bankAccountHolderName && <p className="text-[9px] text-slate-600">Holder: {s.bankAccountHolderName}</p>}
+                          </div>
+                        ) : s.maskedUpiId ? (
+                          <div className="text-xs">
+                            <span className="font-bold text-[#2d4a36]">UPI: </span>
+                            <span className="font-mono text-[11px]">{s.maskedUpiId}</span>
+                            {s.upiHolderName && <p className="text-[9px] text-slate-600">Holder: {s.upiHolderName}</p>}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">Not submitted</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4 align-top">
+                        <Badge className={
+                          s.payoutVerificationStatus === "VERIFIED"
+                            ? "bg-emerald-50 text-emerald-700 border-none text-[9px] font-bold"
+                            : s.payoutVerificationStatus === "PENDING_VERIFICATION"
+                            ? "bg-amber-50 text-amber-700 border-none text-[9px] font-bold animate-pulse"
+                            : s.payoutVerificationStatus === "VERIFICATION_FAILED"
+                            ? "bg-red-50 text-red-700 border-none text-[9px] font-bold"
+                            : "bg-slate-100 text-slate-600 border-none text-[9px] font-bold"
+                        }>
+                          {s.payoutVerificationStatus.replace("_", " ")}
+                        </Badge>
+                        {s.payoutRejectionReason && (
+                          <p className="text-[9px] text-red-600 max-w-[140px] truncate mt-0.5" title={s.payoutRejectionReason}>
+                            Reason: {s.payoutRejectionReason}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4 text-right pr-6 space-x-1.5 align-top">
+                        {s.payoutVerificationStatus === "PENDING_VERIFICATION" && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] h-7 px-2.5 border-none"
+                              onClick={() => { setSelectedSellerForReview(s); setReviewDecision("APPROVE"); }}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="text-[10px] h-7 px-2.5"
+                              onClick={() => { setSelectedSellerForReview(s); setReviewDecision("REJECT"); }}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        {s.payoutVerificationStatus === "VERIFIED" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-[10px] h-7 px-2.5 border-slate-200"
+                            onClick={() => { setSelectedSellerForReview(s); setReviewDecision("UPDATE_REQUIRED"); }}
+                          >
+                            Request Update
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* Section: Pending Withdrawal Requests */}
+      {subTab === "sellerPending" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-rose-100 flex items-center justify-center"><Wallet className="h-4 w-4 text-rose-600" /></div>
+              <div>
+                <h2 className="text-sm font-extrabold text-[#1a3321]">Pending Withdrawal Requests</h2>
+                <p className="text-[10px] text-muted-foreground">Seller payout requests awaiting Super Admin review or Cashfree disbursement</p>
+              </div>
+            </div>
+            {sellerPayoutPending.length > 0 ? (
+              <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full animate-pulse">
+                {sellerPayoutPending.length} need action
+              </span>
+            ) : (
+              <span className="text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1 rounded-full">0 records</span>
+            )}
+          </div>
+          <Input type="text" placeholder="Search by Seller, Company, ID, Payment Method..." value={searchSellerPending} onChange={(e) => setSearchSellerPending(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
+          {renderPayoutTable(sellerPayoutPending, "No pending seller payout requests.", true)}
+        </div>
+      )}
+
+      {/* Section: Settled Payouts */}
+      {subTab === "sellerSettled" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-blue-100 flex items-center justify-center"><Coins className="h-4 w-4 text-blue-600" /></div>
+              <div>
+                <h2 className="text-sm font-extrabold text-[#1a3321]">Settled &amp; Historical Payouts</h2>
+                <p className="text-[10px] text-muted-foreground">All completed settlements, failed transfers, and administrative payout logs</p>
+              </div>
+            </div>
+            <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">{sellerPayoutSettled.length} records</span>
+          </div>
+          <Input type="text" placeholder="Search by Seller, Company, ID, Reference..." value={searchSellerSettled} onChange={(e) => setSearchSellerSettled(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
+          {renderPayoutTable(sellerPayoutSettled, "No settled seller payout records.", false)}
+        </div>
+      )}
+
+      {/* Section: Order Completed History */}
       {subTab === "completed" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -2109,7 +2580,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
         </div>
       )}
 
-      {/* Section 2: Order Pending Payment History */}
+      {/* Section: Order Pending Payment History */}
       {subTab === "pending" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -2121,38 +2592,11 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
         </div>
       )}
 
-      {/* Section 3: Seller Payment Pending History */}
-      {subTab === "sellerPending" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3"><div className="h-8 w-8 rounded-xl bg-rose-100 flex items-center justify-center"><Wallet className="h-4 w-4 text-rose-600" /></div><div><h2 className="text-sm font-extrabold text-[#1a3321]">Seller Payment Pending History</h2><p className="text-[10px] text-muted-foreground">Seller payout requests awaiting approval or disbursement</p></div></div>
-            {sellerPayoutPending.length > 0
-              ? <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full animate-pulse">Warning {sellerPayoutPending.length} need action</span>
-              : <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">0 records</span>
-            }
-          </div>
-          <Input type="text" placeholder="Search by Seller, Company, ID, Payment Method..." value={searchSellerPending} onChange={(e) => setSearchSellerPending(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
-          {renderPayoutTable(sellerPayoutPending, "No pending seller payout requests.", true)}
-        </div>
-      )}
-
-      {/* Section 4: Seller Payment Settled History */}
-      {subTab === "sellerSettled" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3"><div className="h-8 w-8 rounded-xl bg-blue-100 flex items-center justify-center"><Coins className="h-4 w-4 text-blue-600" /></div><div><h2 className="text-sm font-extrabold text-[#1a3321]">Seller Payment Settled History</h2><p className="text-[10px] text-muted-foreground">All processed seller payout settlements and rejections</p></div></div>
-            <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">{sellerPayoutSettled.length} records</span>
-          </div>
-          <Input type="text" placeholder="Search by Seller, Company, ID, Payment Method..." value={searchSellerSettled} onChange={(e) => setSearchSellerSettled(e.target.value)} className="max-w-md h-9 text-xs border-slate-200" />
-          {renderPayoutTable(sellerPayoutSettled, "No settled seller payout records.", false)}
-        </div>
-      )}
-
       {/* Payout Details Modal */}
       {selectedRequest && !actionType && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="absolute inset-0" onClick={() => setSelectedRequest(null)} />
-          <Card className="relative w-full max-w-lg p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
+          <Card className="relative w-full max-w-lg p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4 text-left">
             <div className="flex justify-between items-center pb-2 border-b">
               <h3 className="font-bold text-sm text-[#1a3321]">Payout Request Details</h3>
               <button onClick={() => setSelectedRequest(null)} className="h-6 w-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200">x</button>
@@ -2161,14 +2605,16 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
               <div className="grid grid-cols-2 gap-4">
                 <p><strong>Seller Name:</strong> {selectedRequest.sellerName || "N/A"}</p>
                 <p><strong>Seller Company:</strong> {selectedRequest.companyName}</p>
-                <p><strong>Requested Amount:</strong> Rs.{selectedRequest.amount.toLocaleString()}</p>
+                <p><strong>Requested Amount:</strong> ₹{selectedRequest.amount.toLocaleString("en-IN")}</p>
                 <p><strong>Payment Method:</strong> <span className="font-bold uppercase">{selectedRequest.paymentMethod}</span></p>
                 <p><strong>Request Date:</strong> {new Date(selectedRequest.requestedAt).toLocaleString()}</p>
                 <p><strong>Current Status:</strong>{" "}<Badge className={`border-none text-[9px] font-bold uppercase ml-1 ${payoutStatusClass(selectedRequest.status)}`}>{selectedRequest.status}</Badge></p>
-                <p><strong>Remaining Pending Amount:</strong>{" "}<span className="font-black text-[#1a3321]">Rs.{(selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount).toLocaleString()}</span></p>
+                {selectedRequest.cfReferenceId && <p><strong>CF Reference:</strong> <span className="font-mono text-emerald-700">{selectedRequest.cfReferenceId}</span></p>}
+                {selectedRequest.cfUtr && <p><strong>UTR:</strong> <span className="font-mono text-purple-700">{selectedRequest.cfUtr}</span></p>}
               </div>
+
               <div className="p-3 bg-slate-50 rounded-xl border mt-2">
-                <p className="font-bold text-[#1a3321] mb-1">Payment Credentials:</p>
+                <p className="font-bold text-[#1a3321] mb-1">Beneficiary Credentials:</p>
                 {selectedRequest.paymentMethod === "BANK" ? (
                   <div className="space-y-1 text-slate-600">
                     <p><strong>Holder Name:</strong> {selectedRequest.bankDetails?.accountHolderName || "N/A"}</p>
@@ -2183,25 +2629,46 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                   </div>
                 )}
               </div>
-              {selectedRequest.isUrgent && (<div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[11px] text-red-700"><p className="font-bold">Urgent Request Reason:</p><p className="mt-0.5">{selectedRequest.reason || "No reason provided."}</p></div>)}
+
+              {selectedRequest.cfFailureReason && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+                  <p className="font-bold">Provider Failure Reason:</p>
+                  <p className="mt-0.5">{selectedRequest.cfFailureReason}</p>
+                </div>
+              )}
+
+              {selectedRequest.isUrgent && (
+                <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[11px] text-red-700">
+                  <p className="font-bold">Urgent Request Reason:</p>
+                  <p className="mt-0.5">{selectedRequest.reason || "No reason provided."}</p>
+                </div>
+              )}
+
+              {/* Settlement History */}
               <div className="pt-3 border-t">
-                <h4 className="font-bold text-xs text-[#1a3321] mb-2">Settlement History</h4>
-                {selectedRequest.settlementHistory && Array.isArray(selectedRequest.settlementHistory) && selectedRequest.settlementHistory.length > 0 ? (
+                <h4 className="font-bold text-xs text-[#1a3321] mb-2">Audit &amp; Settlement History</h4>
+                {selectedRequest.auditHistory && Array.isArray(selectedRequest.auditHistory) && selectedRequest.auditHistory.length > 0 ? (
                   <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                    {selectedRequest.settlementHistory.map((hist: any, index: number) => (
-                      <div key={index} className="p-2 bg-slate-50/70 border rounded-lg flex flex-col space-y-1">
-                        <div className="flex justify-between items-center text-[10px] text-slate-500"><span>{new Date(hist.date).toLocaleString()}</span><span className="bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded">Rs.{hist.amountSettled.toLocaleString()}</span></div>
-                        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-600"><p><strong>Tx ID:</strong> <span className="font-mono">{hist.transactionId}</span></p><p><strong>Method:</strong> {hist.paymentMethod || selectedRequest.paymentMethod}</p><p><strong>Admin:</strong> {hist.adminName}</p><p><strong>Notes:</strong> {hist.adminNotes}</p><p className="col-span-2"><strong>Remaining Bal:</strong> Rs.{hist.remainingBalance.toLocaleString()}</p></div>
+                    {selectedRequest.auditHistory.map((hist: any, index: number) => (
+                      <div key={index} className="p-2 bg-slate-50/70 border rounded-lg flex flex-col space-y-0.5 text-[10px]">
+                        <div className="flex justify-between items-center text-slate-500">
+                          <span className="font-bold text-[#1a3321]">{hist.action}</span>
+                          <span>{new Date(hist.timestamp || hist.date).toLocaleString()}</span>
+                        </div>
+                        <p className="text-slate-600">{hist.notes || hist.adminNotes || "Action recorded."}</p>
+                        {hist.performedBy && <p className="text-slate-400">By: {hist.performedBy}</p>}
                       </div>
                     ))}
                   </div>
-                ) : <p className="text-slate-400 italic">No settlements recorded yet.</p>}
+                ) : <p className="text-slate-400 italic">No audit events recorded yet.</p>}
               </div>
+
+              {/* Manual Settlement Box */}
               {selectedRequest.status !== "REJECTED" && (selectedRequest.remainingAmount !== 0) && (
                 <div className="p-4 bg-emerald-50/40 border border-emerald-100 rounded-xl space-y-3 mt-4 text-left">
-                  <h4 className="font-bold text-xs text-[#1a3321]">Process Settlement Transaction</h4>
+                  <h4 className="font-bold text-xs text-[#1a3321]">Manual Settlement (Offline Banking)</h4>
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase font-bold text-slate-400">Amount to Settle (Rs.) *</Label>
+                    <Label className="text-[10px] uppercase font-bold text-slate-400">Amount to Settle (₹) *</Label>
                     <div className="flex space-x-2">
                       <Input type="number" placeholder="e.g. 5000" value={amountToSettle} onChange={(e) => setAmountToSettle(e.target.value)} className="bg-white border-slate-200 text-xs h-9 flex-1" />
                       <Button type="button" size="sm" variant="outline" className="text-xs h-9 text-[#1a3321]" onClick={() => { const rem = selectedRequest.remainingAmount !== undefined && selectedRequest.remainingAmount !== null ? selectedRequest.remainingAmount : selectedRequest.amount; setAmountToSettle(rem.toString()); }}>Max</Button>
@@ -2221,24 +2688,107 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
             </div>
             <div className="flex justify-end space-x-2 pt-2 border-t">
               <Button variant="ghost" onClick={() => setSelectedRequest(null)}>Close</Button>
-              {selectedRequest.status === "PENDING" && (<Button className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs border-none" onClick={() => setActionType("APPROVE")}>Approve Request</Button>)}
+              {selectedRequest.status === "PENDING" && (
+                <Button className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs border-none font-bold" onClick={() => setActionType("CASHFREE_PAY")}>
+                  Approve &amp; Pay via Cashfree
+                </Button>
+              )}
             </div>
           </Card>
         </div>
       )}
 
-      {/* Action Confirm Modal */}
-      {selectedRequest && actionType && (
+      {/* Cashfree Transfer Confirmation Modal */}
+      {selectedRequest && actionType === "CASHFREE_PAY" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="absolute inset-0" onClick={() => setActionType(null)} />
-          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4">
-            <h3 className="font-bold text-sm">{actionType === "APPROVE" ? "Approve Payout Request" : actionType === "REJECT" ? "Reject Payout Request" : "Mark Payout as Paid"}</h3>
-            {actionType === "REJECT" && (<div className="space-y-1.5"><Label>Rejection Reason *</Label><Textarea placeholder="Detail the reason for rejecting this payout..." value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} required className="text-xs min-h-[60px]" /></div>)}
-            {actionType === "PAY" && (<div className="space-y-1.5"><Label>Transaction Reference ID *</Label><Input placeholder="e.g. TXN92834823" value={transactionId} onChange={(e) => setTransactionId(e.target.value)} required /></div>)}
+          <Card className="relative w-full max-w-md p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4 text-left">
+            <h3 className="font-bold text-base text-[#1a3321]">Execute Cashfree Payout Transfer</h3>
+            <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl space-y-2 text-xs">
+              <p><strong>Seller:</strong> {selectedRequest.companyName}</p>
+              <p><strong>Payout Amount:</strong> <span className="font-extrabold text-emerald-700 text-sm">₹{selectedRequest.amount.toLocaleString("en-IN")}</span></p>
+              <p><strong>Method:</strong> <span className="font-bold uppercase">{selectedRequest.paymentMethod}</span></p>
+              <p><strong>Destination:</strong> <span className="font-mono text-slate-700">{selectedRequest.paymentMethod === "UPI" ? (selectedRequest.upiDetails?.upiId || "UPI") : (selectedRequest.bankDetails?.accountNumber || "Bank Account")}</span></p>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              This will invoke Cashfree Direct Transfer API to disburse funds. The status will transition to <strong>PROCESSING</strong> and finalize upon provider confirmation.
+            </p>
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+              <Button variant="ghost" disabled={processing} onClick={() => setActionType(null)}>Cancel</Button>
+              <Button
+                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold border-none"
+                disabled={processing}
+                onClick={handleAction}
+              >
+                {processing ? "Executing Transfer..." : "Confirm & Transfer Funds"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Manual Action Confirm Modal */}
+      {selectedRequest && actionType && actionType !== "CASHFREE_PAY" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="absolute inset-0" onClick={() => setActionType(null)} />
+          <Card className="relative w-full max-w-sm p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4 text-left">
+            <h3 className="font-bold text-sm">
+              {actionType === "APPROVE" ? "Approve Payout Request (Manual)" : actionType === "REJECT" ? "Reject Payout Request" : "Mark Payout as Paid"}
+            </h3>
+            {actionType === "REJECT" && (
+              <div className="space-y-1.5">
+                <Label>Rejection Reason *</Label>
+                <Textarea placeholder="Detail the reason for rejecting this payout..." value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} required className="text-xs min-h-[60px]" />
+                <p className="text-[10px] text-muted-foreground">Rejecting this payout will release the reserved funds back to the seller.</p>
+              </div>
+            )}
+            {actionType === "PAY" && (
+              <div className="space-y-1.5"><Label>Transaction Reference ID *</Label><Input placeholder="e.g. TXN92834823" value={transactionId} onChange={(e) => setTransactionId(e.target.value)} required /></div>
+            )}
             <div className="space-y-1.5"><Label>Internal Admin Notes (Optional)</Label><Input placeholder="e.g. Audited and confirmed..." value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} /></div>
             <div className="flex justify-end space-x-2">
               <Button variant="ghost" onClick={() => setActionType(null)}>Back</Button>
-              <Button className={actionType === "REJECT" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"} disabled={processing || (actionType === "REJECT" && !rejectReason) || (actionType === "PAY" && !transactionId)} onClick={handleAction}>{processing ? "Processing..." : "Confirm"}</Button>
+              <Button className={actionType === "REJECT" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"} disabled={processing || (actionType === "REJECT" && !rejectReason) || (actionType === "PAY" && !transactionId)} onClick={handleAction}>
+                {processing ? "Processing..." : "Confirm"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Seller Beneficiary Review Modal */}
+      {selectedSellerForReview && reviewDecision && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="absolute inset-0" onClick={() => setSelectedSellerForReview(null)} />
+          <Card className="relative w-full max-w-md p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-4 text-left">
+            <h3 className="font-bold text-sm text-[#1a3321]">
+              {reviewDecision === "APPROVE" ? "Approve & Verify Payout Beneficiary" : reviewDecision === "REJECT" ? "Reject Payout Beneficiary Details" : "Request Updated Payout Details"}
+            </h3>
+            <div className="p-3 bg-slate-50 border rounded-xl text-xs space-y-1">
+              <p><strong>Seller:</strong> {selectedSellerForReview.companyName}</p>
+              <p><strong>Destination:</strong> {selectedSellerForReview.maskedBankNumber ? `Bank: ${selectedSellerForReview.maskedBankNumber} (IFSC: ${selectedSellerForReview.bankIfsc})` : `UPI: ${selectedSellerForReview.maskedUpiId}`}</p>
+            </div>
+            {reviewDecision !== "APPROVE" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Reason / Feedback for Seller *</Label>
+                <Textarea
+                  placeholder="Explain why the bank/UPI details were rejected or need updating..."
+                  value={reviewReason}
+                  onChange={(e) => setReviewReason(e.target.value)}
+                  required
+                  className="text-xs min-h-[70px]"
+                />
+              </div>
+            )}
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+              <Button variant="ghost" disabled={processing} onClick={() => setSelectedSellerForReview(null)}>Cancel</Button>
+              <Button
+                className={reviewDecision === "APPROVE" ? "bg-emerald-700 hover:bg-emerald-800 text-white font-bold" : "bg-red-600 hover:bg-red-700 text-white"}
+                disabled={processing || (reviewDecision !== "APPROVE" && !reviewReason.trim())}
+                onClick={handleReviewSellerPayout}
+              >
+                {processing ? "Submitting..." : reviewDecision === "APPROVE" ? "Approve & Verify" : "Confirm"}
+              </Button>
             </div>
           </Card>
         </div>

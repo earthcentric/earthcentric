@@ -2009,3 +2009,19 @@ export async function updateProductPromotionsByAdmin(
     return false;
   }
 }
+
+// --------------------------------------------------------------------------
+// PAYOUT AND ONBOARDING ADMIN RE-EXPORTS
+// --------------------------------------------------------------------------
+export {
+  getAdminPayoutRequests,
+  settlePayoutRequest,
+  adminReviewPayoutProfile,
+  executeCashfreePayout,
+  retryFailedPayout,
+  reconcileCashfreePayout,
+  getAdminSellerOnboardingProfiles,
+  updateAdminRegistrationFeeConfig,
+  getAdminRegistrationFeeConfig,
+} from "./payouts";
+

@@ -326,16 +326,16 @@ export async function getSellerFinancialStats(
   });
 
   const pendingPayoutAmount = payouts
-    .filter((p) => p.status === "PENDING" || p.status === "PARTIALLY_PAID" || p.status === "ON_HOLD")
-    .reduce((sum, p) => sum + (p.remainingAmount !== null ? p.remainingAmount : p.amount), 0);
+    .filter((p) => ["PENDING", "APPROVED", "PROCESSING", "ON_HOLD", "PARTIALLY_PAID"].includes(p.status))
+    .reduce((sum, p) => sum + (p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount), 0);
 
   const settledPayoutAmount = payouts.reduce((sum, p) => {
-    if (p.status === "APPROVED" || p.status === "PAID" || p.status === "SETTLED") {
+    if (p.status === "PAID" || p.status === "SETTLED") {
       return sum + p.amount;
     }
     if (p.status === "PARTIALLY_PAID") {
-      const remaining = p.remainingAmount !== null ? p.remainingAmount : p.amount;
-      return sum + (p.amount - remaining);
+      const remaining = p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount;
+      return sum + Math.max(0, p.amount - remaining);
     }
     return sum;
   }, 0);
