@@ -72,6 +72,8 @@ import {
   Sparkles,
   MapPin,
   RotateCcw,
+  RefreshCw,
+  CreditCard,
 } from "lucide-react";
 import {
   BarChart,
@@ -105,6 +107,7 @@ export default function SellerDashboard() {
   // Payout states
   const [payoutStats, setPayoutStats] = useState<SellerPayoutStats | null>(null);
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequestInfo[]>([]);
+  const [onboarding, setOnboarding] = useState<SellerPayoutOnboardingStatus | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState<number>(0);
@@ -142,6 +145,9 @@ export default function SellerDashboard() {
     const pRequests = await getSellerPayoutRequests(sellerId);
     setPayoutRequests(pRequests);
 
+    const onb = await getSellerPayoutOnboardingStatus(sellerId);
+    setOnboarding(onb);
+
     const userNotifs = await getUserNotifications(user.id, true);
     setNotifications(userNotifs);
 
@@ -150,6 +156,26 @@ export default function SellerDashboard() {
 
     setLoading(false);
   };
+
+  // Handle Cashfree redirect callback for registration fee
+  useEffect(() => {
+    if (typeof window === "undefined" || !profile?.id) return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const feeOrderId = urlParams.get("fee_order_id");
+    if (feeOrderId) {
+      (async () => {
+        toast.loading("Verifying your registration fee with Cashfree...", { id: "fee-callback" });
+        const res = await verifyRegistrationFeePayment(feeOrderId, profile.id);
+        if (res.success && res.paid) {
+          toast.success("₹1 Registration Fee verified successfully! You can now configure payout details.", { id: "fee-callback" });
+          await loadDashboardData();
+        } else {
+          toast.error(res.error || "Payment verification pending. If amount was debited, it will update shortly.", { id: "fee-callback" });
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+      })();
+    }
+  }, [profile?.id]);
 
   useEffect(() => {
     loadDashboardData();
@@ -282,6 +308,19 @@ export default function SellerDashboard() {
         </p>
         <Button variant="cool" onClick={() => window.location.href = "/seller/verification"}>Check Status</Button>
       </div>
+    );
+  }
+
+  // Mandatory Seller Onboarding Step: Registration Fee (if enabled and unpaid)
+  if (profile?.verificationStatus === "APPROVED" && onboarding?.feeEnabled && !onboarding?.feePaid) {
+    return (
+      <SellerRegistrationFeeGate
+        profile={profile}
+        sellerId={profile.id}
+        onboarding={onboarding}
+        onSuccess={loadDashboardData}
+        logout={logout}
+      />
     );
   }
 
@@ -554,7 +593,16 @@ export default function SellerDashboard() {
           )}
 
           <FadeIn>
-            {activeTab === "dashboard" && <DashboardView stats={stats} products={products} setTab={setActiveTab} profile={profile} payoutStats={payoutStats} />}
+            {activeTab === "dashboard" && (
+              <DashboardView
+                stats={stats}
+                products={products}
+                setTab={setActiveTab}
+                profile={profile}
+                payoutStats={payoutStats}
+                onboarding={onboarding}
+              />
+            )}
             {activeTab === "products" && <ProductsView products={products} stats={stats} handleArchive={handleArchive} handleUpdateStock={handleUpdateStock} reload={loadDashboardData} profile={profile!} />}
             {activeTab === "orders" && <OrdersView orders={orders} handleUpdateFulfillment={handleUpdateFulfillment} handleRequestCancellation={handleRequestCancellation} sellerId={profile?.id || user?.id} />}
             {activeTab === "cancellations" && <SellerCancellationsView sellerId={profile?.id || user?.id || ""} />}
@@ -582,11 +630,262 @@ export default function SellerDashboard() {
 }
 
 // --------------------------------------------------------------------------
+// MANDATORY SELLER ONBOARDING: REGISTRATION FEE GATE (₹1)
+// --------------------------------------------------------------------------
+function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, logout }: {
+  profile: SellerProfile | null;
+  sellerId: string;
+  onboarding: SellerPayoutOnboardingStatus;
+  onSuccess: () => Promise<void>;
+  logout: () => void;
+}) {
+  const [payingFee, setPayingFee] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+
+  const feeAmount = onboarding.feeAmount || 1.0;
+
+  const handlePayFee = async () => {
+    setPayingFee(true);
+    setErrorNotice(null);
+    try {
+      const res = await createRegistrationFeeOrder(sellerId);
+      if (!res.success) {
+        setErrorNotice(res.error || "Failed to initialize registration payment session.");
+        toast.error(res.error || "Failed to initialize registration payment.");
+        setPayingFee(false);
+        return;
+      }
+
+      if (res.alreadyPaid) {
+        toast.success("Registration fee already paid! Proceeding to setup...");
+        await onSuccess();
+        setPayingFee(false);
+        return;
+      }
+
+      if (res.paymentSessionId && res.orderId) {
+        setLastOrderId(res.orderId);
+        try {
+          const { load } = await import("@cashfreepayments/cashfree-js");
+          const envMode = process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT?.toLowerCase() === "production" ? "production" : "sandbox";
+          const cashfree = await load({ mode: envMode });
+          const checkoutResult = await cashfree.checkout({
+            paymentSessionId: res.paymentSessionId,
+            redirectTarget: "_modal",
+          });
+
+          if (checkoutResult?.error) {
+            console.warn("Cashfree checkout closed or errored:", checkoutResult.error);
+          }
+
+          // Verify with backend
+          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
+          if (verification.success && verification.paid) {
+            toast.success("₹1 Registration Fee verified successfully! Welcome aboard.");
+            await onSuccess();
+          } else {
+            toast.info("If payment was completed, click 'Check Payment Status' below to refresh.");
+          }
+        } catch (sdkErr: any) {
+          console.warn("Cashfree JS dropin fallback:", sdkErr);
+          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
+          if (verification.success && verification.paid) {
+            toast.success("Registration fee verified successfully!");
+            await onSuccess();
+          } else {
+            setErrorNotice("Payment session initialized. If popup was blocked, complete payment and click Check Status.");
+          }
+        }
+      }
+    } catch (err: any) {
+      setErrorNotice(err?.message || "Failed to start Cashfree checkout.");
+      toast.error(err?.message || "Payment initiation failed.");
+    } finally {
+      setPayingFee(false);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    if (!lastOrderId && !sellerId) return;
+    setCheckingStatus(true);
+    try {
+      const verification = await verifyRegistrationFeePayment(lastOrderId || sellerId, sellerId);
+      if (verification.success && verification.paid) {
+        toast.success("Registration fee confirmed! Dashboard unlocked.");
+        await onSuccess();
+      } else {
+        toast.error(verification.error || "Cashfree has not confirmed this payment yet. Please ensure checkout was completed.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to query Cashfree payment status.");
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f4f5f3] flex flex-col justify-between p-4 sm:p-6 lg:p-8 font-sans">
+      {/* Top Header */}
+      <div className="max-w-4xl mx-auto w-full flex items-center justify-between py-4 border-b border-[#e2e6dc]">
+        <div className="flex items-center space-x-3">
+          <Logo />
+          <Badge className="bg-[#e8f3ec] text-[#2d4a36] border border-[#d8dcd3] text-xs font-bold px-2.5 py-0.5">
+            Seller Onboarding
+          </Badge>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={logout}
+          className="text-xs text-muted-foreground hover:text-red-600 hover:border-red-200"
+        >
+          <LogOut className="h-3.5 w-3.5 mr-1.5" />
+          Sign Out
+        </Button>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-xl mx-auto w-full my-8">
+        <div className="bg-white rounded-3xl shadow-sm border border-[#e5e9df] p-6 sm:p-8">
+          {/* Progress Steps */}
+          <div className="flex items-center justify-between mb-8 pb-6 border-b border-[#f0f2ed]">
+            <div className="flex items-center space-x-2 text-xs font-bold text-emerald-700">
+              <span className="h-6 w-6 rounded-full bg-emerald-100 flex items-center justify-center text-xs">✓</span>
+              <span>Application Approved</span>
+            </div>
+            <div className="h-0.5 w-8 bg-emerald-300" />
+            <div className="flex items-center space-x-2 text-xs font-bold text-[#1a3321]">
+              <span className="h-6 w-6 rounded-full bg-[#1a3321] text-white flex items-center justify-center text-xs">2</span>
+              <span>Onboarding Fee (₹{feeAmount.toFixed(0)})</span>
+            </div>
+            <div className="h-0.5 w-8 bg-gray-200" />
+            <div className="flex items-center space-x-2 text-xs font-medium text-gray-400">
+              <span className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center text-xs">3</span>
+              <span>Bank Setup</span>
+            </div>
+          </div>
+
+          {/* Heading */}
+          <div className="text-center mb-6">
+            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-[#e8f3ec] text-[#2d4a36] mb-3">
+              <CreditCard className="h-7 w-7" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-[#1a3321]">
+              Activate Your Seller Account
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1.5">
+              Welcome, <strong className="text-[#1a3321]">{profile?.companyName || profile?.ownerName || "Seller Partner"}</strong>!
+            </p>
+          </div>
+
+          {/* Fee Breakdown Box */}
+          <div className="bg-[#f8f9f6] border border-[#e8ece3] rounded-2xl p-5 mb-6">
+            <div className="flex items-baseline justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-600">One-Time Registration Fee</span>
+              <span className="text-2xl font-black text-[#1a3321]">₹{feeAmount.toFixed(2)}</span>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Earth Centric requires a nominal one-time registration fee of ₹1.00 INR to verify merchant authorization and activate automated Cashfree bank payout disbursement for your orders.
+            </p>
+            <div className="mt-4 pt-3 border-t border-[#e2e7dc] flex flex-wrap items-center justify-between text-[11px] text-gray-500 gap-2">
+              <span className="inline-flex items-center text-emerald-700 font-semibold">
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                PCI-DSS Secured via Cashfree
+              </span>
+              <span>Non-recurring • Never charged again</span>
+            </div>
+          </div>
+
+          {/* Error Notice if any */}
+          {errorNotice && (
+            <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start space-x-2">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{errorNotice}</span>
+            </div>
+          )}
+
+          {/* Pay Button */}
+          <div className="space-y-3">
+            <Button
+              onClick={handlePayFee}
+              disabled={payingFee || checkingStatus}
+              className="w-full bg-[#2d4a36] hover:bg-[#1e3425] text-white font-bold text-sm py-6 rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+            >
+              {payingFee ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Connecting to Cashfree Payments...
+                </>
+              ) : (
+                <>
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Pay ₹{feeAmount.toFixed(0)} via Cashfree & Unlock Dashboard
+                </>
+              )}
+            </Button>
+
+            {lastOrderId && (
+              <Button
+                variant="outline"
+                onClick={handleCheckStatus}
+                disabled={checkingStatus || payingFee}
+                className="w-full text-xs text-muted-foreground border-gray-300 hover:bg-gray-50 py-3 rounded-xl"
+              >
+                {checkingStatus ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Querying Cashfree status...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Check Payment Status (Order: {lastOrderId.slice(-8)})
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+
+          {/* Refund policy disclaimer */}
+          <p className="text-[11px] text-center text-muted-foreground mt-6 leading-relaxed">
+            By proceeding, you agree to Earth Centric's Seller Terms. This fee is solely for onboarding & payment gateway identity verification. If onboarding cannot be completed, this fee is 100% refundable upon review.
+          </p>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="text-center py-4 text-xs text-muted-foreground">
+        © {new Date().getFullYear()} Earth Centric Marketplace. All rights reserved.
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
 // DASHBOARD TAB VIEW
 // --------------------------------------------------------------------------
-function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
+function DashboardView({ stats, products, setTab, profile, payoutStats, onboarding }: any) {
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
+      {/* Onboarding Notice if bank details missing */}
+      {onboarding?.payoutVerificationStatus === "NOT_SUBMITTED" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center space-x-3">
+            <div className="h-9 w-9 bg-amber-100 text-amber-800 rounded-xl flex items-center justify-center shrink-0">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-bold text-amber-900">Payout Destination Setup Required</h4>
+              <p className="text-[11px] sm:text-xs text-amber-700">Add your Bank Account or UPI ID in the Payments tab to receive customer payments and settlements.</p>
+            </div>
+          </div>
+          <Button onClick={() => setTab("payments")} className="bg-[#2d4a36] hover:bg-[#1e3425] text-white text-xs font-semibold rounded-xl px-4 py-2 shrink-0">
+            Set Up Payout Destination
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-[#2d4a36]">Seller Dashboard</h1>
@@ -4350,9 +4649,8 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
       if (res.paymentSessionId && res.orderId) {
         try {
           const { load } = await import("@cashfreepayments/cashfree-js");
-          const cashfree = await load({
-            mode: (process.env.NEXT_PUBLIC_CASHFREE_MODE as "sandbox" | "production") || "sandbox",
-          });
+          const envMode = process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT?.toLowerCase() === "production" ? "production" : "sandbox";
+          const cashfree = await load({ mode: envMode });
           const checkoutResult = await cashfree.checkout({
             paymentSessionId: res.paymentSessionId,
             redirectTarget: "_modal",
@@ -4362,8 +4660,8 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
             console.warn("Cashfree checkout error / closed:", checkoutResult.error);
           }
 
-          // Verify with backend
-          const verification = await verifyRegistrationFeePayment(sellerId, res.orderId);
+          // Verify with backend using orderId and sellerId
+          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
           if (verification.success && verification.paid) {
             toast.success("₹1 Registration Fee verified successfully! You can now configure payout details.");
             await loadOnboarding();
@@ -4373,7 +4671,7 @@ function PaymentsView({ payoutStats, payoutRequests, user, sellerId, reload }: a
           }
         } catch (sdkErr) {
           console.warn("Cashfree JS dropin failed or was blocked, verifying order directly:", sdkErr);
-          const verification = await verifyRegistrationFeePayment(sellerId, res.orderId);
+          const verification = await verifyRegistrationFeePayment(res.orderId, sellerId);
           if (verification.success && verification.paid) {
             toast.success("Registration fee verified successfully!");
             await loadOnboarding();

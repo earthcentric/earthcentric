@@ -59,6 +59,7 @@ export async function createCashfreeOrder(options: {
   amount: number;
   orderId: string;
   customer: { id: string; name: string; email: string; phone: string };
+  returnUrl?: string;
 }): Promise<CashfreeOrderSession> {
   const mode = getCashfreeMode();
   const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
@@ -83,7 +84,7 @@ export async function createCashfreeOrder(options: {
       throw new Error("NEXT_PUBLIC_APP_URL must use HTTPS in production.");
     }
 
-    const returnUrl = new URL("/checkout?order_id={order_id}", appUrl).toString();
+    const returnUrl = options.returnUrl || new URL("/checkout?order_id={order_id}", appUrl).toString();
 
     // Sanitize customer_id: alphanumeric, underscores, and hyphens only (max 50 chars)
     const sanitizedCustomerId = (options.customer.id || `cust_${Date.now()}`)
@@ -164,27 +165,27 @@ export async function createCashfreeOrder(options: {
   }
 }
 
-export async function verifyPaymentSignature(orderId: string): Promise<boolean> {
+export async function fetchCashfreeOrderPayments(orderId: string): Promise<any[]> {
   const client = await getCashfreeClient();
-  
   const isMock =
     process.env.NODE_ENV !== "production" &&
     (!client || !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"));
-  if (isMock || orderId.startsWith("order_mock_")) return true;
+  if (isMock || orderId.startsWith("order_mock_")) {
+    return [{ payment_status: "SUCCESS", cf_payment_id: `mock_cf_${Date.now()}` }];
+  }
 
   try {
     const response = await client!.PGOrderFetchPayments(orderId);
-    
-    // Check if any payment is successful
-    const payments = response.data;
-    if (Array.isArray(payments)) {
-       return payments.some((payment: any) => payment.payment_status === "SUCCESS");
-    }
-    return false;
+    return Array.isArray(response.data) ? response.data : [];
   } catch (error: any) {
-    console.error("Failed to verify Cashfree payment:", error?.response?.data || error);
-    return false;
+    console.error("Failed to fetch Cashfree payments for order:", orderId, error?.response?.data || error);
+    return [];
   }
+}
+
+export async function verifyPaymentSignature(orderId: string): Promise<boolean> {
+  const payments = await fetchCashfreeOrderPayments(orderId);
+  return payments.some((payment: any) => payment.payment_status === "SUCCESS");
 }
 
 export async function createCashfreeRefund(options: {

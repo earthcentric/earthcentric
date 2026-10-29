@@ -19,7 +19,7 @@ import {
   maskPayoutDestination,
 } from "@/lib/cashfree-payouts";
 import { decrypt } from "@/lib/encryption";
-import { createCashfreeOrder, verifyPaymentSignature } from "@/lib/cashfree";
+import { createCashfreeOrder, verifyPaymentSignature, fetchCashfreeOrderPayments } from "@/lib/cashfree";
 import { verifyAdminAuth, verifySellerAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
 
 export type PayoutStatus =
@@ -295,6 +295,10 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
 
     // Create Cashfree payment order session
     const customerPhone = seller.phone ? seller.phone.replace(/\D/g, "").slice(-10) : "9999999999";
+    const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const appUrl = new URL(rawAppUrl);
+    const returnUrl = new URL(`/seller/dashboard?fee_order_id=${orderId}`, appUrl).toString();
+
     const session = await createCashfreeOrder({
       amount,
       orderId,
@@ -304,6 +308,7 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
         email: seller.user?.email || "seller@earthcentric.com",
         phone: customerPhone.length === 10 ? customerPhone : "9999999999",
       },
+      returnUrl,
     });
 
     // Record in DB
@@ -333,10 +338,22 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
 }
 
 export async function verifyRegistrationFeePayment(
-  orderId: string,
-  sellerIdOrUserId: string
+  param1: string,
+  param2: string
 ): Promise<{ success: boolean; paid?: boolean; error?: string }> {
   try {
+    let orderId = param1;
+    let sellerIdOrUserId = param2;
+
+    // Detect inverted parameters defensively
+    if (param1.startsWith("SELLER-FEE-") || param1.startsWith("order_")) {
+      orderId = param1;
+      sellerIdOrUserId = param2;
+    } else if (param2.startsWith("SELLER-FEE-") || param2.startsWith("order_")) {
+      orderId = param2;
+      sellerIdOrUserId = param1;
+    }
+
     const seller = await db.seller.findFirst({
       where: { OR: [{ id: sellerIdOrUserId }, { userId: sellerIdOrUserId }] },
     });
@@ -346,10 +363,15 @@ export async function verifyRegistrationFeePayment(
       return { success: true, paid: true };
     }
 
-    const isVerified = await verifyPaymentSignature(orderId);
+    const payments = await fetchCashfreeOrderPayments(orderId);
+    const successfulPayment = payments.find((p: any) => p.payment_status === "SUCCESS");
+    const isVerified = Boolean(successfulPayment) || (await verifyPaymentSignature(orderId));
+
     if (!isVerified) {
       return { success: false, paid: false, error: "Cashfree has not confirmed this payment yet." };
     }
+
+    const transactionId = successfulPayment?.cf_payment_id ? String(successfulPayment.cf_payment_id) : undefined;
 
     await db.$transaction(async (tx) => {
       await tx.sellerRegistrationPayment.updateMany({
@@ -357,6 +379,7 @@ export async function verifyRegistrationFeePayment(
         data: {
           status: "COMPLETED",
           paidAt: new Date(),
+          ...(transactionId ? { cashfreePaymentId: transactionId } : {}),
         },
       });
 
@@ -366,6 +389,7 @@ export async function verifyRegistrationFeePayment(
           registrationFeePaid: true,
           registrationFeePaidAt: new Date(),
           registrationFeeOrderId: orderId,
+          ...(transactionId ? { registrationFeeTransactionId: transactionId } : {}),
         },
       });
     });

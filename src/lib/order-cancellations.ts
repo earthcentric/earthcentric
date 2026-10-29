@@ -84,20 +84,42 @@ async function saveProviderRefund(
     }
 
     if (effectiveStatus === "SUCCESS") {
-      const changed = await tx.order.updateMany({
-        where: { id: cancellation.orderId, status: { in: ["CANCELLED", "RETURNED", "DELIVERED"] } },
-        data: { status: "REFUNDED" },
+      const priorSuccessfulRefunds = await tx.orderCancellation.aggregate({
+        where: {
+          orderId: cancellation.orderId,
+          refundStatus: "SUCCESS",
+          id: { not: cancellationId },
+        },
+        _sum: { refundAmount: true },
       });
-      if (changed.count > 0) {
+      const thisRefundAmount = result.refund_amount ?? cancellation.refundAmount ?? 0;
+      const totalRefundedSoFar = (priorSuccessfulRefunds._sum.refundAmount || 0) + thisRefundAmount;
+      const isFullRefund = totalRefundedSoFar >= (cancellation.order.totalAmount - 0.01);
+
+      let orderRefunded = false;
+      if (isFullRefund) {
+        const changed = await tx.order.updateMany({
+          where: { id: cancellation.orderId, status: { in: ["CANCELLED", "RETURNED", "DELIVERED"] } },
+          data: { status: "REFUNDED" },
+        });
+        orderRefunded = changed.count > 0;
         await tx.orderTimeline.create({
           data: {
             orderId: cancellation.orderId,
             status: "REFUNDED",
-            description: `Cashfree refund of ₹${(result.refund_amount ?? cancellation.refundAmount ?? 0).toLocaleString("en-IN")} completed. Refund reference: ${providerRefundReference || cancellation.cashfreeRefundId || "available in Cashfree"}.`,
+            description: `Cashfree refund of ₹${thisRefundAmount.toLocaleString("en-IN")} completed (Full order refunded). Reference: ${providerRefundReference || cancellation.cashfreeRefundId || "available in Cashfree"}.`,
+          },
+        });
+      } else {
+        await tx.orderTimeline.create({
+          data: {
+            orderId: cancellation.orderId,
+            status: cancellation.order.status,
+            description: `Cashfree partial refund of ₹${thisRefundAmount.toLocaleString("en-IN")} completed. Total refunded to date: ₹${totalRefundedSoFar.toLocaleString("en-IN")}. Reference: ${providerRefundReference || cancellation.cashfreeRefundId || "available in Cashfree"}.`,
           },
         });
       }
-      return { status: effectiveStatus, orderRefunded: changed.count > 0 };
+      return { status: effectiveStatus, orderRefunded };
     } else if (effectiveStatus === "FAILED") {
       if (changedCancellation.count > 0) {
         await tx.orderTimeline.create({
@@ -209,16 +231,29 @@ export async function startCancellationRefund(cancellationId: string): Promise<{
   }
 
   const amount = Math.round((cancellation.refundAmount ?? cancellation.order.totalAmount) * 100) / 100;
-  if (!Number.isFinite(amount) || amount <= 0 || amount > payment.amount) {
+
+  // Calculate existing refunds on this order to ensure total cannot exceed captured payment
+  const priorRefunds = await db.orderCancellation.aggregate({
+    where: {
+      orderId: cancellation.orderId,
+      id: { not: cancellationId },
+      refundStatus: { in: ["SUCCESS", "PENDING"] },
+    },
+    _sum: { refundAmount: true },
+  });
+  const alreadyRefundedOrPending = priorRefunds._sum.refundAmount || 0;
+  const remainingRefundable = Math.max(0, Math.round((payment.amount - alreadyRefundedOrPending) * 100) / 100);
+
+  if (!Number.isFinite(amount) || amount <= 0 || amount > remainingRefundable) {
     await db.orderCancellation.update({
       where: { id: cancellationId },
       data: {
         refundStatus: "FAILED",
-        refundError: "The order refund amount does not match the captured payment amount.",
+        refundError: `The refund amount (₹${amount}) exceeds the remaining refundable balance (₹${remainingRefundable}) of this order payment (Captured: ₹${payment.amount}, Already Refunded/Pending: ₹${alreadyRefundedOrPending}).`,
         refundUpdatedAt: new Date(),
       },
     });
-    return { status: "FAILED", error: "Refund amount could not be safely validated." };
+    return { status: "FAILED", error: `Refund amount (₹${amount}) exceeds remaining refundable balance (₹${remainingRefundable}).` };
   }
 
   let attempt = cancellation.refundAttempt;
@@ -323,9 +358,14 @@ export async function applyCashfreeRefundWebhook(data: {
 }): Promise<void> {
   const cancellation = await db.orderCancellation.findFirst({
     where: { cashfreeOrderId: data.orderId, cashfreeRefundId: data.refundId },
-    select: { id: true },
+    select: { id: true, refundStatus: true },
   });
   if (!cancellation) return;
+
+  // Prevent duplicate processing on repeated webhooks
+  if (cancellation.refundStatus === "SUCCESS" && (data.status || "").toUpperCase() === "SUCCESS") {
+    return;
+  }
 
   await saveProviderRefund(cancellation.id, {
     order_id: data.orderId,
