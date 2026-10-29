@@ -131,56 +131,172 @@ export async function verifyAdminAuth(): Promise<AdminAuthResult> {
 }
 
 /**
- * Verifies that the current request belongs to the given seller or an admin.
+ * Centralized activation check for sellers.
+ * Checks whether seller application is APPROVED and if ₹1 registration fee is paid (when enabled).
  */
-export async function verifySellerAuth(sellerId?: string): Promise<{ authorized: boolean; userId?: string; sellerId?: string }> {
+export async function checkSellerActivation(sellerIdOrUserId: string): Promise<{
+  active: boolean;
+  sellerApproved: boolean;
+  feeRequired: boolean;
+  feePaid: boolean;
+  status: "RESTRICTED" | "PAYMENT_REQUIRED" | "ACTIVE";
+  error?: string;
+}> {
   try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (isMock) {
+      return { active: true, sellerApproved: true, feeRequired: false, feePaid: true, status: "ACTIVE" };
+    }
+
+    const seller = await db.seller.findFirst({
+      where: { OR: [{ id: sellerIdOrUserId }, { userId: sellerIdOrUserId }] },
+      include: { user: true },
+    });
+
+    if (!seller) {
+      return {
+        active: false,
+        sellerApproved: false,
+        feeRequired: false,
+        feePaid: false,
+        status: "RESTRICTED",
+        error: "Seller profile not found.",
+      };
+    }
+
+    const sellerApproved = seller.verificationStatus === "APPROVED";
+    if (!sellerApproved) {
+      return {
+        active: false,
+        sellerApproved: false,
+        feeRequired: false,
+        feePaid: false,
+        status: "RESTRICTED",
+        error: `Seller application status is ${seller.verificationStatus}. Must be approved by Super Admin.`,
+      };
+    }
+
+    const { isSellerRegistrationFeeEnabled } = await import("@/lib/payout-config");
+    const feeEnabled = await isSellerRegistrationFeeEnabled();
+    const feePaid = seller.registrationFeePaid || !feeEnabled;
+
+    if (feeEnabled && !seller.registrationFeePaid) {
+      return {
+        active: false,
+        sellerApproved: true,
+        feeRequired: true,
+        feePaid: false,
+        status: "PAYMENT_REQUIRED",
+        error: "Pay the one-time ₹1 registration fee to continue activating your seller account.",
+      };
+    }
+
+    return {
+      active: true,
+      sellerApproved: true,
+      feeRequired: feeEnabled,
+      feePaid: true,
+      status: "ACTIVE",
+    };
+  } catch (err: any) {
+    console.error("checkSellerActivation error:", err);
+    return {
+      active: false,
+      sellerApproved: false,
+      feeRequired: false,
+      feePaid: false,
+      status: "RESTRICTED",
+      error: "Error verifying seller activation.",
+    };
+  }
+}
+
+/**
+ * Verifies that the current request belongs to the given seller or an admin.
+ * If requireActive is true (default), also enforces that the seller is fully activated (approved and fee paid).
+ */
+export async function verifySellerAuth(
+  sellerId?: string,
+  options?: { requireActive?: boolean }
+): Promise<{
+  authorized: boolean;
+  userId?: string;
+  sellerId?: string;
+  isActive?: boolean;
+  activationStatus?: string;
+  error?: string;
+}> {
+  try {
+    const shouldRequireActive = options?.requireActive !== false;
+    let foundUser: any = null;
+
     const cookieStore = await cookies();
     const sessionCookie = cookieStore.get("earthcentric_session")?.value;
     
     if (sessionCookie) {
       const session = await verifyEarthcentricSession(sessionCookie);
       if (session && session.id) {
-        const user = await db.user.findUnique({
+        foundUser = await db.user.findUnique({
           where: { id: session.id },
           include: { seller: true },
         });
-
-        if (user) {
-          if (user.role === "ADMIN" || isSuperAdminEmail(user.email)) {
-            return { authorized: true, userId: user.id, sellerId: user.seller?.id };
-          }
-          if (user.role === "SELLER") {
-            if (!sellerId || user.id === sellerId || user.seller?.id === sellerId) {
-              return { authorized: true, userId: user.id, sellerId: user.seller?.id };
-            }
-          }
-        }
       }
     }
 
-    const clerkAuth = await auth();
-    if (clerkAuth?.userId) {
-      const user = await db.user.findUnique({
-        where: { id: clerkAuth.userId },
-        include: { seller: true },
-      });
-
-      if (user) {
-        if (user.role === "ADMIN" || isSuperAdminEmail(user.email)) {
-          return { authorized: true, userId: user.id, sellerId: user.seller?.id };
-        }
-        if (user.role === "SELLER") {
-          if (!sellerId || user.id === sellerId || user.seller?.id === sellerId) {
-            return { authorized: true, userId: user.id, sellerId: user.seller?.id };
-          }
-        }
+    if (!foundUser) {
+      const clerkAuth = await auth();
+      if (clerkAuth?.userId) {
+        foundUser = await db.user.findUnique({
+          where: { id: clerkAuth.userId },
+          include: { seller: true },
+        });
       }
     }
 
-    return { authorized: false };
-  } catch (e) {
+    if (!foundUser) {
+      return { authorized: false, error: "Authentication required." };
+    }
+
+    if (foundUser.role === "ADMIN" || isSuperAdminEmail(foundUser.email)) {
+      return { authorized: true, userId: foundUser.id, sellerId: foundUser.seller?.id, isActive: true, activationStatus: "ACTIVE" };
+    }
+
+    if (foundUser.role === "SELLER") {
+      const currentSellerId = foundUser.seller?.id;
+      if (!currentSellerId) {
+        return { authorized: false, error: "No seller profile linked to user account." };
+      }
+
+      if (sellerId && sellerId !== foundUser.id && sellerId !== currentSellerId) {
+        return { authorized: false, error: "Unauthorized access to another seller profile." };
+      }
+
+      if (shouldRequireActive) {
+        const act = await checkSellerActivation(currentSellerId);
+        if (!act.active) {
+          return {
+            authorized: false,
+            userId: foundUser.id,
+            sellerId: currentSellerId,
+            isActive: false,
+            activationStatus: act.status,
+            error: act.error || "Seller account activation required.",
+          };
+        }
+      }
+
+      return {
+        authorized: true,
+        userId: foundUser.id,
+        sellerId: currentSellerId,
+        isActive: true,
+        activationStatus: "ACTIVE",
+      };
+    }
+
+    return { authorized: false, error: "Seller or Admin role required." };
+  } catch (e: any) {
     console.error("verifySellerAuth error:", e);
-    return { authorized: false };
+    return { authorized: false, error: e?.message || "Internal authorization error." };
   }
 }

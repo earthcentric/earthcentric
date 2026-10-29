@@ -909,6 +909,16 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
         return false;
       }
 
+      const targetSellerId = resolvedSellerId || (sellerAuth?.userId ? (await db.seller.findUnique({ where: { userId: sellerAuth.userId }, select: { id: true } }))?.id : null);
+      if (targetSellerId) {
+        const { checkSellerActivation } = await import("@/lib/auth-server");
+        const act = await checkSellerActivation(targetSellerId);
+        if (!act.active) {
+          console.warn("Seller account not active in updateOrderStatus:", act.error);
+          return false;
+        }
+      }
+
       const nextSellerStatus: Partial<Record<OrderDetail["status"], OrderDetail["status"]>> = {
         PLACED: "CONFIRMED",
         CONFIRMED: "PACKED",

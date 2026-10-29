@@ -127,6 +127,22 @@ export default function SellerDashboard() {
 
     const sellerId = p?.id || user.id;
 
+    // Fetch onboarding status first to enforce server-enforced gate
+    const onb = await getSellerPayoutOnboardingStatus(sellerId);
+    setOnboarding(onb);
+
+    // If seller is pending or rejected, stop loading immediately
+    if (p?.verificationStatus === "PENDING" || p?.verificationStatus === "REJECTED") {
+      setLoading(false);
+      return;
+    }
+
+    // If seller is approved but ₹1 registration fee is unpaid, stop loading immediately (do not query sensitive stats/products/orders)
+    if (p?.verificationStatus === "APPROVED" && onb?.feeEnabled && !onb?.feePaid) {
+      setLoading(false);
+      return;
+    }
+
     const s = await getSellerDashboardStats(sellerId || "seller-1", filterType, selectedDate, selectedMonth, selectedYear);
     setStats(s);
 
@@ -145,9 +161,6 @@ export default function SellerDashboard() {
     const pRequests = await getSellerPayoutRequests(sellerId);
     setPayoutRequests(pRequests);
 
-    const onb = await getSellerPayoutOnboardingStatus(sellerId);
-    setOnboarding(onb);
-
     const userNotifs = await getUserNotifications(user.id, true);
     setNotifications(userNotifs);
 
@@ -161,7 +174,7 @@ export default function SellerDashboard() {
   useEffect(() => {
     if (typeof window === "undefined" || !profile?.id) return;
     const urlParams = new URLSearchParams(window.location.search);
-    const feeOrderId = urlParams.get("fee_order_id");
+    const feeOrderId = urlParams.get("fee_order_id") || (urlParams.get("order_id")?.startsWith("SELLER-FEE-") ? urlParams.get("order_id") : null);
     if (feeOrderId) {
       (async () => {
         toast.loading("Verifying your registration fee with Cashfree...", { id: "fee-callback" });
@@ -773,7 +786,7 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
               <CreditCard className="h-7 w-7" />
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-[#1a3321]">
-              Activate Your Seller Account
+              Complete Seller Registration
             </h2>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1.5">
               Welcome, <strong className="text-[#1a3321]">{profile?.companyName || profile?.ownerName || "Seller Partner"}</strong>!
@@ -787,7 +800,7 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
               <span className="text-2xl font-black text-[#1a3321]">₹{feeAmount.toFixed(2)}</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Earth Centric requires a nominal one-time registration fee of ₹1.00 INR to verify merchant authorization and activate automated Cashfree bank payout disbursement for your orders.
+              Pay the one-time ₹1 registration fee to continue activating your seller account.
             </p>
             <div className="mt-4 pt-3 border-t border-[#e2e7dc] flex flex-wrap items-center justify-between text-[11px] text-gray-500 gap-2">
               <span className="inline-flex items-center text-emerald-700 font-semibold">
@@ -800,9 +813,18 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
 
           {/* Error Notice if any */}
           {errorNotice && (
-            <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start space-x-2">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start space-x-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{errorNotice}</span>
+              <div className="flex-1">
+                <p className="font-semibold">Payment Incomplete</p>
+                <p className="mt-0.5">{errorNotice}</p>
+                <button
+                  onClick={() => { setErrorNotice(null); handlePayFee(); }}
+                  className="mt-2 text-xs font-bold text-red-800 underline hover:no-underline cursor-pointer"
+                >
+                  Retry Payment Now
+                </button>
+              </div>
             </div>
           )}
 
@@ -821,7 +843,7 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
               ) : (
                 <>
                   <CreditCard className="h-4 w-4 mr-2" />
-                  Pay ₹{feeAmount.toFixed(0)} via Cashfree & Unlock Dashboard
+                  Pay ₹{feeAmount.toFixed(0)} and Continue
                 </>
               )}
             </Button>
@@ -831,7 +853,7 @@ function SellerRegistrationFeeGate({ profile, sellerId, onboarding, onSuccess, l
                 variant="outline"
                 onClick={handleCheckStatus}
                 disabled={checkingStatus || payingFee}
-                className="w-full text-xs text-muted-foreground border-gray-300 hover:bg-gray-50 py-3 rounded-xl"
+                className="w-full text-xs text-muted-foreground border-gray-300 hover:bg-gray-50 py-3 rounded-xl cursor-pointer"
               >
                 {checkingStatus ? (
                   <>

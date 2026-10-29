@@ -1489,7 +1489,9 @@ export interface SellerOnboardingProfile {
   sellerEmail: string;
   sellerPhone?: string;
   applicationStatus: string;
+  activationStatus: "RESTRICTED" | "PAYMENT_REQUIRED" | "ACTIVE";
   registrationFeeEnabled: boolean;
+  registrationFeeAmount: number;
   registrationFeePaid: boolean;
   registrationFeePaidAt?: string | null;
   registrationFeeTransactionId?: string | null;
@@ -1514,6 +1516,7 @@ export async function getAdminSellerOnboardingProfiles(): Promise<SellerOnboardi
       throw new Error("Unauthorized: Super Admin access required.");
     }
     const feeEnabled = await isSellerRegistrationFeeEnabled();
+    const feeAmount = await getSellerRegistrationFeeAmount();
     const sellers = await db.seller.findMany({
       include: { user: true },
       orderBy: { updatedAt: "desc" },
@@ -1528,6 +1531,15 @@ export async function getAdminSellerOnboardingProfiles(): Promise<SellerOnboardi
         }
       } catch (_) {}
 
+      let activationStatus: "RESTRICTED" | "PAYMENT_REQUIRED" | "ACTIVE" = "RESTRICTED";
+      if (s.verificationStatus === "APPROVED") {
+        if (feeEnabled && !s.registrationFeePaid) {
+          activationStatus = "PAYMENT_REQUIRED";
+        } else {
+          activationStatus = "ACTIVE";
+        }
+      }
+
       return {
         sellerId: s.id,
         userId: s.userId,
@@ -1536,7 +1548,9 @@ export async function getAdminSellerOnboardingProfiles(): Promise<SellerOnboardi
         sellerEmail: s.user?.email || "",
         sellerPhone: s.phone || s.user?.phone || undefined,
         applicationStatus: s.verificationStatus,
+        activationStatus,
         registrationFeeEnabled: feeEnabled,
+        registrationFeeAmount: feeAmount,
         registrationFeePaid: s.registrationFeePaid,
         registrationFeePaidAt: s.registrationFeePaidAt?.toISOString() || null,
         registrationFeeTransactionId: s.registrationFeeTransactionId || null,

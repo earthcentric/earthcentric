@@ -2501,6 +2501,15 @@ export async function createProduct(data: {
   highlights?: string[]; // New optional field for product highlights
   technicalSpecs?: string[]; // New optional field for technical specifications
 }): Promise<ProductItem> {
+  // Enforce server-side seller activation check
+  if (data.sellerId) {
+    const { checkSellerActivation } = await import("@/lib/auth-server");
+    const act = await checkSellerActivation(data.sellerId);
+    if (!act.active) {
+      throw new Error(act.error || "Seller account activation required. Please complete registration fee payment.");
+    }
+  }
+
   // Input validations
   if (!data.name || typeof data.name !== "string" || data.name.trim().length < 2) {
     throw new Error("Product name must be at least 2 characters.");
@@ -2851,6 +2860,17 @@ export async function updateProduct(
   try {
     const reapproval = data.reapprovalRequired ?? true;
 
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const existingProd = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
+      if (existingProd?.sellerId) {
+        const { checkSellerActivation } = await import("@/lib/auth-server");
+        const act = await checkSellerActivation(existingProd.sellerId);
+        if (!act.active) {
+          throw new Error(act.error || "Seller account activation required. Please complete registration fee payment.");
+        }
+      }
+    }
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       dynamicProducts = dynamicProducts.map((p) => {
         if (p.id === id) {
@@ -3063,6 +3083,17 @@ export async function updateProduct(
 
 export async function archiveProduct(id: string): Promise<boolean> {
   try {
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const existingProd = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
+      if (existingProd?.sellerId) {
+        const { checkSellerActivation } = await import("@/lib/auth-server");
+        const act = await checkSellerActivation(existingProd.sellerId);
+        if (!act.active) {
+          throw new Error(act.error || "Seller account activation required. Please complete registration fee payment.");
+        }
+      }
+    }
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       dynamicProducts = dynamicProducts.filter((p) => p.id !== id);
       return true;
@@ -3100,6 +3131,17 @@ export async function archiveProduct(id: string): Promise<boolean> {
 
 export async function updateProductStock(id: string, newStock: number): Promise<boolean> {
   try {
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const existingProd = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
+      if (existingProd?.sellerId) {
+        const { checkSellerActivation } = await import("@/lib/auth-server");
+        const act = await checkSellerActivation(existingProd.sellerId);
+        if (!act.active) {
+          throw new Error(act.error || "Seller account activation required. Please complete registration fee payment.");
+        }
+      }
+    }
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       dynamicProducts = dynamicProducts.map((p) => {
         if (p.id === id) return { ...p, stock: newStock };

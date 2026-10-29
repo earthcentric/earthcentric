@@ -2410,7 +2410,8 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
               <TableHeader>
                 <TableRow className="border-[#e9ece6] bg-[#fdfdfc]">
                   <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4 pl-6">Seller Details</TableHead>
-                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Seller Approval</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Application</TableHead>
+                  <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Account Activation</TableHead>
                   <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">₹1 Fee Status</TableHead>
                   <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Beneficiary Destination</TableHead>
                   <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase py-4">Payout Verification</TableHead>
@@ -2420,7 +2421,7 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
               <TableBody>
                 {filteredOnboarding.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10 text-xs text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">
                       No seller onboarding records found.
                     </TableCell>
                   </TableRow>
@@ -2442,12 +2443,34 @@ function PaymentsView({ payoutRequests, transactions = [], onActionComplete, adm
                         </Badge>
                       </TableCell>
                       <TableCell className="py-4 align-top">
-                        {!s.registrationFeeEnabled ? (
-                          <span className="text-[10px] text-slate-400">Disabled</span>
-                        ) : s.registrationFeePaid ? (
-                          <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px] font-bold">Paid ✅</Badge>
+                        {s.activationStatus === "ACTIVE" ? (
+                          <Badge className="bg-emerald-600 text-white border-none text-[9px] font-bold">
+                            ACTIVE
+                          </Badge>
+                        ) : s.activationStatus === "PAYMENT_REQUIRED" ? (
+                          <Badge className="bg-amber-500 text-white border-none text-[9px] font-bold">
+                            PAYMENT REQUIRED
+                          </Badge>
                         ) : (
-                          <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] font-bold">Unpaid ⏳</Badge>
+                          <Badge className="bg-slate-200 text-slate-700 border-none text-[9px] font-bold">
+                            RESTRICTED
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4 align-top">
+                        {!s.registrationFeeEnabled ? (
+                          <span className="text-[10px] text-slate-400 font-semibold">DISABLED</span>
+                        ) : s.registrationFeePaid ? (
+                          <div>
+                            <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px] font-bold">PAID (₹{s.registrationFeeAmount?.toFixed(2) || "1.00"})</Badge>
+                            {s.registrationFeeTransactionId && (
+                              <p className="text-[9px] font-mono text-slate-500 truncate max-w-[120px] mt-0.5" title={s.registrationFeeTransactionId}>
+                                {s.registrationFeeTransactionId}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] font-bold">PENDING (₹{s.registrationFeeAmount?.toFixed(2) || "1.00"})</Badge>
                         )}
                       </TableCell>
                       <TableCell className="py-4 align-top">

@@ -6,12 +6,25 @@ export const DEFAULT_MIN_WITHDRAWAL_AMOUNT = 1.0; // ₹1 INR
 
 /**
  * Returns whether the seller registration fee (₹1) is currently enabled.
- * Default is FALSE (disabled) as required by the business specification.
+ * Database SystemCredential is authoritative so Super Admin dynamic toggles take effect.
+ * Falls back to SELLER_REGISTRATION_FEE_ENABLED environment variable.
  */
 export async function isSellerRegistrationFeeEnabled(): Promise<boolean> {
   try {
-    const val = await getCredential("SELLER_REGISTRATION_FEE_ENABLED", "false");
-    return val === "true" || val === "1" || val === "enabled";
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const entry = await db.systemCredential.findUnique({
+        where: { key: "SELLER_REGISTRATION_FEE_ENABLED" },
+      });
+      if (entry && entry.value !== undefined && entry.value !== null && entry.value.trim() !== "") {
+        const val = entry.value.trim().toLowerCase();
+        return val === "true" || val === "1" || val === "enabled";
+      }
+    }
+    const envVal = (process.env.SELLER_REGISTRATION_FEE_ENABLED || "").trim().toLowerCase();
+    if (envVal !== "") {
+      return envVal === "true" || envVal === "1" || envVal === "enabled";
+    }
+    return false;
   } catch {
     return false;
   }
@@ -19,12 +32,25 @@ export async function isSellerRegistrationFeeEnabled(): Promise<boolean> {
 
 /**
  * Returns the configured registration fee amount (₹1).
+ * Database SystemCredential is authoritative, falling back to environment variable or default ₹1.00.
  */
 export async function getSellerRegistrationFeeAmount(): Promise<number> {
   try {
-    const val = await getCredential("SELLER_REGISTRATION_FEE_AMOUNT", String(DEFAULT_REGISTRATION_FEE_AMOUNT));
-    const parsed = parseFloat(val);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REGISTRATION_FEE_AMOUNT;
+    if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+      const entry = await db.systemCredential.findUnique({
+        where: { key: "SELLER_REGISTRATION_FEE_AMOUNT" },
+      });
+      if (entry && entry.value) {
+        const parsed = parseFloat(entry.value);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
+    }
+    const envVal = process.env.SELLER_REGISTRATION_FEE_AMOUNT;
+    if (envVal) {
+      const parsed = parseFloat(envVal);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return DEFAULT_REGISTRATION_FEE_AMOUNT;
   } catch {
     return DEFAULT_REGISTRATION_FEE_AMOUNT;
   }
