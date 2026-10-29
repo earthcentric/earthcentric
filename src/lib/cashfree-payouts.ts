@@ -23,54 +23,104 @@ export interface CashfreePayoutResult {
 }
 
 /**
- * Returns whether Cashfree Payouts credentials are configured.
+ * Helper to resolve the Cashfree Payout Client ID following the precedence rule:
+ * 1. Database-backed SystemCredential
+ * 2. Server Environment Variable
  */
-export async function isCashfreePayoutConfigured(): Promise<boolean> {
-  const clientId =
-    (await getCredential("CASHFREE_PAYOUT_CLIENT_ID")) ||
-    (await getCredential("CF_PAYOUT_CLIENT_ID")) ||
-    process.env.CASHFREE_PAYOUT_CLIENT_ID ||
-    process.env.CF_PAYOUT_CLIENT_ID;
+export async function getPayoutClientId(): Promise<string> {
+  const dbVal = await getCredential("CASHFREE_PAYOUT_CLIENT_ID");
+  if (dbVal && dbVal.trim() !== "") return dbVal.trim();
+  const cfVal = await getCredential("CF_PAYOUT_CLIENT_ID");
+  if (cfVal && cfVal.trim() !== "") return cfVal.trim();
+  const envVal = process.env.CASHFREE_PAYOUT_CLIENT_ID || process.env.CF_PAYOUT_CLIENT_ID;
+  return envVal && envVal.trim() !== "" ? envVal.trim() : "";
+}
 
-  const clientSecret =
-    (await getCredential("CASHFREE_PAYOUT_CLIENT_SECRET")) ||
-    (await getCredential("CF_PAYOUT_CLIENT_SECRET")) ||
-    process.env.CASHFREE_PAYOUT_CLIENT_SECRET ||
-    process.env.CF_PAYOUT_CLIENT_SECRET;
+/**
+ * Helper to resolve the Cashfree Payout Client Secret following the precedence rule:
+ * 1. Database-backed SystemCredential
+ * 2. Server Environment Variable
+ * Never exposed to frontend or logged.
+ */
+export async function getPayoutClientSecret(): Promise<string> {
+  const dbVal = await getCredential("CASHFREE_PAYOUT_CLIENT_SECRET");
+  if (dbVal && dbVal.trim() !== "") return dbVal.trim();
+  const cfVal = await getCredential("CF_PAYOUT_CLIENT_SECRET");
+  if (cfVal && cfVal.trim() !== "") return cfVal.trim();
+  const envVal = process.env.CASHFREE_PAYOUT_CLIENT_SECRET || process.env.CF_PAYOUT_CLIENT_SECRET;
+  return envVal && envVal.trim() !== "" ? envVal.trim() : "";
+}
 
-  return Boolean(clientId && clientSecret);
+/**
+ * Determine the intended Cashfree Payout environment.
+ * Auto-detects sandbox keys to prevent misrouting sandbox credentials to production.
+ */
+export async function getPayoutEnvironment(): Promise<"SANDBOX" | "PRODUCTION"> {
+  const clientId = await getPayoutClientId();
+  const clientSecret = await getPayoutClientSecret();
+
+  // If credentials clearly belong to test/sandbox, enforce sandbox
+  const isExplicitTestKey =
+    clientId.toLowerCase().includes("test") ||
+    clientId.toLowerCase().includes("sandbox") ||
+    clientSecret.toLowerCase().includes("test") ||
+    clientSecret.toLowerCase().includes("sandbox");
+
+  if (isExplicitTestKey) {
+    return "SANDBOX";
+  }
+
+  const rawEnv =
+    (await getCredential("CASHFREE_PAYOUT_ENV")) ||
+    (await getCredential("CASHFREE_ENVIRONMENT")) ||
+    process.env.CASHFREE_PAYOUT_ENV ||
+    process.env.CASHFREE_ENVIRONMENT ||
+    "SANDBOX";
+
+  return rawEnv.trim().toUpperCase() === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
 }
 
 /**
  * Get Cashfree Payouts base URL.
  */
-function getPayoutBaseUrl(): string {
-  const env = (process.env.CASHFREE_ENVIRONMENT || "SANDBOX").toUpperCase();
+export async function getPayoutBaseUrl(): Promise<string> {
+  const env = await getPayoutEnvironment();
   return env === "PRODUCTION"
     ? "https://payout-api.cashfree.com/payout/v1"
     : "https://sandbox.cashfree.com/payout/v1";
 }
 
 /**
- * Obtain Cashfree Payout Bearer Token from `/authorize`.
+ * Returns whether Cashfree Payouts credentials are configured.
  */
-async function getCashfreePayoutToken(): Promise<string | null> {
-  const clientId =
-    (await getCredential("CASHFREE_PAYOUT_CLIENT_ID")) ||
-    (await getCredential("CF_PAYOUT_CLIENT_ID")) ||
-    process.env.CASHFREE_PAYOUT_CLIENT_ID ||
-    process.env.CF_PAYOUT_CLIENT_ID;
+export async function isCashfreePayoutConfigured(): Promise<boolean> {
+  const clientId = await getPayoutClientId();
+  const clientSecret = await getPayoutClientSecret();
+  return Boolean(clientId && clientSecret);
+}
 
-  const clientSecret =
-    (await getCredential("CASHFREE_PAYOUT_CLIENT_SECRET")) ||
-    (await getCredential("CF_PAYOUT_CLIENT_SECRET")) ||
-    process.env.CASHFREE_PAYOUT_CLIENT_SECRET ||
-    process.env.CF_PAYOUT_CLIENT_SECRET;
+/**
+ * Obtain Cashfree Payout Bearer Token from `/authorize`.
+ * Returns token or detailed diagnostic error without leaking secret.
+ */
+export async function getCashfreePayoutToken(): Promise<{
+  token?: string;
+  error?: string;
+  subCode?: string;
+}> {
+  const clientId = await getPayoutClientId();
+  const clientSecret = await getPayoutClientSecret();
+  const baseUrl = await getPayoutBaseUrl();
+  const env = await getPayoutEnvironment();
 
-  if (!clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    return {
+      error: "Cashfree Payouts credentials are not configured. Please set CASHFREE_PAYOUT_CLIENT_ID and CASHFREE_PAYOUT_CLIENT_SECRET.",
+    };
+  }
 
   try {
-    const res = await fetch(`${getPayoutBaseUrl()}/authorize`, {
+    const res = await fetch(`${baseUrl}/authorize`, {
       method: "POST",
       headers: {
         "X-Client-Id": clientId,
@@ -79,16 +129,82 @@ async function getCashfreePayoutToken(): Promise<string | null> {
       },
     });
 
-    const data = await res.json();
-    if (data.status === "SUCCESS" && data.data?.token) {
-      return data.data.token;
+    const data = await res.json().catch(() => null);
+
+    if (res.ok && data?.status === "SUCCESS" && data?.data?.token) {
+      console.log(`[Cashfree Payout] Token authorized successfully (env=${env}, expiry=${data.data.expiry || "N/A"}).`);
+      return { token: data.data.token };
     }
-    console.error("Cashfree payout authorization response:", data);
-    return null;
-  } catch (error) {
-    console.error("Cashfree payout authorization failed:", error);
-    return null;
+
+    const errorMsg = data?.message || `Cashfree authorization failed with HTTP ${res.status}`;
+    console.error("[Cashfree Payout] Authorization error:", {
+      status: data?.status,
+      subCode: data?.subCode,
+      message: errorMsg,
+      env,
+    });
+
+    return {
+      error: errorMsg,
+      subCode: data?.subCode ? String(data.subCode) : undefined,
+    };
+  } catch (error: any) {
+    console.error("[Cashfree Payout] Authorization network error:", error?.message || error);
+    return {
+      error: error?.message || "Network error contacting Cashfree Payouts API.",
+    };
   }
+}
+
+/**
+ * Validate Cashfree Payouts configuration and connection safely without financial transfers.
+ */
+export async function validateCashfreePayoutConfig(): Promise<{
+  configured: boolean;
+  environment: "SANDBOX" | "PRODUCTION";
+  hasClientId: boolean;
+  hasClientSecret: boolean;
+  authenticated?: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const clientId = await getPayoutClientId();
+  const clientSecret = await getPayoutClientSecret();
+  const env = await getPayoutEnvironment();
+
+  if (!clientId || !clientSecret) {
+    const missing: string[] = [];
+    if (!clientId) missing.push("CASHFREE_PAYOUT_CLIENT_ID");
+    if (!clientSecret) missing.push("CASHFREE_PAYOUT_CLIENT_SECRET");
+    return {
+      configured: false,
+      environment: env,
+      hasClientId: Boolean(clientId),
+      hasClientSecret: Boolean(clientSecret),
+      error: `Missing configuration: ${missing.join(", ")}. Please configure them in System Settings (Credentials Manager) or server environment variables.`,
+    };
+  }
+
+  const auth = await getCashfreePayoutToken();
+  if (auth.token) {
+    return {
+      configured: true,
+      environment: env,
+      hasClientId: true,
+      hasClientSecret: true,
+      authenticated: true,
+      message: `Cashfree Payouts API connection verified successfully in ${env} mode.`,
+    };
+  }
+
+  return {
+    configured: true,
+    environment: env,
+    hasClientId: true,
+    hasClientSecret: true,
+    authenticated: false,
+    error: `Authentication failed in ${env} mode: ${auth.error || "Invalid Client ID or Secret"}.`,
+  };
 }
 
 /**
@@ -101,11 +217,12 @@ export async function initiateCashfreePayoutTransfer(options: {
   remarks?: string;
 }): Promise<CashfreePayoutResult> {
   const isConfigured = await isCashfreePayoutConfigured();
+  const env = await getPayoutEnvironment();
 
   if (!isConfigured) {
-    // Check if running in Cashfree sandbox test mode where test transfers are permitted
-    const isSandboxTestMode = process.env.CASHFREE_ENVIRONMENT === "SANDBOX" && process.env.NODE_ENV !== "production";
-    if (isSandboxTestMode && process.env.ALLOW_SANDBOX_MOCK_PAYOUTS === "true") {
+    // Check if running in offline mock database mode
+    const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (isMockDatabase && process.env.ALLOW_SANDBOX_MOCK_PAYOUTS === "true") {
       const mockRef = `CF-SIM-${Date.now()}`;
       const mockUtr = `UTR-${Math.floor(100000000000 + Math.random() * 900000000000)}`;
       return {
@@ -126,15 +243,18 @@ export async function initiateCashfreePayoutTransfer(options: {
     };
   }
 
-  const token = await getCashfreePayoutToken();
-  if (!token) {
+  const auth = await getCashfreePayoutToken();
+  if (!auth.token) {
     return {
       success: false,
       status: "FAILED",
       transferId: options.transferId,
-      error: "Failed to authenticate with Cashfree Payouts API. Check payout client credentials.",
+      error: `Cashfree Payouts authorization failed (${env}): ${auth.error || "Invalid credentials"}.`,
     };
   }
+
+  const baseUrl = await getPayoutBaseUrl();
+  const token = auth.token;
 
   try {
     const payload: any = {
@@ -232,16 +352,17 @@ export async function getCashfreeTransferStatus(transferId: string): Promise<{
     return { status: "UNKNOWN", error: "Cashfree Payouts is not configured." };
   }
 
-  const token = await getCashfreePayoutToken();
-  if (!token) {
-    return { status: "UNKNOWN", error: "Could not authenticate with Cashfree Payouts." };
+  const auth = await getCashfreePayoutToken();
+  if (!auth.token) {
+    return { status: "UNKNOWN", error: auth.error || "Could not authenticate with Cashfree Payouts." };
   }
 
   try {
-    const res = await fetch(`${getPayoutBaseUrl()}/getTransferStatus?transferId=${encodeURIComponent(transferId)}`, {
+    const baseUrl = await getPayoutBaseUrl();
+    const res = await fetch(`${baseUrl}/getTransferStatus?transferId=${encodeURIComponent(transferId)}`, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${auth.token}`,
         "Content-Type": "application/json",
       },
     });

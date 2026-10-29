@@ -1142,6 +1142,15 @@ export async function executeCashfreePayout(
       return { success: false, error: "Seller application is not in APPROVED status." };
     }
 
+    // Validate Cashfree Payout configuration BEFORE mutating database state
+    const isConfigured = await isCashfreePayoutConfigured();
+    if (!isConfigured) {
+      return {
+        success: false,
+        error: "Cashfree Payouts API is not configured. Please configure CASHFREE_PAYOUT_CLIENT_ID and CASHFREE_PAYOUT_CLIENT_SECRET in System Settings or environment variables.",
+      };
+    }
+
     // Generate unique transferId using idempotency pattern
     const transferId = request.cfTransferId || `EC-TR-${request.id.slice(-6).toUpperCase()}-${Date.now()}`;
     const amountToTransfer = request.remainingAmount !== null ? request.remainingAmount : request.amount;

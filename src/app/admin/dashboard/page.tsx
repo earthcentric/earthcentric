@@ -4186,8 +4186,8 @@ function OrderManagementView({
             <div className="flex items-center space-x-2 pb-4 border-b border-slate-100 mb-2">
               <span className="text-lg">💳</span>
               <div>
-                <h3 className="text-xs font-bold text-[#1a3321]">Cashfree Gateway</h3>
-                <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Merchant account API keys & secrets</p>
+                <h3 className="text-xs font-bold text-[#1a3321]">Cashfree Gateway &amp; Payouts</h3>
+                <p className="text-[9px] text-[#8ca193] uppercase font-semibold">Payment collection (PG) &amp; seller withdrawal disbursement (Payouts) credentials</p>
               </div>
             </div>
             <div>{cashfreeCreds.map(renderCredentialRow)}</div>
