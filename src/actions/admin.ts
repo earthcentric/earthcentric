@@ -568,7 +568,7 @@ export async function getPlatformStats(
       where: { 
         status: "COMPLETED",
         order: {
-          status: { notIn: ["CANCELLED", "REFUNDED"] },
+          status: { notIn: ["CANCELLED", "REFUNDED", "RETURNED"] },
         },
         ...(paymentDateFilter ? { createdAt: paymentDateFilter } : {})
       },
@@ -576,6 +576,10 @@ export async function getPlatformStats(
         order: {
           select: {
             createdAt: true,
+            cancellations: {
+              where: { status: "APPROVED" },
+              select: { refundAmount: true },
+            },
           },
         },
       },
@@ -585,7 +589,12 @@ export async function getPlatformStats(
     payments.forEach((pay) => {
       const date = pay.order?.createdAt || pay.createdAt;
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      monthlyMap[monthKey] = (monthlyMap[monthKey] || 0) + pay.amount;
+      const approvedCancellation = pay.order?.cancellations?.[0];
+      const refundAmt = approvedCancellation?.refundAmount || 0;
+      const activeAmount = Math.max(0, pay.amount - refundAmt);
+      if (activeAmount > 0) {
+        monthlyMap[monthKey] = (monthlyMap[monthKey] || 0) + activeAmount;
+      }
     });
 
     // Generate last 5 months dynamically
@@ -839,7 +848,7 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     const orderItems = await db.orderItem.findMany({
       where: {
         order: {
-          status: { notIn: ["CANCELLED", "REFUNDED"] },
+          status: { notIn: ["CANCELLED", "REFUNDED", "RETURNED"] },
           payment: {
             status: "COMPLETED",
           },
@@ -847,7 +856,14 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
       },
       include: {
         product: true,
-        order: true,
+        order: {
+          include: {
+            cancellations: {
+              where: { status: "APPROVED" },
+              select: { snapshotItems: true },
+            },
+          },
+        },
       },
     });
 
@@ -864,6 +880,18 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
     const sellerMap: Record<string, { total: number; monthly: Record<string, number> }> = {};
 
     orderItems.forEach((item) => {
+      const approvedCancellation = item.order.cancellations?.[0];
+      let isReturnedOrCancelled = false;
+      if (item.order.status === "CANCELLED" || item.order.status === "REFUNDED" || item.order.status === "RETURNED") {
+        isReturnedOrCancelled = true;
+      } else if (approvedCancellation) {
+        const snapshots = (approvedCancellation.snapshotItems as any[]) || [];
+        if (snapshots.length === 0 || snapshots.some((s: any) => s.productId === item.productId)) {
+          isReturnedOrCancelled = true;
+        }
+      }
+      if (isReturnedOrCancelled) return;
+
       const sId = item.product.sellerId;
       const date = item.order.createdAt;
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;

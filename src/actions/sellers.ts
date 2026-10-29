@@ -732,7 +732,11 @@ export async function getSellerDashboardStats(
       const baseProducts = Math.max(1, Math.round(6 * scale));
       return {
         revenue: baseRev,
+        grossRevenue: baseRev,
+        cancelledRevenue: 0,
         ordersCount: baseOrders,
+        totalOrdersCount: baseOrders,
+        cancelledOrdersCount: 0,
         productsCount: baseProducts,
         rating: 4.8,
         mostSoldProduct: "Bamboo Fiber Sheets",
@@ -758,8 +762,17 @@ export async function getSellerDashboardStats(
       };
     }
 
+    // Resolve seller ID candidate keys
+    const seller = await db.seller.findFirst({
+      where: { OR: [{ id: sellerId }, { userId: sellerId }] },
+    });
+    const candidateSellerIds = Array.from(new Set([sellerId, seller?.id, seller?.userId].filter(Boolean) as string[]));
+
     // DB Aggregations - Product Count filtered by Product Created Date / productDate
-    const productWhere: any = { sellerId, isArchived: false };
+    const productWhere: any = {
+      isArchived: false,
+      sellerId: { in: candidateSellerIds },
+    };
     if (startDate || endDate) {
       productWhere.OR = [
         {
@@ -797,12 +810,19 @@ export async function getSellerDashboardStats(
     const orderItems = await db.orderItem.findMany({
       where: {
         product: {
-          sellerId: sellerId,
+          sellerId: { in: candidateSellerIds },
         },
         order: orderWhere,
       },
       include: {
-        order: true,
+        order: {
+          include: {
+            cancellations: {
+              where: { status: "APPROVED" },
+              select: { id: true, refundAmount: true, snapshotItems: true },
+            },
+          },
+        },
         product: {
           include: {
             category: true,
@@ -811,17 +831,71 @@ export async function getSellerDashboardStats(
       },
     });
 
-    const revenue = orderItems.reduce((acc: number, curr: any) => acc + curr.price * curr.quantity, 0);
-    const ordersCount = new Set(orderItems.map((oi: any) => oi.orderId)).size;
-
+    let activeRevenue = 0;
+    let cancelledRevenue = 0;
+    let grossRevenue = 0;
+    const activeOrderIds = new Set<string>();
+    const allOrderIds = new Set<string>();
     const productSales: Record<string, { name: string; count: number }> = {};
+    const catMap: Record<string, number> = {};
+
     for (const item of orderItems) {
+      const itemTotal = item.price * item.quantity;
+      grossRevenue += itemTotal;
+      allOrderIds.add(item.orderId);
+
+      const approvedCancellation = item.order.cancellations?.[0];
+      let isItemReturnedOrCancelled = false;
+      let returnedQty = 0;
+
+      if (item.order.status === "CANCELLED" || item.order.status === "REFUNDED" || item.order.status === "RETURNED") {
+        isItemReturnedOrCancelled = true;
+        returnedQty = item.quantity;
+      } else if (approvedCancellation) {
+        const snapshots = (approvedCancellation.snapshotItems as any[]) || [];
+        if (snapshots.length === 0) {
+          isItemReturnedOrCancelled = true;
+          returnedQty = item.quantity;
+        } else {
+          const matchedSnap = snapshots.find((s: any) => s.productId === item.productId);
+          if (matchedSnap) {
+            returnedQty = Math.min(item.quantity, matchedSnap.quantity ?? item.quantity);
+            if (returnedQty >= item.quantity) {
+              isItemReturnedOrCancelled = true;
+            }
+          }
+        }
+      }
+
+      const activeQty = Math.max(0, item.quantity - returnedQty);
+      const activeItemRevenue = item.price * activeQty;
+      const cancelledItemRevenue = item.price * returnedQty;
+
+      activeRevenue += activeItemRevenue;
+      cancelledRevenue += cancelledItemRevenue;
+
+      if (activeQty > 0) {
+        activeOrderIds.add(item.orderId);
+      }
+
+      // Track active product sales count
       if (!productSales[item.productId]) {
         productSales[item.productId] = { name: item.product.name, count: 0 };
       }
-      productSales[item.productId].count += item.quantity;
+      productSales[item.productId].count += activeQty;
+
+      // Track active category breakdown
+      if (activeQty > 0) {
+        const cat = item.product.category?.name || "Other";
+        catMap[cat] = (catMap[cat] || 0) + activeQty;
+      }
     }
-    
+
+    const revenue = Math.round(activeRevenue * 100) / 100;
+    const ordersCount = activeOrderIds.size;
+    const totalOrdersCount = allOrderIds.size;
+    const cancelledOrdersCount = Math.max(0, totalOrdersCount - ordersCount);
+
     let mostSoldProduct = "None yet";
     let maxCount = 0;
     for (const key in productSales) {
@@ -831,34 +905,33 @@ export async function getSellerDashboardStats(
       }
     }
 
-    const salesConversion = 3.4;
-    const totalStoreVisits = ordersCount > 0 ? Math.round(ordersCount / (salesConversion / 100)) : 150;
+    const salesConversion = ordersCount > 0 ? 3.4 : 0;
+    const totalStoreVisits = ordersCount > 0 ? Math.round(ordersCount / (3.4 / 100)) : 0;
     const averageOrderValue = ordersCount > 0 ? Math.round(revenue / ordersCount) : 0;
-    
-    const catMap: Record<string, number> = {};
-    for (const item of orderItems) {
-      const cat = item.product.category?.name || "Other";
-      catMap[cat] = (catMap[cat] || 0) + item.quantity;
-    }
-    const totalItems = Object.values(catMap).reduce((a,b)=>a+b, 0);
+
+    const totalItems = Object.values(catMap).reduce((a, b) => a + b, 0);
     const categoryBreakdown = Object.entries(catMap)
       .map(([name, count]) => ({ name, percentage: totalItems > 0 ? Math.round((count / totalItems) * 100) : 0 }))
-      .sort((a,b) => b.percentage - a.percentage);
+      .sort((a, b) => b.percentage - a.percentage);
 
     const environmentalImpact = {
-      carbonOffset: Math.floor(revenue * 0.005) + 120,
-      plasticAvoided: Math.floor(revenue * 0.001) + 40,
-      ecoTreePoints: Math.floor(revenue * 0.0002) + 5,
+      carbonOffset: Math.floor(revenue * 0.005),
+      plasticAvoided: Math.floor(revenue * 0.001),
+      ecoTreePoints: Math.floor(revenue * 0.0002),
     };
 
     const productSalesMap: Record<string, number> = {};
     for (const key in productSales) {
-      productSalesMap[key] = productSales[key].count;
+      productSalesMap[key] = Math.max(0, productSales[key].count);
     }
 
     return {
       revenue,
+      grossRevenue: Math.round(grossRevenue * 100) / 100,
+      cancelledRevenue: Math.round(cancelledRevenue * 100) / 100,
       ordersCount,
+      totalOrdersCount,
+      cancelledOrdersCount,
       productsCount,
       rating: 4.8,
       mostSoldProduct,
@@ -872,7 +945,11 @@ export async function getSellerDashboardStats(
   } catch (e) {
     return {
       revenue: 0,
+      grossRevenue: 0,
+      cancelledRevenue: 0,
       ordersCount: 0,
+      totalOrdersCount: 0,
+      cancelledOrdersCount: 0,
       productsCount: 0,
       rating: 0,
       mostSoldProduct: "N/A",
@@ -1060,18 +1137,66 @@ export async function getSellerAnalyticsTimeSeries(sellerId: string) {
         where: { OR: [{ id: sellerId }, { userId: sellerId }] }
       });
       if (seller) {
+        const candidateSellerIds = Array.from(new Set([seller.id, seller.userId, sellerId].filter(Boolean) as string[]));
         const orderItems = await db.orderItem.findMany({
-          where: { product: { sellerId: seller.id }, order: { payment: { status: "COMPLETED" } } },
-          include: { order: { select: { createdAt: true } } }
+          where: {
+            product: { sellerId: { in: candidateSellerIds } },
+            order: { payment: { status: "COMPLETED" } }
+          },
+          include: {
+            order: {
+              select: {
+                id: true,
+                status: true,
+                createdAt: true,
+                cancellations: {
+                  where: { status: "APPROVED" },
+                  select: { id: true, refundAmount: true, snapshotItems: true },
+                },
+              },
+            },
+          },
         });
-        
-        const uniqueOrders = new Set<string>();
+
+        // Group active items by orderId so each order is only counted once for active orders
+        const orderActiveMap = new Map<string, { createdAt: Date; activeAmount: number }>();
+
         orderItems.forEach((item: any) => {
-          if (!uniqueOrders.has(item.orderId)) {
-            uniqueOrders.add(item.orderId);
-            orders.push({ createdAt: item.order.createdAt });
+          const approvedCancellation = item.order.cancellations?.[0];
+          let returnedQty = 0;
+
+          if (item.order.status === "CANCELLED" || item.order.status === "REFUNDED" || item.order.status === "RETURNED") {
+            returnedQty = item.quantity;
+          } else if (approvedCancellation) {
+            const snapshots = (approvedCancellation.snapshotItems as any[]) || [];
+            if (snapshots.length === 0) {
+              returnedQty = item.quantity;
+            } else {
+              const matchedSnap = snapshots.find((s: any) => s.productId === item.productId);
+              if (matchedSnap) {
+                returnedQty = Math.min(item.quantity, matchedSnap.quantity ?? item.quantity);
+              }
+            }
           }
-          payments.push({ amount: item.price * item.quantity, createdAt: item.order.createdAt });
+
+          const activeQty = Math.max(0, item.quantity - returnedQty);
+          const activeAmount = item.price * activeQty;
+
+          if (!orderActiveMap.has(item.orderId)) {
+            orderActiveMap.set(item.orderId, {
+              createdAt: item.order.createdAt,
+              activeAmount: 0,
+            });
+          }
+          const curr = orderActiveMap.get(item.orderId)!;
+          curr.activeAmount += activeAmount;
+        });
+
+        orderActiveMap.forEach((entry) => {
+          if (entry.activeAmount > 0) {
+            orders.push({ createdAt: entry.createdAt });
+            payments.push({ amount: entry.activeAmount, createdAt: entry.createdAt });
+          }
         });
       }
     }

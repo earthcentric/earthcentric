@@ -183,6 +183,13 @@ export async function POST(req: NextRequest) {
               ).catch((e) => console.error("Webhook confirmation email error:", e));
             }
           }
+
+          try {
+            const { revalidatePath } = await import("next/cache");
+            revalidatePath("/seller/dashboard");
+            revalidatePath("/admin/dashboard");
+            revalidatePath("/orders");
+          } catch (_) {}
         } catch (dbErr) {
           console.error("[Cashfree Webhook] Database update error:", dbErr);
         }

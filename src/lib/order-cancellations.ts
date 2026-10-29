@@ -161,6 +161,16 @@ async function saveProviderRefund(
       errorDetail: result.status_description || "Banking network delayed confirmation.",
     }).catch((e) => console.error("Refund failed email error:", e));
   }
+
+  try {
+    const { revalidatePath } = await import("next/cache");
+    revalidatePath("/seller/dashboard");
+    revalidatePath("/admin/cancellations");
+    revalidatePath("/admin/dashboard");
+    revalidatePath("/orders");
+    revalidatePath(`/orders/${cancellation.orderId}`);
+  } catch (_) {}
+
   return transition.status;
 }
 

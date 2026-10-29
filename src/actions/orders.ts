@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import db from "@/lib/db";
 import { createCashfreeOrder, verifyPaymentSignature } from "@/lib/cashfree";
 import {
@@ -1320,6 +1321,7 @@ async function createCancellationRequest(
     const isDelivered = order.status === "DELIVERED";
     const requestType = isDelivered ? "RETURN" : "CANCELLATION";
     let deliveryDate: Date | null = null;
+    let shouldAutoApprove = false;
 
     if (isDelivered) {
       const deliveredEvent = order.timeline.find((t) => t.status === "DELIVERED");
@@ -1344,6 +1346,11 @@ async function createCancellationRequest(
           success: false,
           error: "Cancellation period expired. Orders can only be cancelled within 3 days (72 hours) of placement.",
         };
+      }
+
+      // First 24-hour pre-shipment automatic cancellation policy
+      if (ageHours <= 24 && ["PLACED", "CONFIRMED", "PACKED"].includes(order.status)) {
+        shouldAutoApprove = true;
       }
     }
 
@@ -1377,6 +1384,13 @@ async function createCancellationRequest(
       calculatedRefundAmount = Math.min(Math.round(itemsSum * 100) / 100, order.totalAmount);
     }
 
+    const resultingRefundStatus: RefundState =
+      order.payment?.status === "COMPLETED"
+        ? "PENDING"
+        : order.payment?.status === "PENDING"
+          ? "PENDING_PAYMENT"
+          : "NOT_REQUIRED";
+
     const cancellation = await db.$transaction(async (tx) => {
       const record = await tx.orderCancellation.create({
         data: {
@@ -1386,59 +1400,112 @@ async function createCancellationRequest(
           requestedByEmail: requester.email,
           requestedByRole: requester.role,
           reason: cleanedReason,
-          status: "REQUESTED",
+          status: shouldAutoApprove ? "APPROVED" : "REQUESTED",
           type: requestType,
           deliveredAt: deliveryDate,
-          isAutoApproved: false,
-          refundStatus:
-            order.payment?.status === "COMPLETED"
-              ? "PENDING"
-              : order.payment?.status === "PENDING"
-                ? "PENDING_PAYMENT"
-                : "NOT_REQUIRED",
+          isAutoApproved: shouldAutoApprove,
+          refundStatus: resultingRefundStatus,
           refundAmount: calculatedRefundAmount,
           snapshotItems,
+          reviewedAt: shouldAutoApprove ? new Date() : null,
+          reviewedByUserId: shouldAutoApprove ? "SYSTEM_AUTO" : null,
+          reviewedByEmail: shouldAutoApprove ? "system@earthcentric.com" : null,
         },
       });
 
-      await tx.orderTimeline.create({
-        data: {
-          orderId,
-          status: order.status,
-          description: isDelivered
-            ? `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested return for delivered order. Reason: ${cleanedReason}. Awaiting Super Admin review, collection, and refund approval.`
-            : `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation (within 3-day window). Reason: ${cleanedReason}. Awaiting Super Admin review and refund approval.`,
-        },
-      });
+      if (shouldAutoApprove) {
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: "CANCELLED" },
+        });
+
+        // Restore stock for auto-approved pre-shipment cancellation
+        for (const item of snapshotItems) {
+          if (item.productId && item.quantity > 0) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            }).catch((err) => console.warn(`Could not restore stock for product ${item.productId}:`, err));
+          }
+        }
+
+        await tx.orderTimeline.create({
+          data: {
+            orderId,
+            status: "CANCELLED",
+            description: `Order automatically cancelled within 24-hour pre-shipment policy. Reason: ${cleanedReason}. Refund initiated.`,
+          },
+        });
+      } else {
+        await tx.orderTimeline.create({
+          data: {
+            orderId,
+            status: order.status,
+            description: isDelivered
+              ? `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested return for delivered order. Reason: ${cleanedReason}. Awaiting Super Admin review, collection, and refund approval.`
+              : `${requester.role === "SELLER" ? "Seller" : "Buyer"} requested cancellation (within 3-day window). Reason: ${cleanedReason}. Awaiting Super Admin review and refund approval.`,
+          },
+        });
+      }
 
       return record;
     });
 
-    // Send confirmation email
-    await sendCancellationRequestedEmail(requester.email, {
-      orderId,
-      customerName: order.user?.name || undefined,
-      items: snapshotItems,
-      refundAmount: calculatedRefundAmount,
-      requestDate: new Date(),
-    }).catch((err) => console.error("Cancellation requested email error:", err));
+    if (shouldAutoApprove) {
+      if (resultingRefundStatus === "PENDING") {
+        await startCancellationRefund(cancellation.id).catch((err) =>
+          console.error("Auto-cancellation refund error:", err)
+        );
+      }
+      await sendAutoCancellationEmail(requester.email, {
+        orderId,
+        customerName: order.user?.name || undefined,
+        items: snapshotItems.map((it) => ({ name: it.name, quantity: it.quantity, price: it.price })),
+        refundAmount: calculatedRefundAmount,
+        cancelDate: new Date(),
+      }).catch((err) => console.error("Auto-cancellation email error:", err));
 
-    const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
-    const actionLabel = isDelivered ? "Return" : "Cancellation";
-    await createNotification(
-      order.userId,
-      `${actionLabel} request received ⏳`,
-      `${actionLabel} requested for order ${orderId}. Your request is awaiting Super Admin review and approval. Once approved, the refund will be initiated.`,
-      `/orders/${orderId}`
-    ).catch((e) => console.error("Notification error:", e));
+      await createNotification(
+        order.userId,
+        "Order Cancelled Automatically ⚡",
+        `Order ${orderId} was cancelled per our instant 24-hour policy. Refund of ₹${calculatedRefundAmount.toFixed(2)} is being processed.`,
+        `/orders/${orderId}`
+      ).catch((e) => console.error("Notification error:", e));
+    } else {
+      // Send confirmation email
+      await sendCancellationRequestedEmail(requester.email, {
+        orderId,
+        customerName: order.user?.name || undefined,
+        items: snapshotItems,
+        refundAmount: calculatedRefundAmount,
+        requestDate: new Date(),
+      }).catch((err) => console.error("Cancellation requested email error:", err));
 
-    await createAdminNotification(
-      `Order ${actionLabel.toLowerCase()} needs review`,
-      `${requesterLabel} requested ${actionLabel.toLowerCase()} for order ${orderId}${isDelivered ? " (Delivered Order Return)" : " (within 3-day policy)"}. Reason: ${cleanedReason}`,
-      "cancellations"
-    ).catch((e) => console.error("Admin alert error:", e));
+      const requesterLabel = requester.role === "SELLER" ? "Seller" : "Buyer";
+      const actionLabel = isDelivered ? "Return" : "Cancellation";
+      await createNotification(
+        order.userId,
+        `${actionLabel} request received ⏳`,
+        `${actionLabel} requested for order ${orderId}. Your request is awaiting Super Admin review and approval. Once approved, the refund will be initiated.`,
+        `/orders/${orderId}`
+      ).catch((e) => console.error("Notification error:", e));
 
-    return { success: true, autoApproved: false, cancellationId: cancellation.id };
+      await createAdminNotification(
+        `Order ${actionLabel.toLowerCase()} needs review`,
+        `${requesterLabel} requested ${actionLabel.toLowerCase()} for order ${orderId}${isDelivered ? " (Delivered Order Return)" : " (within 3-day policy)"}. Reason: ${cleanedReason}`,
+        "cancellations"
+      ).catch((e) => console.error("Admin alert error:", e));
+    }
+
+    try {
+      revalidatePath("/seller/dashboard");
+      revalidatePath("/admin/cancellations");
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${orderId}`);
+    } catch (_) {}
+
+    return { success: true, autoApproved: shouldAutoApprove, cancellationId: cancellation.id };
   } catch (e) {
     console.error("createCancellationRequest failed:", e);
     if (
@@ -1807,6 +1874,17 @@ export async function reviewOrderCancellation(
             throw new Error("The order status changed while the cancellation was being reviewed.");
           }
 
+          // Restore product stock for pre-shipment cancelled items
+          const itemsToRestore = (cancellation.snapshotItems as any[]) || cancellation.order.items || [];
+          for (const item of itemsToRestore) {
+            if (item.productId && item.quantity > 0) {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              }).catch((err) => console.warn(`Could not restore stock for product ${item.productId}:`, err));
+            }
+          }
+
           await tx.orderTimeline.create({
             data: {
               orderId: cancellation.orderId,
@@ -1826,6 +1904,14 @@ export async function reviewOrderCancellation(
         });
       }
     });
+
+    try {
+      revalidatePath("/seller/dashboard");
+      revalidatePath("/admin/cancellations");
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${cancellation.orderId}`);
+    } catch (_) {}
 
     const customerEmail = cancellation.order.user?.email || cancellation.requestedByEmail;
     const customerName = cancellation.order.user?.name || undefined;
@@ -1946,7 +2032,12 @@ export async function updateReturnCollectionStatus(
       where: { id: cancellationId },
       include: {
         returnCollection: true,
-        order: { include: { user: { select: { id: true, name: true, email: true } } } },
+        order: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            items: true,
+          },
+        },
       },
     });
 
@@ -1976,6 +2067,19 @@ export async function updateReturnCollectionStatus(
       },
     });
 
+    // When status reaches RETURNED_TO_SELLER, inspection is complete: restore product stock!
+    if (status === "RETURNED_TO_SELLER") {
+      const itemsToRestore = (cancellation.snapshotItems as any[]) || cancellation.order.items || [];
+      for (const item of itemsToRestore) {
+        if (item.productId && item.quantity > 0) {
+          await db.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          }).catch((err) => console.warn(`Could not restore stock for product ${item.productId}:`, err));
+        }
+      }
+    }
+
     await db.orderTimeline.create({
       data: {
         orderId: cancellation.orderId,
@@ -1983,6 +2087,14 @@ export async function updateReturnCollectionStatus(
         description: `Return collection status updated to ${status.replace(/_/g, " ")}.${details?.failureReason ? ` Failure reason: ${details.failureReason}.` : ""}${details?.notes ? ` Notes: ${details.notes}.` : ""}`,
       },
     });
+
+    try {
+      revalidatePath("/seller/dashboard");
+      revalidatePath("/admin/cancellations");
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${cancellation.orderId}`);
+    } catch (_) {}
 
     const customerEmail = cancellation.order.user?.email || cancellation.requestedByEmail;
     if (customerEmail) {

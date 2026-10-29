@@ -593,12 +593,16 @@ function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center">
               <DollarSign className="h-4 w-4" />
             </div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">↑ 18%</Badge>
+            {stats?.revenue > 0 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Active</Badge>
+            ) : null}
           </div>
           <div>
             <h3 className="text-2xl font-bold text-foreground">₹{stats?.revenue?.toLocaleString() || 0}</h3>
-            <p className="text-[10px] text-muted-foreground mt-1">Total Revenue</p>
-            <p className="text-[9px] text-[#2d4a36] mt-0.5">+18% this month</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Total Revenue (Net)</p>
+            <p className="text-[9px] text-[#2d4a36] mt-0.5">
+              {stats?.cancelledRevenue ? `₹${stats.cancelledRevenue.toLocaleString()} returned/cancelled excluded` : "Active sales"}
+            </p>
           </div>
         </Card>
 
@@ -609,9 +613,11 @@ function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
             </div>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-amber-500">₹{payoutStats?.pendingAmount?.toLocaleString() || 0}</h3>
-            <p className="text-[10px] text-muted-foreground mt-1">Pending Withdrawal</p>
-            <p className="text-[9px] text-amber-600 mt-0.5">In Progress</p>
+            <h3 className="text-2xl font-bold text-amber-500">₹{(payoutStats?.availableBalance ?? 0).toLocaleString()}</h3>
+            <p className="text-[10px] text-muted-foreground mt-1">Pending / Eligible Withdrawal</p>
+            <p className="text-[9px] text-amber-600 mt-0.5">
+              {payoutStats?.pendingAmount ? `₹${payoutStats.pendingAmount.toLocaleString()} pending payout` : "Withdrawable balance"}
+            </p>
           </div>
         </Card>
 
@@ -620,12 +626,16 @@ function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center">
               <ShoppingBag className="h-4 w-4" />
             </div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">↑ 5%</Badge>
+            {stats?.ordersCount > 0 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Active</Badge>
+            ) : null}
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-foreground">{stats?.ordersCount || 0}</h3>
+            <h3 className="text-2xl font-bold text-foreground">{stats?.ordersCount ?? 0}</h3>
             <p className="text-[10px] text-muted-foreground mt-1">Total Orders</p>
-            <p className="text-[9px] text-[#2d4a36] mt-0.5">+43 this week</p>
+            <p className="text-[9px] text-[#2d4a36] mt-0.5">
+              {stats?.cancelledOrdersCount ? `${stats.cancelledOrdersCount} cancelled/returned excluded` : `${stats?.totalOrdersCount || stats?.ordersCount || 0} active`}
+            </p>
           </div>
         </Card>
 
@@ -634,12 +644,12 @@ function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
             <div className="h-8 w-8 bg-[#f4f5f3] text-muted-foreground rounded-md flex items-center justify-center">
               <Package className="h-4 w-4" />
             </div>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 border-none text-amber-600 bg-amber-50">→ 0%</Badge>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 border-none text-emerald-700 bg-emerald-50">Active</Badge>
           </div>
           <div>
             <h3 className="text-2xl font-bold text-foreground">{stats?.productsCount || 0}</h3>
             <p className="text-[10px] text-muted-foreground mt-1">Products Listed</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5">3 pending approval</p>
+            <p className="text-[9px] text-muted-foreground mt-0.5">Catalog listings</p>
           </div>
         </Card>
 
@@ -700,7 +710,7 @@ function DashboardView({ stats, products, setTab, profile, payoutStats }: any) {
                       {p.stock}
                     </TableCell>
                     <TableCell className="text-xs font-bold py-4">₹{p.price}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground py-4">{stats?.productSalesMap?.[p.id] || Math.floor(Math.random()*200)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground py-4">{(stats?.productSalesMap ? (stats.productSalesMap[p.id] ?? 0) : 0)}</TableCell>
                     <TableCell className="py-4">
                       {isOut ? (
                         <Badge variant="outline" className="bg-red-50 text-red-600 border-none text-[9px]">Out of Stock</Badge>
@@ -1163,7 +1173,7 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
 
   const activeCount = products.filter((p:any) => p.stock > 0).length;
   const issueCount = products.filter((p:any) => p.stock <= 15).length;
-  const totalSold = Object.values(stats?.productSalesMap || {}).reduce((a:any,b:any)=>a+b, 0) || 898;
+  const totalSold = stats?.productSalesMap ? Object.values(stats.productSalesMap).reduce((a: any, b: any) => a + Number(b), 0) : 0;
 
   if (showAddForm) {
     return <AddProductForm onBack={() => setShowAddForm(false)} profile={profile} reload={reload} />;
@@ -1295,8 +1305,8 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                     </TableCell>
                     <TableCell className="text-[11px] font-bold py-4">₹{p.price}</TableCell>
                     <TableCell className="py-4">
-                      <span className="text-[11px] font-bold block">{stats?.productSalesMap?.[p.id] || Math.floor(Math.random()*200)}</span>
-                      <span className="text-[9px] text-muted-foreground">orders</span>
+                      <span className="text-[11px] font-bold block">{(stats?.productSalesMap ? (stats.productSalesMap[p.id] ?? 0) : 0)}</span>
+                      <span className="text-[9px] text-muted-foreground">sold</span>
                     </TableCell>
                     <TableCell className="py-4">
                       {p.status === "REJECTED" ? (
@@ -2676,12 +2686,12 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
     setIsSearchingTrack(false);
   };
 
-  const pendingCount = orders.filter((o: any) => o.status !== "DELIVERED" && o.status !== "CANCELLED").length;
+  const pendingCount = orders.filter((o: any) => o.status !== "DELIVERED" && o.status !== "CANCELLED" && o.status !== "RETURNED" && o.status !== "REFUNDED").length;
   const shippedCount = orders.filter((o: any) => o.status === "SHIPPED").length;
   const deliveredCount = orders.filter((o: any) => o.status === "DELIVERED").length;
 
   const filteredOrders = orders.filter((o: any) => {
-    if (statusFilter === "pending") return o.status !== "DELIVERED" && o.status !== "CANCELLED";
+    if (statusFilter === "pending") return o.status !== "DELIVERED" && o.status !== "CANCELLED" && o.status !== "RETURNED" && o.status !== "REFUNDED";
     if (statusFilter === "shipped") return o.status === "SHIPPED";
     if (statusFilter === "delivered") return o.status === "DELIVERED";
     return true;
@@ -3218,21 +3228,25 @@ function AnalyticsView({ stats, analyticsData }: any) {
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between space-y-3">
           <div className="flex justify-between items-start">
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center"><DollarSign className="h-4 w-4" /></div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">+18%</Badge>
+            {stats?.revenue > 0 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Active</Badge>
+            ) : null}
           </div>
           <div>
             <h3 className="text-2xl font-bold text-foreground">₹{stats?.revenue?.toLocaleString() || 0}</h3>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Total Earnings</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Total Earnings (Net)</p>
           </div>
         </Card>
 
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between space-y-3">
           <div className="flex justify-between items-start">
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center text-xs font-bold">%</div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">+0.8%</Badge>
+            {stats?.ordersCount > 0 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Active</Badge>
+            ) : null}
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-foreground">{stats?.salesConversion || 3.4}%</h3>
+            <h3 className="text-2xl font-bold text-foreground">{stats?.ordersCount ? `${stats.salesConversion || 3.4}%` : "0%"}</h3>
             <p className="text-[10px] text-muted-foreground mt-0.5">Sales Conversion</p>
           </div>
         </Card>
@@ -3240,10 +3254,12 @@ function AnalyticsView({ stats, analyticsData }: any) {
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between space-y-3">
           <div className="flex justify-between items-start">
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center"><ShoppingBag className="h-4 w-4" /></div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">+4.2%</Badge>
+            {stats?.ordersCount > 0 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Active</Badge>
+            ) : null}
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-foreground">₹{stats?.averageOrderValue || 525}</h3>
+            <h3 className="text-2xl font-bold text-foreground">₹{stats?.ordersCount ? (stats.averageOrderValue || 0) : 0}</h3>
             <p className="text-[10px] text-muted-foreground mt-0.5">Average Order Value</p>
           </div>
         </Card>
@@ -3251,10 +3267,12 @@ function AnalyticsView({ stats, analyticsData }: any) {
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between space-y-3">
           <div className="flex justify-between items-start">
             <div className="h-8 w-8 bg-amber-50 text-amber-500 rounded-md flex items-center justify-center"><Activity className="h-4 w-4" /></div>
-            <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">+12%</Badge>
+            {stats?.ordersCount > 0 ? (
+              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Active</Badge>
+            ) : null}
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-foreground">{stats?.totalStoreVisits?.toLocaleString() || "24,840"}</h3>
+            <h3 className="text-2xl font-bold text-foreground">{stats?.ordersCount ? (stats.totalStoreVisits?.toLocaleString() || 0) : 0}</h3>
             <p className="text-[10px] text-muted-foreground mt-0.5">Total Store Visits</p>
           </div>
         </Card>
