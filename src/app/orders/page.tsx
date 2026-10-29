@@ -44,12 +44,23 @@ export default function UserOrdersPage() {
     userId: string | null;
     productIds: Set<string>;
   }>({ userId: null, productIds: new Set() });
-  // Cancellation Modal State
+  // Cancellation & Return Modal State
   const [cancellationModalOrder, setCancellationModalOrder] = useState<OrderDetail | null>(null);
   const [cancellationReason, setCancellationReason] = useState<string>("");
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [selectedReturnItems, setSelectedReturnItems] = useState<Record<string, boolean>>({});
+  const [selectedReturnQuantities, setSelectedReturnQuantities] = useState<Record<string, number>>({});
 
-  const REASON_PRESETS = [
+  const RETURN_REASON_PRESETS = [
+    "Product damaged or defective",
+    "Item not as described",
+    "Received wrong product",
+    "Quality not as expected",
+    "Packaging unsealed / broken",
+    "Changed mind / No longer needed",
+  ];
+
+  const CANCELLATION_REASON_PRESETS = [
     "Ordered by mistake",
     "Found alternative product",
     "Delivery timeframe too long",
@@ -61,6 +72,14 @@ export default function UserOrdersPage() {
   const handleOpenCancellationModal = (order: OrderDetail) => {
     setCancellationModalOrder(order);
     setCancellationReason("");
+    const initItems: Record<string, boolean> = {};
+    const initQtys: Record<string, number> = {};
+    order.items.forEach((it) => {
+      initItems[it.productId] = true;
+      initQtys[it.productId] = it.quantity;
+    });
+    setSelectedReturnItems(initItems);
+    setSelectedReturnQuantities(initQtys);
   };
 
   const handleConfirmCancellation = async () => {
@@ -71,15 +90,40 @@ export default function UserOrdersPage() {
       return;
     }
 
+    const isDelivered = cancellationModalOrder.status === "DELIVERED";
+    let selectedProductIds: string[] | undefined;
+    let selectedQuantities: Record<string, number> | undefined;
+
+    if (isDelivered && cancellationModalOrder.items.length > 0) {
+      const selected = Object.keys(selectedReturnItems).filter((id) => selectedReturnItems[id]);
+      if (selected.length === 0) {
+        toast.error("Please select at least one item to return.");
+        return;
+      }
+      selectedProductIds = selected;
+      selectedQuantities = {};
+      for (const id of selected) {
+        selectedQuantities[id] = selectedReturnQuantities[id] ?? 1;
+      }
+    }
+
     setCancellingOrderId(cancellationModalOrder.id);
     try {
-      const result = await cancelOrder(cancellationModalOrder.id, user.id, trimmed);
+      const result = await cancelOrder(cancellationModalOrder.id, user.id, trimmed, {
+        selectedProductIds,
+        itemQuantities: selectedQuantities,
+      });
+
       if (!result.success) {
-        toast.error(result.error || "Could not submit the cancellation request.");
+        toast.error(result.error || `Could not submit the ${isDelivered ? "return" : "cancellation"} request.`);
         return;
       }
 
-      toast.success("Cancellation request submitted to Super Admin for approval. Refund will be processed upon approval.");
+      toast.success(
+        isDelivered
+          ? "Return request submitted to Super Admin. Our team will arrange collection within 5 days upon approval."
+          : "Cancellation request submitted to Super Admin for approval. Refund will be processed upon approval."
+      );
 
       setCancellationModalOrder(null);
       setCancellationReason("");
@@ -88,8 +132,8 @@ export default function UserOrdersPage() {
       const data = await getOrdersByUser(user.id);
       setOrders(data.filter((item) => item.paymentStatus === "COMPLETED"));
     } catch (requestError) {
-      console.error("Failed to cancel order:", requestError);
-      toast.error("Could not process your cancellation request. Please try again.");
+      console.error("Failed to cancel/return order:", requestError);
+      toast.error(`Could not process your ${isDelivered ? "return" : "cancellation"} request. Please try again.`);
     } finally {
       setCancellingOrderId(null);
     }
@@ -304,126 +348,170 @@ export default function UserOrdersPage() {
                 </div>
               </div>
 
-              {/* Cancellation status card */}
-              {order.cancellation && (
-                <div className={`px-6 py-4 border-b text-xs space-y-2 ${
-                  order.cancellation.status === "APPROVED"
-                    ? "bg-emerald-50/60 border-emerald-100"
-                    : order.cancellation.status === "REJECTED"
-                      ? "bg-rose-50/60 border-rose-100"
-                      : "bg-amber-50/70 border-amber-100"
-                }`}>
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      {order.cancellation.status === "APPROVED" ? (
-                        <Badge variant="success" className="gap-1 text-[11px] py-0.5">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Cancellation Approved
-                        </Badge>
-                      ) : order.cancellation.status === "REJECTED" ? (
-                        <Badge variant="danger" className="gap-1 text-[11px] py-0.5">
-                          <XCircle className="w-3.5 h-3.5" /> Cancellation Rejected
-                        </Badge>
-                      ) : (
-                        <Badge variant="accent" className="gap-1 text-[11px] py-0.5">
-                          <Clock className="w-3.5 h-3.5" /> Cancellation Pending Admin Review
-                        </Badge>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">
-                      Requested {new Date(order.cancellation.requestedAt).toLocaleDateString("en-IN", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      })}
-                    </span>
-                  </div>
+              {/* Cancellation & Return status card */}
+              {order.cancellation && (() => {
+                const isReturn = order.cancellation.type === "RETURN";
+                const returnColl = order.cancellation.returnCollection;
 
-                  <p className="text-slate-800">
-                    <span className="font-semibold text-slate-700">Reason:</span> {order.cancellation.reason}
-                  </p>
-
-                  {order.cancellation.rejectionReason && (
-                    <div className="p-2.5 rounded-lg bg-rose-100/70 text-rose-900 border border-rose-200/60">
-                      <p className="font-semibold text-[11px] flex items-center gap-1.5">
-                        <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                        Admin Rejection Reason:
-                      </p>
-                      <p className="mt-0.5 text-rose-800">{order.cancellation.rejectionReason}</p>
-                      <p className="mt-1 text-[10px] text-rose-700 italic">Your order remains active and will continue towards delivery as scheduled.</p>
-                    </div>
-                  )}
-
-                  {order.cancellation.adminNote && !order.cancellation.rejectionReason && (
-                    <p className="text-slate-700">
-                      <span className="font-semibold">Admin update:</span> {order.cancellation.adminNote}
-                    </p>
-                  )}
-
-                  {order.cancellation.status === "APPROVED" && (
-                    <div className="mt-2 p-3 rounded-xl bg-white/80 border border-emerald-200/60 shadow-xs space-y-1.5 text-slate-700">
-                      <div className="flex items-center justify-between flex-wrap gap-2 pb-1 border-b border-emerald-100">
-                        <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
-                          <RotateCcw className="w-3.5 h-3.5 text-emerald-600" /> Refund Status
-                        </span>
-                        {order.cancellation.refundStatus === "SUCCESS" ? (
-                          <Badge variant="success" className="gap-1 text-[10px] py-0.5">
-                            <CheckCircle2 className="w-3 h-3" /> Refund Completed
+                return (
+                  <div className={`px-6 py-4 border-b text-xs space-y-2 ${
+                    order.cancellation.status === "APPROVED"
+                      ? "bg-emerald-50/60 border-emerald-100"
+                      : order.cancellation.status === "REJECTED"
+                        ? "bg-rose-50/60 border-rose-100"
+                        : "bg-amber-50/70 border-amber-100"
+                  }`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        {order.cancellation.status === "APPROVED" ? (
+                          <Badge variant="success" className="gap-1 text-[11px] py-0.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            {isReturn ? "Return Approved" : "Cancellation Approved"}
                           </Badge>
-                        ) : order.cancellation.refundStatus === "PENDING" ? (
-                          <Badge variant="primary" className="gap-1 text-[10px] py-0.5">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Refund Processing
-                          </Badge>
-                        ) : order.cancellation.refundStatus === "FAILED" ? (
-                          <Badge variant="danger" className="gap-1 text-[10px] py-0.5">
-                            <AlertCircle className="w-3 h-3" /> Refund Delayed / Failed
-                          </Badge>
-                        ) : order.cancellation.refundStatus === "PENDING_PAYMENT" ? (
-                          <Badge variant="outline" className="gap-1 text-[10px] py-0.5">
-                            <Clock className="w-3 h-3" /> Awaiting Payment Capture
+                        ) : order.cancellation.status === "REJECTED" ? (
+                          <Badge variant="danger" className="gap-1 text-[11px] py-0.5">
+                            <XCircle className="w-3.5 h-3.5" />
+                            {isReturn ? "Return Rejected" : "Cancellation Rejected"}
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="text-[10px] py-0.5">
-                            {order.cancellation.refundStatus.replaceAll("_", " ")}
+                          <Badge variant="accent" className="gap-1 text-[11px] py-0.5">
+                            <Clock className="w-3.5 h-3.5" />
+                            {isReturn ? "Return Pending Admin Review" : "Cancellation Pending Admin Review"}
                           </Badge>
                         )}
                       </div>
+                      <span className="text-[11px] text-muted-foreground">
+                        Requested {new Date(order.cancellation.requestedAt).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })}
+                      </span>
+                    </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
-                        <div>
-                          <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Refund Amount</span>
-                          <span className="font-extrabold text-emerald-700 text-sm">
-                            ₹{(order.cancellation.refundAmount ?? order.totalAmount).toLocaleString("en-IN")}
+                    <p className="text-slate-800">
+                      <span className="font-semibold text-slate-700">Reason:</span> {order.cancellation.reason}
+                    </p>
+
+                    {order.cancellation.rejectionReason && (
+                      <div className="p-2.5 rounded-lg bg-rose-100/70 text-rose-900 border border-rose-200/60">
+                        <p className="font-semibold text-[11px] flex items-center gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          Admin Rejection Reason:
+                        </p>
+                        <p className="mt-0.5 text-rose-800">{order.cancellation.rejectionReason}</p>
+                        <p className="mt-1 text-[10px] text-rose-700 italic">
+                          {isReturn
+                            ? "This return request was declined and the delivered order remains closed."
+                            : "Your order remains active and will continue towards delivery as scheduled."}
+                        </p>
+                      </div>
+                    )}
+
+                    {order.cancellation.adminNote && !order.cancellation.rejectionReason && (
+                      <p className="text-slate-700">
+                        <span className="font-semibold">Admin update:</span> {order.cancellation.adminNote}
+                      </p>
+                    )}
+
+                    {/* Return Collection Tracking */}
+                    {isReturn && order.cancellation.status === "APPROVED" && returnColl && (
+                      <div className="p-3 rounded-xl bg-emerald-100/60 border border-emerald-200/80 space-y-1.5 text-slate-800">
+                        <div className="flex items-center justify-between pb-1 border-b border-emerald-200">
+                          <span className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs">
+                            <Truck className="w-3.5 h-3.5 text-emerald-700" /> Return Collection Tracking
+                          </span>
+                          <Badge variant="primary" className="text-[10px] py-0.2">
+                            {returnColl.status.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] pt-0.5">
+                          <span className="text-muted-foreground font-semibold">Target Collection Deadline:</span>
+                          <span className="font-bold text-slate-800">
+                            Within 5 days (by {new Date(returnColl.collectionDeadline).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric"
+                            })})
                           </span>
                         </div>
-                        {order.cancellation.cashfreeRefundReference && (
-                          <div>
-                            <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Cashfree Ref ID</span>
-                            <span className="font-mono text-slate-800 text-[11px]">{order.cancellation.cashfreeRefundReference}</span>
-                          </div>
-                        )}
-                        {order.cancellation.refundArn && (
-                          <div className="sm:col-span-2">
-                            <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Bank ARN (Tracking Number)</span>
-                            <span className="font-mono text-slate-800 text-[11px]">{order.cancellation.refundArn}</span>
-                          </div>
+                        <p className="text-[10px] text-emerald-900 leading-relaxed bg-white/70 p-2 rounded-lg border border-emerald-200/60">
+                          Our team will arrange collection of the returned product within 5 days. Please keep the product and its packaging ready for collection, subject to the applicable return policy.
+                        </p>
+                        {returnColl.failureReason && (
+                          <p className="text-[10px] text-rose-800 bg-rose-50 p-1.5 rounded border border-rose-200">
+                            <strong>Note:</strong> {returnColl.failureReason}
+                          </p>
                         )}
                       </div>
+                    )}
 
-                      {order.cancellation.refundStatus === "PENDING" && (
-                        <p className="text-[11px] text-slate-600 bg-emerald-50/50 p-2 rounded-lg">
-                          Cashfree is processing your refund. Funds typically reflect in your original payment method within 3–5 business days.
-                        </p>
-                      )}
-                      {order.cancellation.refundStatus === "FAILED" && (
-                        <p className="text-[11px] text-rose-700 bg-rose-50 p-2 rounded-lg">
-                          {order.cancellation.refundError || "Refund could not be confirmed automatically. Our Super Admin team has been notified to re-attempt."}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                    {order.cancellation.status === "APPROVED" && (
+                      <div className="mt-2 p-3 rounded-xl bg-white/80 border border-emerald-200/60 shadow-xs space-y-1.5 text-slate-700">
+                        <div className="flex items-center justify-between flex-wrap gap-2 pb-1 border-b border-emerald-100">
+                          <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                            <RotateCcw className="w-3.5 h-3.5 text-emerald-600" /> Refund Status
+                          </span>
+                          {order.cancellation.refundStatus === "SUCCESS" ? (
+                            <Badge variant="success" className="gap-1 text-[10px] py-0.5">
+                              <CheckCircle2 className="w-3 h-3" /> Refund Completed
+                            </Badge>
+                          ) : order.cancellation.refundStatus === "PENDING" ? (
+                            <Badge variant="primary" className="gap-1 text-[10px] py-0.5">
+                              <Loader2 className="w-3 h-3 animate-spin" /> Refund Processing
+                            </Badge>
+                          ) : order.cancellation.refundStatus === "FAILED" ? (
+                            <Badge variant="danger" className="gap-1 text-[10px] py-0.5">
+                              <AlertCircle className="w-3 h-3" /> Refund Delayed / Failed
+                            </Badge>
+                          ) : order.cancellation.refundStatus === "PENDING_PAYMENT" ? (
+                            <Badge variant="outline" className="gap-1 text-[10px] py-0.5">
+                              <Clock className="w-3 h-3" /> Awaiting Payment Capture
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] py-0.5">
+                              {order.cancellation.refundStatus.replaceAll("_", " ")}
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                          <div>
+                            <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Refund Amount</span>
+                            <span className="font-extrabold text-emerald-700 text-sm">
+                              ₹{(order.cancellation.refundAmount ?? order.totalAmount).toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                          {order.cancellation.cashfreeRefundReference && (
+                            <div>
+                              <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Cashfree Ref ID</span>
+                              <span className="font-mono text-slate-800 text-[11px]">{order.cancellation.cashfreeRefundReference}</span>
+                            </div>
+                          )}
+                          {order.cancellation.refundArn && (
+                            <div className="sm:col-span-2">
+                              <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Bank ARN (Tracking Number)</span>
+                              <span className="font-mono text-slate-800 text-[11px]">{order.cancellation.refundArn}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {order.cancellation.refundStatus === "PENDING" && (
+                          <p className="text-[11px] text-slate-600 bg-emerald-50/50 p-2 rounded-lg">
+                            Your refund is being processed through Cashfree. We will update you when the refund has been confirmed. The time taken for the amount to appear in your original payment account depends on Cashfree and your bank.
+                          </p>
+                        )}
+                        {order.cancellation.refundStatus === "FAILED" && (
+                          <p className="text-[11px] text-rose-700 bg-rose-50 p-2 rounded-lg">
+                            {order.cancellation.refundError || "Refund could not be confirmed automatically. Our Super Admin team has been notified to re-attempt."}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Order Items */}
               <div className="p-6 divide-y divide-border/30">
@@ -505,6 +593,38 @@ export default function UserOrdersPage() {
                         </Button>
                       ) : (
                         <span className="text-xs text-slate-400 font-medium">Cancellation window passed</span>
+                      )}
+                    </div>
+                  );
+                })()}
+
+              {/* Return / Cancellation Action Button for eligible delivered orders */}
+              {order.status === "DELIVERED" &&
+                (!order.cancellation || order.cancellation.status === "REJECTED") && (() => {
+                  const deliveryDateObj = order.deliveredAt ? new Date(order.deliveredAt) : new Date(order.createdAt);
+                  const daysSinceDelivery = (Date.now() - deliveryDateObj.getTime()) / (1000 * 60 * 60 * 24);
+                  const isWithin7Days = daysSinceDelivery <= 7;
+
+                  return (
+                    <div className="px-6 py-3.5 bg-emerald-50/40 border-t border-border/20 flex items-center justify-between gap-4 flex-wrap">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                        {isWithin7Days
+                          ? `Eligible for return (within 7 days of delivery)`
+                          : "7-day return policy expired"}
+                      </span>
+                      {isWithin7Days ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-emerald-600 text-emerald-800 hover:bg-emerald-50 text-xs font-semibold gap-1.5"
+                          onClick={() => handleOpenCancellationModal(order)}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-emerald-700" />
+                          Request Return / Cancellation
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium">Return window passed</span>
                       )}
                     </div>
                   );
@@ -630,10 +750,27 @@ export default function UserOrdersPage() {
         </div>
       )}
 
-      {/* Modern Order Cancellation Confirmation Modal */}
+      {/* Modern Order Cancellation / Return Confirmation Modal */}
       {cancellationModalOrder && (() => {
+        const isDelivered = cancellationModalOrder.status === "DELIVERED";
         const orderAgeHours = (Date.now() - new Date(cancellationModalOrder.createdAt).getTime()) / (1000 * 60 * 60);
-        const isAutoApprovable = orderAgeHours <= 24;
+        const isAutoApprovable = !isDelivered && orderAgeHours <= 24;
+
+        // Dynamic refund computation for selected items
+        let computedRefund = 0;
+        if (isDelivered) {
+          for (const it of cancellationModalOrder.items) {
+            if (selectedReturnItems[it.productId]) {
+              const qty = selectedReturnQuantities[it.productId] ?? it.quantity;
+              computedRefund += it.price * qty;
+            }
+          }
+          if (computedRefund === 0) computedRefund = cancellationModalOrder.totalAmount;
+        } else {
+          computedRefund = cancellationModalOrder.totalAmount;
+        }
+
+        const presets = isDelivered ? RETURN_REASON_PRESETS : CANCELLATION_REASON_PRESETS;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -652,65 +789,147 @@ export default function UserOrdersPage() {
 
               <div className="border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="h-8 w-8 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center">
+                  <span className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    isDelivered ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-700"
+                  }`}>
                     <RotateCcw className="h-4 w-4" />
                   </span>
                   <div>
                     <h3 className="font-extrabold text-base text-slate-900">
-                      Cancel Order #{cancellationModalOrder.id}
+                      {isDelivered
+                        ? `Return Order #${cancellationModalOrder.id}`
+                        : `Cancel Order #${cancellationModalOrder.id}`}
                     </h3>
                     <p className="text-xs text-muted-foreground">
-                      Placed on {new Date(cancellationModalOrder.createdAt).toLocaleDateString("en-IN", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric"
-                      })}
+                      {isDelivered
+                        ? `Delivered order • Eligible within 7 days of delivery`
+                        : `Placed on ${new Date(cancellationModalOrder.createdAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric"
+                          })}`}
                     </p>
                   </div>
                 </div>
               </div>
 
               {/* Policy Indicator */}
-              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 space-y-1.5">
-                <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900">
-                  <Clock className="h-4 w-4 text-amber-700 shrink-0" />
-                  <span>3-Day Cancellation Policy • Super Admin Review Required</span>
+              <div className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                isDelivered ? "bg-emerald-50 border-emerald-200 text-emerald-950" : "bg-amber-50 border-amber-200 text-amber-950"
+              }`}>
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <Clock className={`h-4 w-4 shrink-0 ${isDelivered ? "text-emerald-700" : "text-amber-700"}`} />
+                  <span>
+                    {isDelivered
+                      ? "7-Day Return Policy • 5-Day Collection Guarantee"
+                      : "3-Day Cancellation Policy • Super Admin Review Required"}
+                  </span>
                 </div>
-                <p className="text-[11px] text-amber-900 leading-relaxed">
-                  Orders can be requested for cancellation within 3 days (72 hours) of placement prior to dispatch. Refunds are not automated — your request will be reviewed and approved by the Super Admin. Once the Super Admin accepts your cancellation request, your full refund of <strong className="font-bold">₹{cancellationModalOrder.totalAmount.toLocaleString("en-IN")}</strong> will be processed to your original payment method.
+                <p className="text-[11px] leading-relaxed">
+                  {isDelivered
+                    ? `Delivered orders can be returned within 7 days of delivery. Upon approval by our Super Admin, our team will arrange collection of the returned product within 5 days. Please keep the product and its packaging ready. Your refund of ₹${computedRefund.toLocaleString("en-IN")} will be processed to your original payment method via Cashfree.`
+                    : `Orders can be requested for cancellation within 3 days (72 hours) of placement prior to dispatch. Refunds are not automated — your request will be reviewed and approved by the Super Admin. Once approved, your full refund of ₹${cancellationModalOrder.totalAmount.toLocaleString("en-IN")} will be processed to your original payment method via Cashfree.`}
                 </p>
               </div>
 
-              {/* Items summary */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Order Items</span>
-                <div className="divide-y divide-slate-100 max-h-36 overflow-y-auto rounded-xl border border-slate-100 p-2 bg-slate-50/50">
-                  {cancellationModalOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between py-2 first:pt-0 last:pb-0 text-xs">
-                      <div className="flex items-center gap-2.5">
-                        {item.image ? (
-                          <img src={item.image} alt={item.name} className="h-9 w-9 object-cover rounded-lg border border-slate-200 shrink-0" />
-                        ) : (
-                          <div className="h-9 w-9 rounded-lg bg-slate-200 flex items-center justify-center shrink-0">
-                            <Package className="h-4 w-4 text-slate-500" />
+              {/* Items selection for Delivered Orders */}
+              {isDelivered && cancellationModalOrder.items.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Select Items to Return
+                  </span>
+                  <div className="divide-y divide-slate-100 max-h-40 overflow-y-auto rounded-xl border border-slate-200 p-2 bg-slate-50/50">
+                    {cancellationModalOrder.items.map((item, idx) => {
+                      const isChecked = Boolean(selectedReturnItems[item.productId]);
+                      const currentQty = selectedReturnQuantities[item.productId] ?? item.quantity;
+
+                      return (
+                        <div key={idx} className="flex items-center justify-between py-2 first:pt-0 last:pb-0 text-xs">
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) =>
+                                setSelectedReturnItems((prev) => ({
+                                  ...prev,
+                                  [item.productId]: e.target.checked,
+                                }))
+                              }
+                              className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className="h-8 w-8 object-cover rounded-lg border border-slate-200 shrink-0" />
+                            ) : (
+                              <div className="h-8 w-8 rounded-lg bg-slate-200 flex items-center justify-center shrink-0">
+                                <Package className="h-4 w-4 text-slate-500" />
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-semibold text-slate-800 line-clamp-1">{item.name}</p>
+                              <p className="text-[10px] text-muted-foreground">₹{item.price.toLocaleString("en-IN")} each</p>
+                            </div>
                           </div>
-                        )}
-                        <div>
-                          <p className="font-semibold text-slate-800 line-clamp-1">{item.name}</p>
-                          <p className="text-[10px] text-muted-foreground">Qty: {item.quantity}</p>
+
+                          {isChecked && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] text-slate-500">Qty:</span>
+                              <select
+                                value={currentQty}
+                                onChange={(e) =>
+                                  setSelectedReturnQuantities((prev) => ({
+                                    ...prev,
+                                    [item.productId]: Number(e.target.value),
+                                  }))
+                                }
+                                className="text-xs bg-white border border-slate-200 rounded px-1.5 py-0.5"
+                              >
+                                {Array.from({ length: item.quantity }, (_, i) => i + 1).map((n) => (
+                                  <option key={n} value={n}>
+                                    {n}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                      <span className="font-bold text-slate-700">₹{(item.price * item.quantity).toLocaleString("en-IN")}</span>
-                    </div>
-                  ))}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Items summary for pre-shipment orders */}
+              {!isDelivered && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Order Items</span>
+                  <div className="divide-y divide-slate-100 max-h-36 overflow-y-auto rounded-xl border border-slate-100 p-2 bg-slate-50/50">
+                    {cancellationModalOrder.items.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between py-2 first:pt-0 last:pb-0 text-xs">
+                        <div className="flex items-center gap-2.5">
+                          {item.image ? (
+                            <img src={item.image} alt={item.name} className="h-9 w-9 object-cover rounded-lg border border-slate-200 shrink-0" />
+                          ) : (
+                            <div className="h-9 w-9 rounded-lg bg-slate-200 flex items-center justify-center shrink-0">
+                              <Package className="h-4 w-4 text-slate-500" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-semibold text-slate-800 line-clamp-1">{item.name}</p>
+                            <p className="text-[10px] text-muted-foreground">Qty: {item.quantity}</p>
+                          </div>
+                        </div>
+                        <span className="font-bold text-slate-700">₹{(item.price * item.quantity).toLocaleString("en-IN")}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Refund summary banner */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-100/70 border border-slate-200 text-xs">
-                <span className="font-semibold text-slate-700">Total Refund Amount</span>
+                <span className="font-semibold text-slate-700">Estimated Refund Amount</span>
                 <span className="font-extrabold text-emerald-700 text-base">
-                  ₹{cancellationModalOrder.totalAmount.toLocaleString("en-IN")}
+                  ₹{computedRefund.toLocaleString("en-IN")}
                 </span>
               </div>
 
@@ -718,7 +937,7 @@ export default function UserOrdersPage() {
               <div className="space-y-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Quick Reason</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {REASON_PRESETS.map((preset) => (
+                  {presets.map((preset) => (
                     <button
                       key={preset}
                       type="button"
@@ -752,7 +971,11 @@ export default function UserOrdersPage() {
                 <Textarea
                   value={cancellationReason}
                   onChange={(e) => setCancellationReason(e.target.value)}
-                  placeholder="Please describe why you wish to cancel this order (minimum 8 characters)..."
+                  placeholder={
+                    isDelivered
+                      ? "Please describe the reason for return (minimum 8 characters)..."
+                      : "Please describe why you wish to cancel this order (minimum 8 characters)..."
+                  }
                   className="text-xs bg-slate-50 border-slate-200 min-h-[85px] rounded-xl focus:bg-white"
                 />
               </div>
@@ -782,7 +1005,9 @@ export default function UserOrdersPage() {
                   className={`flex-1 rounded-xl text-xs font-bold text-white shadow-md ${
                     isAutoApprovable
                       ? "bg-emerald-700 hover:bg-emerald-800"
-                      : "bg-[#0c3c26] hover:bg-[#082b1b]"
+                      : isDelivered
+                        ? "bg-emerald-700 hover:bg-emerald-800"
+                        : "bg-[#0c3c26] hover:bg-[#082b1b]"
                   }`}
                 >
                   {cancellingOrderId ? (
@@ -792,6 +1017,8 @@ export default function UserOrdersPage() {
                     </span>
                   ) : isAutoApprovable ? (
                     "Confirm & Auto-Refund"
+                  ) : isDelivered ? (
+                    "Submit Return Request"
                   ) : (
                     "Submit for Review"
                   )}

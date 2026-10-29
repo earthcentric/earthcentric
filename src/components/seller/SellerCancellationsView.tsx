@@ -34,6 +34,7 @@ import {
   MapPin,
   HelpCircle,
   Coins,
+  Truck,
 } from "lucide-react";
 
 interface SellerCancellationsViewProps {
@@ -69,12 +70,16 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
     let pendingRequests = 0;
     let approvedCancellations = 0;
     let rejectedRequests = 0;
+    let deliveredReturns = 0;
     let totalGrossReversal = 0;
     let totalNetReversal = 0;
     let totalCommissionReversed = 0;
 
     for (const item of cancelledOrders) {
       const status = item.cancellation?.status || (item.orderStatus === "CANCELLED" || item.orderStatus === "REFUNDED" ? "APPROVED" : "REQUESTED");
+      const isReturn = item.cancellation?.type === "RETURN" || item.orderStatus === "RETURNED";
+      if (isReturn) deliveredReturns++;
+
       if (status === "REQUESTED") {
         pendingRequests++;
       } else if (status === "APPROVED") {
@@ -94,6 +99,7 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
       pendingRequests,
       approvedCancellations,
       rejectedRequests,
+      deliveredReturns,
       totalGrossReversal,
       totalCommissionReversed,
       totalNetReversal,
@@ -104,7 +110,10 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
   const filteredOrders = useMemo(() => {
     return cancelledOrders.filter((item) => {
       const status = item.cancellation?.status || (item.orderStatus === "CANCELLED" || item.orderStatus === "REFUNDED" ? "APPROVED" : "REQUESTED");
+      const isReturn = item.cancellation?.type === "RETURN" || item.orderStatus === "RETURNED";
 
+      if (activeFilter === "RETURNS" && !isReturn) return false;
+      if (activeFilter === "CANCELLATIONS" && isReturn) return false;
       if (activeFilter === "PENDING" && status !== "REQUESTED") return false;
       if (activeFilter === "APPROVED" && status !== "APPROVED") return false;
       if (activeFilter === "REJECTED" && status !== "REJECTED") return false;
@@ -118,7 +127,7 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
         const reason = (item.cancellation?.reason || "").toLowerCase();
 
         const matchesProduct = (item.sellerItems || []).some((it: any) =>
-          (it.name || "").toLowerCase().includes(q)
+          (it.name || "").toLowerCase().includes(q) || (it.sku || "").toLowerCase().includes(q)
         );
 
         if (
@@ -143,13 +152,13 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-[#2d4a36]">Cancelled Orders & Inventory Reversals</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#2d4a36]">Cancelled Orders & Returns</h1>
             <Badge className="bg-[#2d4a36] text-white text-[10px] font-bold px-2 py-0.5">
-              Read-Only
+              Seller Portal
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Track cancelled items, return of reserved inventory, and transparent seller earnings adjustments.
+            Track customer return requests, return collection timelines, and transparent seller earnings reversals.
           </p>
         </div>
 
@@ -167,18 +176,20 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
 
       {/* ── Summary Metric Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Approved Cancellations */}
+        {/* Approved Cancellations & Returns */}
         <Card className="p-5 bg-white border border-[#d8dcd3]/60 rounded-2xl shadow-xs flex flex-col justify-between">
           <div className="flex justify-between items-start mb-3">
             <div className="h-9 w-9 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center">
               <CheckCircle2 className="h-4.5 w-4.5" />
             </div>
-            <Badge variant="outline" className="text-[10px] bg-slate-50 border-slate-200">Finalized</Badge>
+            <Badge variant="outline" className="text-[10px] bg-slate-50 border-slate-200">
+              {metrics.deliveredReturns} Returns
+            </Badge>
           </div>
           <div>
             <h3 className="text-2xl font-bold text-slate-800">{metrics.approvedCancellations}</h3>
-            <p className="text-xs font-semibold text-slate-500 mt-0.5">Approved Cancellations</p>
-            <p className="text-[10px] text-muted-foreground mt-1">Inventory restored to stock</p>
+            <p className="text-xs font-semibold text-slate-500 mt-0.5">Approved Cancellations & Returns</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Active sales adjusted in dashboard</p>
           </div>
         </Card>
 
@@ -210,9 +221,9 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
             <Badge variant="outline" className="text-[10px] bg-rose-50 text-rose-700 border-rose-200">Reversal (90%)</Badge>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-rose-700">₹{Math.round(metrics.totalNetReversal).toLocaleString("en-IN")}</h3>
-            <p className="text-xs font-semibold text-slate-500 mt-0.5">Reversed Seller Earnings</p>
-            <p className="text-[10px] text-muted-foreground mt-1">Deducted from gross payout balance</p>
+            <h3 className="text-2xl font-bold text-rose-700">-₹{Math.round(metrics.totalNetReversal).toLocaleString("en-IN")}</h3>
+            <p className="text-xs font-semibold text-slate-500 mt-0.5">Reversed Net Earnings</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Deducted from eligible payout balance</p>
           </div>
         </Card>
 
@@ -226,8 +237,8 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
           </div>
           <div>
             <h3 className="text-2xl font-bold text-blue-800">₹{Math.round(metrics.totalCommissionReversed).toLocaleString("en-IN")}</h3>
-            <p className="text-xs font-semibold text-slate-500 mt-0.5">Commission Waived</p>
-            <p className="text-[10px] text-muted-foreground mt-1">No marketplace fee charged</p>
+            <p className="text-xs font-semibold text-slate-500 mt-0.5">Platform Fee Waived</p>
+            <p className="text-[10px] text-muted-foreground mt-1">10% commission not charged</p>
           </div>
         </Card>
       </div>
@@ -238,9 +249,11 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
           <div className="flex items-center flex-wrap gap-1.5">
             {[
               { id: "ALL", label: "All Records", count: cancelledOrders.length },
-              { id: "APPROVED", label: "Approved Cancellations", count: metrics.approvedCancellations },
+              { id: "RETURNS", label: "Delivered Returns", count: cancelledOrders.filter((it) => it.cancellation?.type === "RETURN" || it.orderStatus === "RETURNED").length },
+              { id: "CANCELLATIONS", label: "Pre-Ship Cancellations", count: cancelledOrders.filter((it) => it.cancellation?.type !== "RETURN" && it.orderStatus !== "RETURNED").length },
+              { id: "APPROVED", label: "Approved", count: metrics.approvedCancellations },
               { id: "PENDING", label: "Pending Review", count: metrics.pendingRequests },
-              { id: "REJECTED", label: "Rejected Requests", count: metrics.rejectedRequests },
+              { id: "REJECTED", label: "Rejected", count: metrics.rejectedRequests },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -265,7 +278,7 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/70" />
             <input
               type="text"
-              placeholder="Search Order ID, product, location..."
+              placeholder="Search Order ID, product, SKU, location..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-[#f4f5f3] hover:bg-[#e9ece6] focus:bg-white border border-transparent focus:border-[#2d4a36] rounded-xl pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none transition-all"
@@ -279,18 +292,18 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
         {loading ? (
           <div className="p-12 text-center flex flex-col items-center justify-center space-y-3">
             <Loader2 className="h-7 w-7 animate-spin text-[#2d4a36]" />
-            <p className="text-xs text-muted-foreground">Loading cancelled orders...</p>
+            <p className="text-xs text-muted-foreground">Loading records...</p>
           </div>
         ) : filteredOrders.length === 0 ? (
           <div className="p-12 text-center flex flex-col items-center justify-center space-y-2">
             <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
               <RotateCcw className="h-5 w-5" />
             </div>
-            <p className="text-sm font-bold text-slate-700">No cancelled orders found</p>
+            <p className="text-sm font-bold text-slate-700">No records found</p>
             <p className="text-xs text-muted-foreground max-w-sm">
               {searchQuery || activeFilter !== "ALL"
                 ? "Try clearing your search query or selecting a different status filter."
-                : "Cancelled orders containing your products will appear here with inventory & reversal details."}
+                : "Cancelled orders and returns for your products will appear here with inventory & reversal details."}
             </p>
           </div>
         ) : (
@@ -299,20 +312,23 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
               <TableHeader className="bg-[#f8f9f7] border-b border-[#e9ece6]">
                 <TableRow>
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Order & Dates</TableHead>
+                  <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Type</TableHead>
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Your Products</TableHead>
+                  <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Collection Tracking</TableHead>
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Earnings Reversal</TableHead>
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Status</TableHead>
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Refund Status</TableHead>
-                  <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3">Buyer Location</TableHead>
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider py-3 text-right">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className="divide-y divide-[#e9ece6]">
                 {filteredOrders.map((item) => {
-                  const status = item.cancellation?.status || (item.orderStatus === "CANCELLED" || item.orderStatus === "REFUNDED" ? "APPROVED" : "REQUESTED");
+                  const isReturn = item.cancellation?.type === "RETURN" || item.orderStatus === "RETURNED";
+                  const status = item.cancellation?.status || (item.orderStatus === "CANCELLED" || item.orderStatus === "REFUNDED" || item.orderStatus === "RETURNED" ? "APPROVED" : "REQUESTED");
                   const gross = Number(item.sellerSubtotal || 0);
                   const netReversal = gross * 0.9;
                   const comm = gross * 0.1;
+                  const returnColl = item.cancellation?.returnCollection;
 
                   return (
                     <TableRow key={item.orderId} className="hover:bg-[#fcfdfc] transition-colors">
@@ -327,15 +343,36 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
                             Placed: {new Date(item.orderCreatedAt).toLocaleDateString("en-IN", {
                               day: "numeric",
                               month: "short",
-                              year: "numeric",
                             })}
                           </span>
+                          {item.deliveredAt && (
+                            <span className="text-[10px] text-emerald-800 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                              Delivered: {new Date(item.deliveredAt).toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                              })}
+                            </span>
+                          )}
                           {item.cancellation?.requestedAt && (
                             <span className="text-[9px] text-slate-400 block">
                               Req: {new Date(item.cancellation.requestedAt).toLocaleDateString("en-IN")}
                             </span>
                           )}
                         </div>
+                      </TableCell>
+
+                      {/* Type */}
+                      <TableCell className="py-3.5">
+                        {isReturn ? (
+                          <Badge className="bg-emerald-700 text-white text-[9px] gap-1 py-0.2">
+                            <RotateCcw className="h-2.5 w-2.5" /> Return
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 text-[9px] gap-1 py-0.2">
+                            Cancellation
+                          </Badge>
+                        )}
                       </TableCell>
 
                       {/* Products */}
@@ -352,11 +389,33 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
                               )}
                               <div className="truncate">
                                 <p className="font-semibold text-slate-800 text-xs truncate">{prod.name}</p>
-                                <p className="text-[10px] text-muted-foreground">Qty: {prod.quantity} × ₹{prod.price}</p>
+                                <p className="text-[9px] text-muted-foreground">
+                                  SKU: <span className="font-mono">{prod.sku || prod.productId?.slice(0, 8)}</span> • Qty: {prod.quantity} × ₹{prod.price}
+                                </p>
                               </div>
                             </div>
                           ))}
                         </div>
+                      </TableCell>
+
+                      {/* Collection Tracking */}
+                      <TableCell className="py-3.5">
+                        {isReturn && returnColl ? (
+                          <div className="space-y-0.5">
+                            <Badge variant="primary" className="text-[9px] gap-1 py-0.2">
+                              <Truck className="h-2.5 w-2.5" />
+                              {returnColl.status.replace(/_/g, " ")}
+                            </Badge>
+                            <p className="text-[9px] text-slate-500 block">
+                              Deadline: {new Date(returnColl.collectionDeadline).toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                              })}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">N/A</span>
+                        )}
                       </TableCell>
 
                       {/* Earnings Reversal Accounting */}
@@ -369,7 +428,7 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
                             Gross: ₹{gross.toLocaleString("en-IN")}
                           </span>
                           <span className="text-[9px] text-blue-600 block">
-                            Comm waived: ₹{Math.round(comm).toLocaleString("en-IN")} (10%)
+                            Fee waived: ₹{Math.round(comm).toLocaleString("en-IN")} (10%)
                           </span>
                         </div>
                       </TableCell>
@@ -383,8 +442,13 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
                         ) : status === "APPROVED" ? (
                           <div className="space-y-0.5">
                             <Badge variant="success" className="text-[10px] gap-1 py-0.5">
-                              <CheckCircle2 className="h-3 w-3" /> Cancelled
+                              <CheckCircle2 className="h-3 w-3" /> {isReturn ? "Returned" : "Cancelled"}
                             </Badge>
+                            {item.cancellation?.reviewedAt && (
+                              <span className="text-[9px] text-slate-400 block">
+                                Appr: {new Date(item.cancellation.reviewedAt).toLocaleDateString("en-IN")}
+                              </span>
+                            )}
                             {item.cancellation?.isAutoApproved && (
                               <span className="text-[9px] text-emerald-700 block font-semibold">⚡ 24h Auto</span>
                             )}
@@ -416,19 +480,6 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
                         </div>
                       </TableCell>
 
-                      {/* Buyer Location */}
-                      <TableCell className="py-3.5">
-                        <div className="space-y-0.5 text-xs text-slate-700">
-                          <p className="font-medium text-slate-800 line-clamp-1">{item.buyer.name}</p>
-                          {(item.buyer.city || item.buyer.state) && (
-                            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                              <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
-                              {item.buyer.city}{item.buyer.city && item.buyer.state ? ", " : ""}{item.buyer.state}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-
                       {/* Details */}
                       <TableCell className="py-3.5 text-right">
                         <Button
@@ -450,103 +501,150 @@ export function SellerCancellationsView({ sellerId }: SellerCancellationsViewPro
       </Card>
 
       {/* ── Details Modal ── */}
-      {inspectOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <Card className="relative w-full max-w-lg bg-white border border-[#d8dcd3] rounded-3xl shadow-2xl z-10 p-6 space-y-4 text-left animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setInspectOrder(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 border-none bg-transparent cursor-pointer"
-            >
-              <X className="h-5 w-5" />
-            </button>
+      {inspectOrder && (() => {
+        const isReturn = inspectOrder.cancellation?.type === "RETURN" || inspectOrder.orderStatus === "RETURNED";
+        const returnColl = inspectOrder.cancellation?.returnCollection;
 
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-base text-slate-900">
-                Cancelled Order #{inspectOrder.orderId}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Placed on {new Date(inspectOrder.orderCreatedAt).toLocaleString("en-IN")}
-              </p>
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <Card className="relative w-full max-w-lg bg-white border border-[#d8dcd3] rounded-3xl shadow-2xl z-10 p-6 space-y-4 text-left animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+              <button
+                onClick={() => setInspectOrder(null)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 border-none bg-transparent cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
 
-            {/* Financial Accounting Breakdown */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-              <span className="font-bold text-slate-800 block text-xs uppercase tracking-wider">
-                Seller Accounting Reconciliation
-              </span>
-              <div className="flex justify-between py-1 border-b border-slate-200">
-                <span className="text-muted-foreground">Your Product Subtotal (Gross)</span>
-                <span className="font-semibold text-slate-800">₹{inspectOrder.sellerSubtotal.toLocaleString("en-IN")}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-200 text-blue-700">
-                <span>Platform Commission Waived (10%)</span>
-                <span className="font-semibold">₹{Math.round(inspectOrder.sellerSubtotal * 0.1).toLocaleString("en-IN")}</span>
-              </div>
-              <div className="flex justify-between pt-1 font-bold text-rose-700">
-                <span>Net Earnings Reversed (90%)</span>
-                <span>-₹{Math.round(inspectOrder.sellerSubtotal * 0.9).toLocaleString("en-IN")}</span>
-              </div>
-            </div>
-
-            {/* Reason & Admin update */}
-            {inspectOrder.cancellation?.reason && (
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Customer Reason</span>
-                <p className="text-xs text-slate-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200/80">
-                  "{inspectOrder.cancellation.reason}"
-                </p>
-              </div>
-            )}
-
-            {inspectOrder.cancellation?.rejectionReason && (
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rejection Reason</span>
-                <p className="text-xs text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                  {inspectOrder.cancellation.rejectionReason}
-                </p>
-              </div>
-            )}
-
-            {inspectOrder.cancellation?.adminNote && !inspectOrder.cancellation?.rejectionReason && (
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Super Admin Note</span>
-                <p className="text-xs text-slate-800 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  {inspectOrder.cancellation.adminNote}
-                </p>
-              </div>
-            )}
-
-            {/* Products List */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Your Products in this Order</span>
-              <div className="divide-y divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/50 p-2 max-h-40 overflow-y-auto">
-                {inspectOrder.sellerItems.map((prod: any, idx: number) => (
-                  <div key={idx} className="flex items-center justify-between py-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      {prod.image && (
-                        <img src={prod.image} alt="" className="h-8 w-8 rounded-lg object-cover border border-slate-200" />
-                      )}
-                      <div>
-                        <p className="font-semibold text-slate-800">{prod.name}</p>
-                        <p className="text-[10px] text-muted-foreground">Qty: {prod.quantity}</p>
-                      </div>
-                    </div>
-                    <span className="font-bold text-slate-800">
-                      ₹{(prod.price * prod.quantity).toLocaleString("en-IN")}
-                    </span>
+              <div className="border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                    <RotateCcw className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h3 className="font-extrabold text-base text-slate-900">
+                      {isReturn ? "Returned Order" : "Cancelled Order"} #{inspectOrder.orderId}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Placed on {new Date(inspectOrder.orderCreatedAt).toLocaleString("en-IN")}
+                    </p>
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
-              <Button variant="outline" onClick={() => setInspectOrder(null)} className="text-xs rounded-xl">
-                Close
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
+              {/* Delivery and Return Collection Info */}
+              {isReturn && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2">
+                  <span className="font-bold text-emerald-950 uppercase tracking-wider block text-[10px]">
+                    Delivery & Collection Status
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block font-semibold">Delivery Date:</span>
+                      <span className="font-bold text-slate-800">
+                        {inspectOrder.deliveredAt ? new Date(inspectOrder.deliveredAt).toLocaleDateString("en-IN") : "Delivered"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block font-semibold">Collection Deadline:</span>
+                      <span className="font-bold text-slate-800">
+                        {returnColl?.collectionDeadline
+                          ? new Date(returnColl.collectionDeadline).toLocaleDateString("en-IN")
+                          : "Within 5 days of approval"}
+                      </span>
+                    </div>
+                  </div>
+                  {returnColl && (
+                    <div className="pt-1 border-t border-emerald-200/60 flex items-center justify-between">
+                      <span className="text-muted-foreground font-semibold">Return Collection Progress:</span>
+                      <Badge variant="primary" className="text-[10px] py-0.2">
+                        {returnColl.status.replace(/_/g, " ")}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Financial Accounting Breakdown */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                <span className="font-bold text-slate-800 block text-xs uppercase tracking-wider">
+                  Seller Accounting Reconciliation
+                </span>
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-muted-foreground">Your Product Subtotal (Gross)</span>
+                  <span className="font-semibold text-slate-800">₹{inspectOrder.sellerSubtotal.toLocaleString("en-IN")}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200 text-blue-700">
+                  <span>Platform Commission Waived (10%)</span>
+                  <span className="font-semibold">₹{Math.round(inspectOrder.sellerSubtotal * 0.1).toLocaleString("en-IN")}</span>
+                </div>
+                <div className="flex justify-between pt-1 font-bold text-rose-700">
+                  <span>Net Earnings Reversed (90%)</span>
+                  <span>-₹{Math.round(inspectOrder.sellerSubtotal * 0.9).toLocaleString("en-IN")}</span>
+                </div>
+              </div>
+
+              {/* Reason & Admin update */}
+              {inspectOrder.cancellation?.reason && (
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Customer Reason</span>
+                  <p className="text-xs text-slate-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200/80">
+                    "{inspectOrder.cancellation.reason}"
+                  </p>
+                </div>
+              )}
+
+              {inspectOrder.cancellation?.rejectionReason && (
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rejection Reason</span>
+                  <p className="text-xs text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                    {inspectOrder.cancellation.rejectionReason}
+                  </p>
+                </div>
+              )}
+
+              {inspectOrder.cancellation?.adminNote && !inspectOrder.cancellation?.rejectionReason && (
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Super Admin Note</span>
+                  <p className="text-xs text-slate-800 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    {inspectOrder.cancellation.adminNote}
+                  </p>
+                </div>
+              )}
+
+              {/* Products List with SKU */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Your Products in this Order</span>
+                <div className="divide-y divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/50 p-2 max-h-40 overflow-y-auto">
+                  {inspectOrder.sellerItems.map((prod: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between py-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        {prod.image && (
+                          <img src={prod.image} alt="" className="h-8 w-8 rounded-lg object-cover border border-slate-200" />
+                        )}
+                        <div>
+                          <p className="font-semibold text-slate-800">{prod.name}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            SKU: <span className="font-mono">{prod.sku || prod.productId?.slice(0, 8)}</span> • Qty: {prod.quantity}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-bold text-slate-800">
+                        ₹{(prod.price * prod.quantity).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-100">
+                <Button variant="outline" onClick={() => setInspectOrder(null)} className="text-xs rounded-xl">
+                  Close
+                </Button>
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
     </div>
   );
 }

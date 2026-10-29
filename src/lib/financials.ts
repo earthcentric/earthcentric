@@ -117,10 +117,18 @@ export async function getPlatformFinancialStats(params?: {
     const amount = o.totalAmount || o.payment?.amount || 0;
     grossOrderValue += amount;
 
+    const approvedCancellation = o.cancellations?.find((c) => c.status === "APPROVED");
+
     if (o.status === "CANCELLED") {
       totalCancelledOrders++;
-    } else if (o.status === "REFUNDED") {
+    } else if (o.status === "REFUNDED" || o.status === "RETURNED") {
       totalRefundedOrders++;
+    } else if (approvedCancellation) {
+      totalCancelledOrders++;
+      const refundAmt = approvedCancellation.refundAmount ?? amount;
+      const remainingNet = Math.max(0, amount - refundAmt);
+      netSales += remainingNet;
+      if (remainingNet > 0) totalActiveOrders++;
     } else {
       // Active order
       totalActiveOrders++;
@@ -268,6 +276,10 @@ export async function getSellerFinancialStats(
           id: true,
           status: true,
           createdAt: true,
+          cancellations: {
+            where: { status: "APPROVED" },
+            select: { id: true, refundAmount: true, snapshotItems: true },
+          },
         },
       },
     },
@@ -283,7 +295,19 @@ export async function getSellerFinancialStats(
     const itemTotal = it.price * it.quantity;
     sellerGrossRevenue += itemTotal;
 
-    if (it.order.status === "CANCELLED" || it.order.status === "REFUNDED") {
+    const approvedCancellation = it.order.cancellations?.[0];
+    let isItemReturnedOrCancelled = false;
+
+    if (it.order.status === "CANCELLED" || it.order.status === "REFUNDED" || it.order.status === "RETURNED") {
+      isItemReturnedOrCancelled = true;
+    } else if (approvedCancellation) {
+      const snapshots = (approvedCancellation.snapshotItems as any[]) || [];
+      if (snapshots.length === 0 || snapshots.some((s: any) => s.productId === it.productId)) {
+        isItemReturnedOrCancelled = true;
+      }
+    }
+
+    if (isItemReturnedOrCancelled) {
       sellerCancelledRevenue += itemTotal;
       cancelledOrderIds.add(it.order.id);
     } else {

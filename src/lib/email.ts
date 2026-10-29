@@ -741,6 +741,166 @@ export async function sendCancellationApprovedEmail(
   });
 }
 
+// ─── EMAIL 3B — DELIVERED ORDER RETURN APPROVED (WITH 5-DAY COLLECTION) ─────
+export async function sendDeliveredReturnApprovedEmail(
+  email: string,
+  data: {
+    orderId: string;
+    customerName?: string;
+    productName: string;
+    quantity: number;
+    orderDate?: Date | string | null;
+    deliveryDate?: Date | string | null;
+    refundAmount: number;
+    approvalDate?: Date | string | null;
+    refundInitiated?: boolean;
+  }
+) {
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const formatDate = (d?: Date | string | null) => {
+    if (!d) return "N/A";
+    try {
+      return new Date(d).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+    } catch {
+      return String(d);
+    }
+  };
+
+  const formattedOrderDate = formatDate(data.orderDate);
+  const formattedDeliveryDate = formatDate(data.deliveryDate);
+  const formattedApprovalDate = formatDate(data.approvalDate || new Date());
+  const customerGreeting = data.customerName ? `Hello ${data.customerName},` : "Hello Valued Customer,";
+
+  return sendEmail({
+    to: email,
+    subject: "Your Earth Centric Return Request Has Been Approved",
+    html: wrapInTemplate(`
+      <div style="text-align: center; margin-bottom: 20px;">
+        <div style="display: inline-block; width: 56px; height: 56px; border-radius: 50%; background: #E8F5E9; line-height: 56px; font-size: 28px;">📦</div>
+      </div>
+      <h2 style="color: #1F3A2E; font-size: 22px; margin: 0 0 12px 0; text-align: center;">Return Request Approved</h2>
+      
+      <p style="color: #333; font-size: 14px; line-height: 1.7; margin: 0 0 16px 0;">
+        ${customerGreeting}
+      </p>
+      
+      <p style="color: #333; font-size: 14px; line-height: 1.7; margin: 0 0 16px 0;">
+        Your return/cancellation request for Earth Centric Order <strong>#${data.orderId}</strong> has been approved.
+      </p>
+
+      <div style="background: #F5F1EA; border-radius: 12px; padding: 18px 22px; margin: 16px 0;">
+        <p style="font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #1F3A2E; margin: 0 0 10px 0;">
+          Order Details:
+        </p>
+        <table style="width: 100%; font-size: 13px; color: #333; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px 0; color: #777; width: 45%;">Product:</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: 600;">${data.productName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #777;">Quantity:</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: 600;">${data.quantity}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #777;">Original Order Date:</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: 600;">${formattedOrderDate}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #777;">Delivery Date:</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: 600;">${formattedDeliveryDate}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #777;">Approved Refund Amount:</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: 800; color: #2D8F4E; font-size: 15px;">₹${data.refundAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #777;">Request Approval Date:</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: 600;">${formattedApprovalDate}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="background: #E8F5E9; border: 1px solid #C8E6C9; border-radius: 12px; padding: 16px 20px; margin: 18px 0;">
+        <p style="color: #2E7D32; font-size: 13px; line-height: 1.6; margin: 0 0 10px 0;">
+          🚚 <strong>Collection Timeline:</strong> Our team will arrange collection of the returned product within <strong>5 days</strong>. Please keep the product and its packaging ready for collection, subject to the applicable return policy.
+        </p>
+        <p style="color: #2E7D32; font-size: 13px; line-height: 1.6; margin: 0;">
+          💳 <strong>Refund Processing:</strong> ${data.refundInitiated ? "Your refund is being processed through Cashfree. We will update you when the refund has been confirmed. The time taken for the amount to appear in your original payment account depends on Cashfree and your bank." : "Your refund will be processed through Cashfree once the return conditions are fulfilled. The time taken for the amount to appear in your original payment account depends on Cashfree and your bank."}
+        </p>
+      </div>
+
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${baseUrl}/orders/${data.orderId}" style="${buttonStyle}">View Return & Refund Status →</a>
+      </div>
+
+      <p style="color: #555; font-size: 13px; line-height: 1.6; margin: 16px 0 0 0;">
+        You can view the return and refund status in your Earth Centric account.
+      </p>
+
+      <p style="color: #777; font-size: 13px; margin: 24px 0 0 0;">
+        Thank you for choosing Earth Centric.<br/>
+        <strong style="color: #1F3A2E;">Earth Centric Support Team</strong>
+      </p>
+    `),
+  });
+}
+
+// ─── EMAIL 3C — RETURN COLLECTION UPDATE / FAILURE ─────────────────────────
+export async function sendReturnCollectionUpdateEmail(
+  email: string,
+  data: {
+    orderId: string;
+    customerName?: string;
+    status: string; // SCHEDULED, COLLECTED, FAILED
+    notes?: string;
+    scheduledDate?: Date | string;
+    failureReason?: string;
+  }
+) {
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const customerGreeting = data.customerName ? `Hello ${data.customerName},` : "Hello Valued Customer,";
+  const isFailed = data.status === "FAILED";
+
+  const subject = isFailed
+    ? `Important Update: Return Collection for Earth Centric Order #${data.orderId}`
+    : `Update: Return Collection for Earth Centric Order #${data.orderId}`;
+
+  return sendEmail({
+    to: email,
+    subject,
+    html: wrapInTemplate(`
+      <h2 style="color: ${isFailed ? "#8B2121" : "#1F3A2E"}; font-size: 20px; margin: 0 0 12px 0;">
+        ${isFailed ? "Return Collection Update ⚠️" : "Return Collection Status Update 🚚"}
+      </h2>
+      <p style="color: #333; font-size: 14px; line-height: 1.7; margin: 0 0 16px 0;">
+        ${customerGreeting}
+      </p>
+      <p style="color: #333; font-size: 14px; line-height: 1.7; margin: 0 0 16px 0;">
+        This is an update regarding the return collection for your Earth Centric Order <strong>#${data.orderId}</strong>.
+      </p>
+      <div style="background: ${isFailed ? "#FFF2F2" : "#F5F1EA"}; border: 1px solid ${isFailed ? "#FFD2D2" : "#D8CEBE"}; border-radius: 12px; padding: 16px 20px; margin: 16px 0;">
+        <p style="margin: 0; font-size: 13px; color: ${isFailed ? "#8B2121" : "#333"}; line-height: 1.6;">
+          <strong>Status:</strong> ${data.status.replace(/_/g, " ")}<br/>
+          ${data.scheduledDate ? `<strong>Scheduled Date:</strong> ${new Date(data.scheduledDate).toLocaleDateString("en-IN")}<br/>` : ""}
+          ${data.failureReason ? `<strong>Reason:</strong> ${data.failureReason}<br/>` : ""}
+          ${data.notes ? `<strong>Notes:</strong> ${data.notes}` : ""}
+        </p>
+      </div>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${baseUrl}/orders/${data.orderId}" style="${buttonStyle}">View Order Details →</a>
+      </div>
+      <p style="color: #777; font-size: 12px; margin-top: 20px;">
+        Thank you for choosing Earth Centric.<br/>
+        <strong>Earth Centric Support Team</strong>
+      </p>
+    `),
+  });
+}
+
 // ─── EMAIL 4 — AUTOMATIC CANCELLATION WITHIN 24 HOURS ──────────────
 export async function sendAutoCancellationEmail(
   email: string,

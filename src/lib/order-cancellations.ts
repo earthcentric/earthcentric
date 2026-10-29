@@ -85,7 +85,7 @@ async function saveProviderRefund(
 
     if (effectiveStatus === "SUCCESS") {
       const changed = await tx.order.updateMany({
-        where: { id: cancellation.orderId, status: "CANCELLED" },
+        where: { id: cancellation.orderId, status: { in: ["CANCELLED", "RETURNED", "DELIVERED"] } },
         data: { status: "REFUNDED" },
       });
       if (changed.count > 0) {
@@ -198,7 +198,7 @@ export async function startCancellationRefund(cancellationId: string): Promise<{
     return { status: "FAILED", error: "Missing Cashfree order ID." };
   }
 
-  const amount = Math.round(cancellation.order.totalAmount * 100) / 100;
+  const amount = Math.round((cancellation.refundAmount ?? cancellation.order.totalAmount) * 100) / 100;
   if (!Number.isFinite(amount) || amount <= 0 || amount > payment.amount) {
     await db.orderCancellation.update({
       where: { id: cancellationId },

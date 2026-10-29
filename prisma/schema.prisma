@@ -243,14 +243,16 @@ model Order {
   totalAmount    Float
   paymentGroupId String? // To group orders from different sellers paid together
   status         OrderStatus @default(PLACED)
+  deliveredAt    DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  items         OrderItem[]
-  payment       Payment?
-  timeline      OrderTimeline[]
-  complaints    Complaint[]
-  cancellations OrderCancellation[]
+  items             OrderItem[]
+  payment           Payment?
+  timeline          OrderTimeline[]
+  complaints        Complaint[]
+  cancellations     OrderCancellation[]
+  returnCollections ReturnCollection[]
 }
 
 model OrderTimeline {
@@ -263,35 +265,59 @@ model OrderTimeline {
 }
 
 model OrderCancellation {
-  id                      String    @id @default(cuid())
+  id                      String            @id @default(cuid())
   orderId                 String
-  order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  activeOrderId           String?   @unique
+  order                   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  activeOrderId           String?           @unique
   requestedByUserId       String
   requestedByEmail        String
   requestedByRole         String
   reason                  String
-  status                  String    @default("REQUESTED")
+  status                  String            @default("REQUESTED")
+  type                    String            @default("CANCELLATION") // CANCELLATION or RETURN
+  deliveredAt             DateTime?
   adminNote               String?
-  requestedAt             DateTime  @default(now())
+  requestedAt             DateTime          @default(now())
   reviewedAt              DateTime?
   reviewedByUserId        String?
   reviewedByEmail         String?
-  refundStatus            String    @default("NOT_REQUIRED")
+  refundStatus            String            @default("NOT_REQUIRED")
   refundAmount            Float?
   cashfreeOrderId         String?
-  cashfreeRefundId        String?   @unique
+  cashfreeRefundId        String?           @unique
   cashfreeRefundReference String?
   refundArn               String?
   refundError             String?
-  refundAttempt           Int       @default(0)
+  refundAttempt           Int               @default(0)
   refundUpdatedAt         DateTime?
-  isAutoApproved          Boolean   @default(false)
+  isAutoApproved          Boolean           @default(false)
   rejectionReason         String?
   snapshotItems           Json?
+  returnCollection        ReturnCollection?
 
   @@index([status, requestedAt])
   @@index([orderId, requestedAt])
+}
+
+model ReturnCollection {
+  id                 String            @id @default(cuid())
+  cancellationId     String            @unique
+  cancellation       OrderCancellation @relation(fields: [cancellationId], references: [id], onDelete: Cascade)
+  orderId            String
+  order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status             String            @default("COLLECTION_PENDING") // COLLECTION_PENDING, SCHEDULED, COLLECTED, INSPECTION_PENDING, RETURNED_TO_SELLER, FAILED
+  approvedAt         DateTime          @default(now())
+  collectionDeadline DateTime          // 5 days after approval
+  scheduledAt        DateTime?
+  collectedAt        DateTime?
+  inspectedAt        DateTime?
+  failureReason      String?
+  notes              String?
+  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime          @default(now())
+
+  @@index([orderId])
+  @@index([status])
 }
 
 model OrderItem {
