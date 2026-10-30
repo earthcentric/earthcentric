@@ -15,6 +15,9 @@ import {
   UserX,
 } from "lucide-react";
 
+import { SellerRegistrationFeeCard } from "@/components/seller/SellerRegistrationFeeCard";
+import { isGrandfatheredSeller } from "@/lib/seller-verification-constants";
+
 export default function VerificationPage() {
   const { user, isLoading, updateSellerStatus } = useAuth();
   const router = useRouter();
@@ -23,9 +26,20 @@ export default function VerificationPage() {
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [isReopened, setIsReopened] = useState(false);
 
+  const fetchProfile = async () => {
+    if (user?.id) {
+      try {
+        const p = await getSellerProfile(user.id);
+        setProfile(p);
+      } catch (err) {
+        console.error("Error loading seller profile:", err);
+      }
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
-    const fetchProfile = async () => {
+    const initialFetch = async () => {
       if (user?.id) {
         if (!initialLoaded) setLoading(true);
         try {
@@ -48,7 +62,7 @@ export default function VerificationPage() {
         }
       }
     };
-    fetchProfile();
+    initialFetch();
     return () => {
       isMounted = false;
     };
@@ -80,7 +94,7 @@ export default function VerificationPage() {
             <Button
               variant="cool"
               onClick={() => router.push("/sign-in?redirect_url=/seller/verification")}
-              className="px-6 gap-2"
+              className="px-6 gap-2 cursor-pointer"
             >
               <LogIn className="h-4 w-4" />
               Sign In to Continue
@@ -95,6 +109,13 @@ export default function VerificationPage() {
   const isRemoved = Boolean(
     profile?.isRemoved ||
     profile?.rejectionReason?.startsWith("[SELLER_REMOVED]:")
+  );
+
+  const isGrandfathered = profile?.id ? isGrandfatheredSeller(profile.id, user.id) : isGrandfatheredSeller(user.id);
+  const isFeePaid = Boolean(
+    isGrandfathered ||
+    profile?.registrationFeePaid ||
+    profile?.registrationPaymentStatus === "PAID"
   );
 
   // ── Removed Seller State ──
@@ -146,7 +167,7 @@ export default function VerificationPage() {
   // ── Approved State ──
   if ((profile?.verificationStatus === "APPROVED" || user?.sellerStatus === "APPROVED") && !isRemoved) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-16">
+      <div className="mx-auto max-w-2xl px-4 py-16 space-y-6">
         <Card className="border-border/40 p-8 text-center space-y-6 bg-card rounded-2xl shadow-lg">
           <div className="h-16 w-16 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
             <CheckCircle2 className="h-8 w-8 fill-emerald-500/10" />
@@ -170,11 +191,24 @@ export default function VerificationPage() {
             </div>
           </div>
 
-          <div className="pt-2">
-            <Button variant="cool" onClick={() => router.push("/seller/dashboard")} className="w-full sm:w-auto px-8">
-              Proceed to Seller Dashboard
-            </Button>
-          </div>
+          {!isFeePaid && profile?.id && (
+            <div className="text-left pt-2">
+              <SellerRegistrationFeeCard
+                sellerId={profile.id}
+                sellerName={profile.companyName || user.name}
+                isPaid={false}
+                onSuccess={fetchProfile}
+              />
+            </div>
+          )}
+
+          {isFeePaid && (
+            <div className="pt-2">
+              <Button variant="cool" onClick={() => router.push("/seller/dashboard")} className="w-full sm:w-auto px-8 cursor-pointer">
+                Proceed to Seller Dashboard
+              </Button>
+            </div>
+          )}
         </Card>
       </div>
     );
@@ -183,7 +217,7 @@ export default function VerificationPage() {
   // ── Pending Review State ──
   if ((profile?.verificationStatus === "PENDING" || user?.sellerStatus === "PENDING") && !isReopened && !isRemoved) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-16">
+      <div className="mx-auto max-w-2xl px-4 py-16 space-y-6">
         <Card className="border-border/60 p-8 text-center space-y-6 bg-card rounded-2xl shadow-sm">
           <div className="h-16 w-16 bg-amber-500/10 border border-amber-500/20 text-amber-600 rounded-full flex items-center justify-center mx-auto animate-pulse">
             <Clock className="h-8 w-8" />
@@ -199,11 +233,31 @@ export default function VerificationPage() {
             </p>
           </div>
 
+          {/* Registration Payment Card for New Sellers */}
+          {!isGrandfathered && (
+            <div className="text-left pt-2">
+              <SellerRegistrationFeeCard
+                sellerId={profile?.id || user.id}
+                sellerName={profile?.companyName || user.name}
+                isPaid={isFeePaid}
+                transactionId={profile?.registrationFeeTransactionId}
+                paidAt={profile?.registrationFeePaidAt}
+                onSuccess={fetchProfile}
+              />
+            </div>
+          )}
+
+          {isGrandfathered && (
+            <div className="p-3 bg-purple-50 text-purple-800 border border-purple-200 rounded-xl text-xs font-semibold max-w-md mx-auto">
+              Grandfathered Seller: ₹1 Registration Fee Not Required
+            </div>
+          )}
+
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Button variant="cool" onClick={() => router.push("/marketplace")} className="px-6">
+            <Button variant="cool" onClick={() => router.push("/marketplace")} className="px-6 cursor-pointer">
               Explore Marketplace Catalog
             </Button>
-            <Button variant="outline" onClick={() => setIsReopened(true)} className="px-6 text-xs">
+            <Button variant="outline" onClick={() => setIsReopened(true)} className="px-6 text-xs cursor-pointer">
               View or Edit Submission
             </Button>
           </div>
@@ -211,6 +265,7 @@ export default function VerificationPage() {
       </div>
     );
   }
+
 
   // ── Rejected State ──
   if ((profile?.verificationStatus === "REJECTED" || user?.sellerStatus === "REJECTED") && !isReopened && !isRemoved) {

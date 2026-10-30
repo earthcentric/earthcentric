@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge, Button } from "@/components/ui/shared";
 import { ShieldCheck, MapPin, ShoppingBag, ArrowRight } from "lucide-react";
+import { getVerifiedSellers } from "@/actions/sellers";
 
 export interface SellerData {
   id: string;
@@ -11,6 +12,8 @@ export interface SellerData {
   city: string;
   productCount: number;
   badge: "Premium Seller" | "Verified Business" | "Sustainable Mfr.";
+  logoUrl?: string;
+  description?: string;
 }
 
 export const TOP_SELLERS: SellerData[] = [
@@ -20,6 +23,26 @@ export const TOP_SELLERS: SellerData[] = [
     city: "India",
     productCount: 34,
     badge: "Verified Business",
+    logoUrl: "/images/products/product_p1_1.png",
+    description: "Certified manufacturer of 100% biodegradable and compostable sugarcane bagasse tableware and eco-friendly packaging.",
+  },
+  {
+    id: "sel-gpee9e8",
+    name: "SMT",
+    city: "India",
+    productCount: 12,
+    badge: "Verified Business",
+    logoUrl: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1788503450/sellers/logos/lobotvry1v7psryqm7e7.jpg",
+    description: "Verified sustainable manufacturer of eco-friendly consumer goods.",
+  },
+  {
+    id: "sel-ns5xvde",
+    name: "SIH",
+    city: "India",
+    productCount: 8,
+    badge: "Verified Business",
+    logoUrl: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1793085900/sellers/logos/file_rj1mjh.webp",
+    description: "Verified eco-friendly seller dedicated to zero-waste sustainable merchandise.",
   },
 ];
 
@@ -37,8 +60,19 @@ export function SellerCard({ seller }: { seller: SellerData }) {
       <div className="space-y-4">
         {/* Header: Avatar + Info */}
         <div className="flex items-center space-x-3.5">
-          <div className="h-11 w-11 rounded-full bg-emerald-600/10 text-emerald-700 flex items-center justify-center font-bold text-sm border border-emerald-600/20 shrink-0">
-            {initials}
+          <div className="h-11 w-11 rounded-full bg-emerald-600/10 text-emerald-700 flex items-center justify-center font-bold text-sm border border-emerald-600/20 shrink-0 overflow-hidden">
+            {seller.logoUrl ? (
+              <img
+                src={seller.logoUrl}
+                alt={seller.name}
+                className="h-full w-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = "none";
+                }}
+              />
+            ) : (
+              initials
+            )}
           </div>
           <div className="text-left min-w-0">
             <h4 className="font-extrabold text-sm text-primary truncate leading-tight group-hover:text-emerald-600 transition-colors">
@@ -65,7 +99,7 @@ export function SellerCard({ seller }: { seller: SellerData }) {
           <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
           <span className="truncate">{seller.badge}</span>
         </div>
-        <Link href={`/marketplace?search=${encodeURIComponent(seller.name)}`}>
+        <Link href={`/marketplace?seller=${seller.id}`}>
           <Button variant="cool" size="sm" className="text-[10px] py-1 px-2.5 flex items-center space-x-1 font-bold">
             <span>View Storefront</span>
             <ArrowRight className="h-3 w-3" />
@@ -77,6 +111,30 @@ export function SellerCard({ seller }: { seller: SellerData }) {
 }
 
 export default function TopSellersSection() {
+  const [sellers, setSellers] = useState<SellerData[]>(TOP_SELLERS);
+
+  useEffect(() => {
+    let isMounted = true;
+    getVerifiedSellers()
+      .then((data) => {
+        if (!isMounted || !data || data.length === 0) return;
+        const mapped: SellerData[] = data.map((s: any) => ({
+          id: s.id,
+          name: s.companyName,
+          city: "India",
+          productCount: 10,
+          badge: "Verified Business",
+          logoUrl: s.logoUrl,
+          description: s.description,
+        }));
+        setSellers(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="w-full py-8 space-y-6">
       <div className="flex items-center justify-between">
@@ -91,10 +149,11 @@ export default function TopSellersSection() {
       
       {/* Horizontal scrolling shelf */}
       <div className="flex gap-6 overflow-x-auto pb-4 pt-1 scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-secondary scroll-smooth -mx-4 px-4 sm:mx-0 sm:px-0">
-        {TOP_SELLERS.map((seller) => (
+        {sellers.map((seller) => (
           <SellerCard key={seller.id} seller={seller} />
         ))}
       </div>
     </div>
   );
 }
+

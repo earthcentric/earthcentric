@@ -43,6 +43,7 @@ import { AdminMessagesView } from "@/components/admin/AdminMessagesView";
 import { CategoryManagementView } from "@/components/admin/CategoryManagementView";
 import { OrderCancellationsAdminView } from "@/components/admin/OrderCancellationsAdminView";
 import { getUnreadMessageCount } from "@/actions/messages";
+import { isGrandfatheredSeller } from "@/lib/seller-verification-constants";
 import { Logo } from "@/components/Logo";
 import {
   ShieldAlert,
@@ -1086,6 +1087,7 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
                   </span>
                 </div>
               </TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">₹1 Reg. Fee</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
             </TableRow>
@@ -1093,7 +1095,7 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
           <TableBody>
             {displaySellers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-xs text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-10 text-xs text-muted-foreground">
                   No seller verification records found.
                 </TableCell>
               </TableRow>
@@ -1108,6 +1110,9 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
                 const approved = isSellerApproved(seller);
                 const rejected = isSellerRejected(seller);
 
+                const isGrandfathered = seller.registrationPaymentStatus === "NOT_REQUIRED" || isGrandfatheredSeller(seller.id, seller.userId);
+                const isPaid = seller.registrationPaymentStatus === "PAID" || seller.registrationFeePaid;
+
                 return (
                   <TableRow key={seller.id || i} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
                     <TableCell className="py-4">
@@ -1117,7 +1122,10 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
                         </div>
                         <div>
                           <p className="text-xs font-bold text-[#1a3321]">{seller.companyName}</p>
-                          <p className="text-[10px] text-muted-foreground flex items-center">
+                          <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate max-w-[160px]" title={seller.id || seller.userId}>
+                            ID: {seller.id || seller.userId}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground flex items-center mt-0.5">
                             <Users className="h-2.5 w-2.5 mr-1" /> {seller.userName || seller.user?.name || seller.founderName || seller.ownerName || "Applicant"}
                           </p>
                           {seller.hasPriorRemoval && (
@@ -1177,6 +1185,37 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
                       </div>
                     </TableCell>
                     <TableCell className="py-4">
+                      {isGrandfathered ? (
+                        <Badge className="bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-bold">
+                          NOT REQUIRED (Grandfathered)
+                        </Badge>
+                      ) : isPaid ? (
+                        <div>
+                          <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold">
+                            PAID (₹1.00)
+                          </Badge>
+                          {seller.registrationFeeTransactionId && (
+                            <p className="text-[9px] font-mono text-slate-500 truncate max-w-[130px] mt-0.5" title={seller.registrationFeeTransactionId}>
+                              Tx: {seller.registrationFeeTransactionId}
+                            </p>
+                          )}
+                          {seller.registrationFeePaidAt && (
+                            <p className="text-[9px] text-slate-400 mt-0.5">
+                              {new Date(seller.registrationFeePaidAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                            </p>
+                          )}
+                        </div>
+                      ) : seller.registrationPaymentStatus === "FAILED" ? (
+                        <Badge className="bg-rose-50 text-rose-700 border border-rose-200 text-[9px] font-bold">
+                          FAILED
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
+                          PENDING (₹1.00)
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4">
                       {removed ? (
                         <Badge className="bg-rose-100 text-rose-800 border border-rose-300 text-[9px] hover:bg-rose-100 font-bold">
                           <UserX className="h-3 w-3 mr-1 inline-block" /> REMOVED
@@ -1195,6 +1234,7 @@ function SellerApprovalsView({ pendingSellers, reload, onInspectSeller, globalSe
                         </Badge>
                       )}
                     </TableCell>
+
                     <TableCell className="py-4 text-right pr-6">
                       {approved ? (
                         <div className="flex items-center justify-end gap-1.5">
@@ -2777,9 +2817,13 @@ function PaymentsView({ payoutRequests: propPayoutRequests = [], transactions = 
                         )}
                       </TableCell>
                       <TableCell className="py-4 align-top">
-                        {!s.registrationFeeEnabled ? (
+                        {s.registrationPaymentStatus === "NOT_REQUIRED" || isGrandfatheredSeller(s.sellerId, s.userId) ? (
+                          <Badge className="bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-bold">
+                            NOT REQUIRED (Grandfathered)
+                          </Badge>
+                        ) : !s.registrationFeeEnabled ? (
                           <span className="text-[10px] text-slate-400 font-semibold">DISABLED</span>
-                        ) : s.registrationFeePaid ? (
+                        ) : s.registrationPaymentStatus === "PAID" || s.registrationFeePaid ? (
                           <div>
                             <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px] font-bold">PAID (₹{s.registrationFeeAmount?.toFixed(2) || "1.00"})</Badge>
                             {s.registrationFeeTransactionId && (
@@ -2788,10 +2832,13 @@ function PaymentsView({ payoutRequests: propPayoutRequests = [], transactions = 
                               </p>
                             )}
                           </div>
+                        ) : s.registrationPaymentStatus === "FAILED" ? (
+                          <Badge className="bg-rose-50 text-rose-700 border-none text-[9px] font-bold">FAILED</Badge>
                         ) : (
                           <Badge className="bg-amber-50 text-amber-700 border-none text-[9px] font-bold">PENDING (₹{s.registrationFeeAmount?.toFixed(2) || "1.00"})</Badge>
                         )}
                       </TableCell>
+
                       <TableCell className="py-4 align-top">
                         {s.maskedBankNumber ? (
                           <div className="text-xs">

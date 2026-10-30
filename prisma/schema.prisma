@@ -131,6 +131,7 @@ model Seller {
   payoutVerifiedAt           DateTime?
   payoutVerifiedBy           String?
   registrationFeePaid        Boolean                    @default(false)
+  registrationPaymentStatus  String                     @default("PENDING") // NOT_REQUIRED, PENDING, PAID, FAILED
   registrationFeePaidAt      DateTime?
   registrationFeeOrderId     String?
   registrationFeeTransactionId String?

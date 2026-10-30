@@ -187,6 +187,7 @@ export async function POST(req: NextRequest) {
                 where: { id: regPayment.sellerId },
                 data: {
                   registrationFeePaid: true,
+                  registrationPaymentStatus: "PAID",
                   registrationFeePaidAt: new Date(),
                   registrationFeeOrderId: cashfreeOrderId,
                   registrationFeeTransactionId: String(cashfreePaymentId || ""),
@@ -207,6 +208,12 @@ export async function POST(req: NextRequest) {
                   status: "FAILED",
                 },
               });
+              await db.seller.update({
+                where: { id: regPayment.sellerId },
+                data: {
+                  registrationPaymentStatus: "FAILED",
+                },
+              }).catch(() => {});
             }
           }
         } catch (feeErr) {

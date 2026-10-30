@@ -227,15 +227,43 @@ const FEATURED_PRODUCTS = [
 
 const SELLERS = [
   {
+    id: "cmvcbbtm80001txgw8dd0r3lk",
     name: "AR ECO INDIA",
+    companyName: "AR ECO INDIA",
     location: "India",
     category: "Biodegradable Sugarcane Bagasse Tableware",
     score: 98,
     productCount: 34,
     image: "/images/products/product_p1_1.png",
+    logoUrl: "/images/products/product_p1_1.png",
     description: "Certified manufacturer of 100% biodegradable, compostable sugarcane bagasse tableware and eco packaging.",
-  }
+  },
+  {
+    id: "sel-gpee9e8",
+    name: "SMT",
+    companyName: "SMT",
+    location: "India",
+    category: "Sustainable Consumer Goods",
+    score: 95,
+    productCount: 12,
+    image: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1788503450/sellers/logos/lobotvry1v7psryqm7e7.jpg",
+    logoUrl: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1788503450/sellers/logos/lobotvry1v7psryqm7e7.jpg",
+    description: "Verified sustainable manufacturer of eco-friendly consumer goods.",
+  },
+  {
+    id: "sel-ns5xvde",
+    name: "SIH",
+    companyName: "SIH",
+    location: "India",
+    category: "Zero Waste Living",
+    score: 96,
+    productCount: 8,
+    image: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1793085900/sellers/logos/file_rj1mjh.webp",
+    logoUrl: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1793085900/sellers/logos/file_rj1mjh.webp",
+    description: "Verified eco-friendly seller dedicated to zero-waste sustainable merchandise.",
+  },
 ];
+
 
 const BASE_SAVINGS: Record<string, { carbon: number; water: number; waste: number }> = {
   "cotton-shirt": { carbon: 12.5, water: 420, waste: 0.22 },
@@ -739,46 +767,63 @@ export default function Homepage() {
             </div>
           </div>
           
-          {verifiedSellers.length === 0 ? (
-            <div className="text-center py-12 text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl bg-white">
-              No verified sellers currently listed.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {verifiedSellers.map((seller) => (
-                <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1">
-                  <div className="flex items-start justify-between">
-                    <div className="h-16 w-16 rounded-full border border-border/40 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0">
-                      {seller.logoUrl ? (
-                        <img src={seller.logoUrl} alt={seller.companyName} className="h-full w-full object-cover" />
-                      ) : (
-                        <Leaf className="h-8 w-8 text-[#2d4a36]" />
-                      )}
+          {(() => {
+            const displaySellers = verifiedSellers && verifiedSellers.length > 0 ? verifiedSellers : SELLERS;
+            if (displaySellers.length === 0) {
+              return (
+                <div className="text-center py-12 text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl bg-white">
+                  No verified sellers currently listed.
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {displaySellers.map((seller) => (
+                  <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1 bg-white">
+                    <div className="flex items-start justify-between">
+                      <div className="h-16 w-16 rounded-full border border-border/40 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0">
+                        {seller.logoUrl || seller.image ? (
+                          <img
+                            src={seller.logoUrl || seller.image}
+                            alt={seller.companyName || seller.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <Leaf className="h-8 w-8 text-[#2d4a36]" />
+                        )}
+                      </div>
+                      <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
+                        Verified
+                      </Badge>
                     </div>
-                    <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
-                    </Badge>
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-lg text-primary truncate" title={seller.companyName}>{seller.companyName}</h3>
-                    <div className="flex items-center space-x-1 mt-1 text-emerald-600">
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Verified Business</span>
+                    <div>
+                      <h3 className="font-bold text-lg text-primary truncate" title={seller.companyName || seller.name}>
+                        {seller.companyName || seller.name}
+                      </h3>
+                      <div className="flex items-center space-x-1 mt-1 text-emerald-600">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider">Verified Business</span>
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px]">
-                    {seller.description}
-                  </p>
-                  <div className="pt-2 border-t border-border/40">
-                    <Link href={`/marketplace?seller=${seller.id}`}>
-                      <Button variant="cool" size="sm" className="w-full text-xs">
-                        View Seller
-                      </Button>
-                    </Link>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
+                    <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px]">
+                      {seller.description || "Certified sustainable supplier on EarthCentric marketplace."}
+                    </p>
+                    <div className="pt-2 border-t border-border/40">
+                      <Link href={`/marketplace?seller=${seller.id}`}>
+                        <Button variant="cool" size="sm" className="w-full text-xs cursor-pointer">
+                          View Seller
+                        </Button>
+                      </Link>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            );
+          })()}
+
         </section>
       )
     },

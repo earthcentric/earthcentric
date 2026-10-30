@@ -176,11 +176,14 @@ export async function checkSellerActivation(sellerIdOrUserId: string): Promise<{
       };
     }
 
+    const { isGrandfatheredSeller } = await import("@/lib/seller-verification-constants");
+    const isGrandfathered = isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId) || (seller as any).registrationPaymentStatus === "NOT_REQUIRED";
+
     const { isSellerRegistrationFeeEnabled } = await import("@/lib/payout-config");
     const feeEnabled = await isSellerRegistrationFeeEnabled();
-    const feePaid = seller.registrationFeePaid || !feeEnabled;
+    const isPaid = isGrandfathered || Boolean(seller.registrationFeePaid || (seller as any).registrationPaymentStatus === "PAID");
 
-    if (feeEnabled && !seller.registrationFeePaid) {
+    if (feeEnabled && !isPaid) {
       return {
         active: false,
         sellerApproved: true,
@@ -194,7 +197,7 @@ export async function checkSellerActivation(sellerIdOrUserId: string): Promise<{
     return {
       active: true,
       sellerApproved: true,
-      feeRequired: feeEnabled,
+      feeRequired: !isGrandfathered && feeEnabled,
       feePaid: true,
       status: "ACTIVE",
     };

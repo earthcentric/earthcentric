@@ -21,6 +21,11 @@ import {
 import { decrypt } from "@/lib/encryption";
 import { createCashfreeOrder, verifyPaymentSignature, fetchCashfreeOrderPayments, getSecureAppUrl } from "@/lib/cashfree";
 import { verifyAdminAuth, verifySellerAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
+import {
+  isGrandfatheredSeller,
+  resolveRegistrationPaymentStatus,
+  type RegistrationPaymentStatus,
+} from "@/lib/seller-verification-constants";
 
 export type PayoutStatus =
   | "PENDING"
@@ -188,7 +193,8 @@ export async function getSellerPayoutOnboardingStatus(
   }
 
   const sellerApproved = seller.verificationStatus === "APPROVED";
-  const feePaid = seller.registrationFeePaid || !feeEnabled;
+  const isGrandfathered = isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId) || (seller as any).registrationPaymentStatus === "NOT_REQUIRED";
+  const feePaid = isGrandfathered || Boolean(seller.registrationFeePaid || (seller as any).registrationPaymentStatus === "PAID") || !feeEnabled;
 
   // Derive payout verification status for existing sellers
   let payoutVerificationStatus: PayoutVerificationStatus =
@@ -270,16 +276,10 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
 
     if (!seller) return { success: false, error: "Seller profile not found." };
 
-    if (auth.role !== "ADMIN" && auth.userId !== seller.userId) {
-      return { success: false, error: "Unauthorized access to seller profile." };
-    }
-
-    // Must be approved first by Super Admin!
-    if (seller.verificationStatus !== "APPROVED") {
-      return {
-        success: false,
-        error: "Seller application must be reviewed and approved by Super Admin before paying the registration fee.",
-      };
+    // Grandfathered sellers (AR ECO INDIA, SMT, SIH) never need to pay
+    const isGrandfathered = isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId) || (seller as any).registrationPaymentStatus === "NOT_REQUIRED";
+    if (isGrandfathered) {
+      return { success: true, feeRequired: false, alreadyPaid: true };
     }
 
     const feeEnabled = await isSellerRegistrationFeeEnabled();
@@ -287,7 +287,7 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
       return { success: true, feeRequired: false, alreadyPaid: true };
     }
 
-    if (seller.registrationFeePaid) {
+    if (seller.registrationFeePaid || (seller as any).registrationPaymentStatus === "PAID") {
       return { success: true, feeRequired: true, alreadyPaid: true };
     }
 
@@ -370,7 +370,8 @@ export async function verifyRegistrationFeePayment(
     });
     if (!seller) return { success: false, error: "Seller profile not found." };
 
-    if (seller.registrationFeePaid) {
+    const isGrandfathered = isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId) || (seller as any).registrationPaymentStatus === "NOT_REQUIRED";
+    if (isGrandfathered || seller.registrationFeePaid || (seller as any).registrationPaymentStatus === "PAID") {
       return { success: true, paid: true };
     }
 
@@ -378,10 +379,23 @@ export async function verifyRegistrationFeePayment(
     const successfulPayment = payments.find((p: any) => p.payment_status === "SUCCESS");
     const paymentAmount = successfulPayment?.payment_amount ?? successfulPayment?.order_amount;
     const isAmountValid = paymentAmount === undefined || Number(paymentAmount) >= 1.0;
+    const currency = successfulPayment?.payment_currency || successfulPayment?.order_currency || "INR";
+    const isCurrencyValid = currency === "INR";
 
-    const isVerified = (Boolean(successfulPayment) && isAmountValid) || (await verifyPaymentSignature(orderId));
+    const isVerified = (Boolean(successfulPayment) && isAmountValid && isCurrencyValid) || (await verifyPaymentSignature(orderId));
 
     if (!isVerified) {
+      const failedPayment = payments.find((p: any) => p.payment_status === "FAILED" || p.payment_status === "CANCELLED");
+      if (failedPayment) {
+        await db.sellerRegistrationPayment.updateMany({
+          where: { cashfreeOrderId: orderId, sellerId: seller.id },
+          data: { status: "FAILED" },
+        }).catch(() => {});
+        await db.seller.update({
+          where: { id: seller.id },
+          data: { registrationPaymentStatus: "FAILED" },
+        }).catch(() => {});
+      }
       return { success: false, paid: false, error: "Cashfree has not confirmed this payment yet." };
     }
 
@@ -403,6 +417,7 @@ export async function verifyRegistrationFeePayment(
         where: { id: seller.id },
         data: {
           registrationFeePaid: true,
+          registrationPaymentStatus: "PAID",
           registrationFeePaidAt: new Date(),
           registrationFeeOrderId: orderId,
           ...(transactionId ? { registrationFeeTransactionId: transactionId } : {}),
@@ -1540,6 +1555,7 @@ export interface SellerOnboardingProfile {
   registrationFeeEnabled: boolean;
   registrationFeeAmount: number;
   registrationFeePaid: boolean;
+  registrationPaymentStatus: RegistrationPaymentStatus;
   registrationFeePaidAt?: string | null;
   registrationFeeTransactionId?: string | null;
   payoutVerificationStatus: string;
@@ -1578,9 +1594,13 @@ export async function getAdminSellerOnboardingProfiles(): Promise<SellerOnboardi
         }
       } catch (_) {}
 
+      const isGrandfathered = isGrandfatheredSeller(s.id) || isGrandfatheredSeller(s.userId) || (s as any).registrationPaymentStatus === "NOT_REQUIRED";
+      const regPaymentStatus = resolveRegistrationPaymentStatus(s);
+      const isFeePaid = Boolean(s.registrationFeePaid || isGrandfathered || regPaymentStatus === "PAID");
+
       let activationStatus: "RESTRICTED" | "PAYMENT_REQUIRED" | "ACTIVE" = "RESTRICTED";
       if (s.verificationStatus === "APPROVED") {
-        if (feeEnabled && !s.registrationFeePaid) {
+        if (!isGrandfathered && feeEnabled && !isFeePaid) {
           activationStatus = "PAYMENT_REQUIRED";
         } else {
           activationStatus = "ACTIVE";
@@ -1598,7 +1618,8 @@ export async function getAdminSellerOnboardingProfiles(): Promise<SellerOnboardi
         activationStatus,
         registrationFeeEnabled: feeEnabled,
         registrationFeeAmount: feeAmount,
-        registrationFeePaid: s.registrationFeePaid,
+        registrationFeePaid: isFeePaid,
+        registrationPaymentStatus: regPaymentStatus,
         registrationFeePaidAt: s.registrationFeePaidAt?.toISOString() || null,
         registrationFeeTransactionId: s.registrationFeeTransactionId || null,
         payoutVerificationStatus: s.payoutVerificationStatus || "NOT_SUBMITTED",

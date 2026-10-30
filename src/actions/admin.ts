@@ -18,6 +18,11 @@ import { encrypt, decrypt } from "@/lib/encryption";
 import { revalidatePath } from "next/cache";
 import { verifyAdminAuth } from "@/lib/auth-server";
 import { getPlatformFinancialStats } from "@/lib/financials";
+import {
+  isGrandfatheredSeller,
+  resolveRegistrationPaymentStatus,
+  type RegistrationPaymentStatus,
+} from "@/lib/seller-verification-constants";
 
 export interface PlatformStats {
   totalRevenue: number;
@@ -148,6 +153,10 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
         ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}),
         isRemoved,
         hasPriorRemoval,
+        registrationFeePaid: Boolean(s.registrationFeePaid || isGrandfatheredSeller(s.id) || isGrandfatheredSeller(s.userId)),
+        registrationPaymentStatus: resolveRegistrationPaymentStatus(s),
+        registrationFeeTransactionId: s.registrationFeeTransactionId || null,
+        registrationFeePaidAt: s.registrationFeePaidAt || null,
         priorRemovalDate,
         priorRemovalReason,
         priorRemovalAdmin,

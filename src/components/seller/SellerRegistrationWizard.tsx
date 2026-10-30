@@ -41,8 +41,11 @@ import {
   Lock,
 } from "lucide-react";
 import CategoryTypeahead from "@/components/ui/CategoryTypeahead";
+import { SellerRegistrationFeeCard } from "@/components/seller/SellerRegistrationFeeCard";
+import { isGrandfatheredSeller } from "@/lib/seller-verification-constants";
 
 export interface SellerRegistrationWizardProps {
+
   userId: string;
   onSuccess?: () => void;
 }
@@ -708,12 +711,31 @@ export function SellerRegistrationWizard({ userId, onSuccess }: SellerRegistrati
             <span className="font-semibold text-[#2D5A40]">Pending Approval (Auto-launch upon verification)</span>
           </div>
         </div>
+
+        {/* ₹1 Registration Verification Fee Card for new applicants */}
+        {!isGrandfatheredSeller(sellerProfile.id, userId) && (
+          <div className="text-left pt-2">
+            <SellerRegistrationFeeCard
+              sellerId={sellerProfile.id}
+              sellerName={sellerProfile.companyName}
+              isPaid={Boolean(sellerProfile.registrationFeePaid || sellerProfile.registrationPaymentStatus === "PAID")}
+              transactionId={sellerProfile.registrationFeeTransactionId}
+              paidAt={sellerProfile.registrationFeePaidAt}
+              onSuccess={async () => {
+                const refreshed = await getSellerProfile(userId);
+                if (refreshed) setSellerProfile(refreshed);
+              }}
+            />
+          </div>
+        )}
+
         <p className="text-[11px] text-[#8FA98E] leading-relaxed">
           Verification normally completes within 24 business hours. Once verified, your Seller Dashboard will unlock automatically and your initial product will be published to the catalog.
         </p>
       </div>
     );
   }
+
 
   // ── View 2: APPROVED STATE ──
   const isApproved = sellerProfile && sellerProfile.verificationStatus === "APPROVED";

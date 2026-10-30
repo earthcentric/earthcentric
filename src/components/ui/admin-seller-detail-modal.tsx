@@ -36,13 +36,16 @@ import {
   ChevronDown, 
   ChevronUp,
   Loader2,
+  CreditCard,
 } from "lucide-react";
 import { FadeIn } from "@/components/FramerComponents";
 import { AdminSellerMessenger } from "./admin-seller-messenger";
 import { AdminProductDetailModal } from "./admin-product-detail-modal";
 import { getDocumentPreviewInfo } from "@/lib/cloudinary-utils";
+import { isGrandfatheredSeller } from "@/lib/seller-verification-constants";
 
 export interface AdminSellerDetailModalProps {
+
   sellerId: string;
   onClose: () => void;
   adminEmail?: string;
@@ -254,7 +257,7 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
               </h2>
               <div className="flex items-center space-x-2 mt-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                  Partner ID: {sellerId.substring(0, 10)}...
+                  Partner ID: <span className="font-mono text-foreground font-bold">{sellerId}</span>
                 </span>
                 {profile?.verificationStatus && (
                   <Badge 
@@ -545,6 +548,57 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
                             )}
                           </div>
                         )}
+
+                        {/* ₹1 Registration Payment Info */}
+                        {(() => {
+                          const isGrandfathered = profile.registrationPaymentStatus === "NOT_REQUIRED" || isGrandfatheredSeller(profile.id, profile.userId || sellerId);
+                          const isPaid = profile.registrationPaymentStatus === "PAID" || profile.registrationFeePaid;
+                          return (
+                            <div className="col-span-2 p-3 mt-2 rounded-xl border border-border/60 bg-muted/20 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                                  <CreditCard className="h-3.5 w-3.5 text-primary" />
+                                  ₹1 Registration Verification Payment
+                                </span>
+                                {isGrandfathered ? (
+                                  <Badge className="bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-bold">
+                                    NOT REQUIRED (Grandfathered)
+                                  </Badge>
+                                ) : isPaid ? (
+                                  <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold">
+                                    PAID (₹1.00)
+                                  </Badge>
+                                ) : profile.registrationPaymentStatus === "FAILED" ? (
+                                  <Badge className="bg-rose-50 text-rose-700 border border-rose-200 text-[9px] font-bold">
+                                    FAILED
+                                  </Badge>
+                                ) : (
+                                  <Badge className="bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
+                                    PENDING (₹1.00)
+                                  </Badge>
+                                )}
+                              </div>
+                              {isPaid && (
+                                <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-border/30">
+                                  <div>
+                                    <span className="text-[9px] text-muted-foreground uppercase block">Transaction ID</span>
+                                    <p className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate" title={profile.registrationFeeTransactionId || "Verified"}>
+                                      {profile.registrationFeeTransactionId || "Cashfree Verified"}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] text-muted-foreground uppercase block">Payment Date</span>
+                                    <p className="text-[11px] text-slate-700 dark:text-slate-300">
+                                      {profile.registrationFeePaidAt
+                                        ? new Date(profile.registrationFeePaidAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                                        : "Confirmed"}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 
@@ -956,6 +1010,18 @@ export function AdminSellerDetailModal({ sellerId, onClose, adminEmail, onAction
               
               {(profile.verificationStatus as string) !== "APPROVED" && (
                 <>
+                  {(() => {
+                    const isGrandfathered = profile.registrationPaymentStatus === "NOT_REQUIRED" || isGrandfatheredSeller(profile.id, profile.userId || sellerId);
+                    const isPaid = profile.registrationPaymentStatus === "PAID" || profile.registrationFeePaid;
+                    if (!isGrandfathered && !isPaid) {
+                      return (
+                        <div className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-2.5 py-1">
+                          Notice: ₹1 registration verification fee is pending
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                   <Button
                     variant="ghost"
                     className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg"

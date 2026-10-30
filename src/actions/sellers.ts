@@ -9,6 +9,13 @@ import { encrypt, decrypt } from "@/lib/encryption";
 import { setEarthcentricSessionCookie } from "@/lib/session";
 import { validateFullApplication } from "@/lib/seller-validation";
 import { findExistingCategory } from "@/actions/categories";
+import {
+  GRANDFATHERED_SELLER_IDS,
+  isGrandfatheredSeller,
+  isDummyOrTestSeller,
+  resolveRegistrationPaymentStatus,
+  type RegistrationPaymentStatus,
+} from "@/lib/seller-verification-constants";
 
 export interface SellerRemovalRecord {
   sellerId: string;
@@ -102,6 +109,10 @@ export interface SellerProfile {
   priorRemovalReason?: string;
   priorRemovalAdmin?: string;
   removalHistory?: SellerRemovalRecord[];
+  registrationFeePaid?: boolean;
+  registrationPaymentStatus?: RegistrationPaymentStatus;
+  registrationFeeTransactionId?: string | null;
+  registrationFeePaidAt?: Date | string | null;
 }
 
 // In-memory global array for single designated seller fallback
@@ -176,12 +187,17 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       ...(seller.verifiedAt ? { verifiedAt: seller.verifiedAt } : {}),
       isRemoved,
       hasPriorRemoval,
+      registrationFeePaid: Boolean(seller.registrationFeePaid || isGrandfatheredSeller(seller.id, seller.userId)),
+      registrationPaymentStatus: resolveRegistrationPaymentStatus(seller),
+      registrationFeeTransactionId: seller.registrationFeeTransactionId || null,
+      registrationFeePaidAt: seller.registrationFeePaidAt || null,
       ...(hasPriorRemoval ? {
         priorRemovalDate: removalHistory[0].removedAt,
         priorRemovalReason: removalHistory[0].removalReason,
         priorRemovalAdmin: removalHistory[0].removedBy,
         removalHistory,
       } : {}),
+
       documents: seller.documents.map((doc: any) => ({
         id: doc.id,
         type: doc.type,
@@ -268,6 +284,10 @@ export async function getSellerProfileById(id: string): Promise<SellerProfile | 
       ...(seller.verifiedAt ? { verifiedAt: seller.verifiedAt } : {}),
       isRemoved,
       hasPriorRemoval,
+      registrationFeePaid: Boolean(seller.registrationFeePaid || isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId)),
+      registrationPaymentStatus: resolveRegistrationPaymentStatus(seller),
+      registrationFeeTransactionId: seller.registrationFeeTransactionId || null,
+      registrationFeePaidAt: seller.registrationFeePaidAt || null,
       ...(hasPriorRemoval ? {
         priorRemovalDate: removalHistory[0].removedAt,
         priorRemovalReason: removalHistory[0].removalReason,
@@ -1304,30 +1324,70 @@ export async function updateSellerBanner(sellerId: string, base64Image: string):
 export async function getVerifiedSellers() {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return mockSellers.filter(s => s.verificationStatus === "APPROVED" && !s.isRemoved);
+      return mockSellers
+        .filter((s) => s.verificationStatus === "APPROVED" && !s.isRemoved && !isDummyOrTestSeller(s))
+        .map((s) => ({
+          id: s.id,
+          userId: s.userId,
+          companyName: s.companyName,
+          description: s.description || "",
+          logoUrl: getUrlFromDb(s.logoUrl) || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400",
+          badges: s.badges || ["Verified Business"],
+          sustainabilityScore: s.trustScore || 90,
+        }));
     }
 
+    // Fetch approved sellers with their products
     const sellers = await db.seller.findMany({
       where: {
         verificationStatus: "APPROVED",
         user: { role: "SELLER" },
       },
-      take: 8,
       include: {
+        user: true,
         products: {
+          where: { isApproved: true, status: "APPROVED" },
           take: 1,
-        }
-      }
+        },
+      },
+      orderBy: { updatedAt: "desc" },
     });
 
-    return sellers.map((seller: any) => ({
+    // Filter out dummy/test accounts and ensure either grandfathered or paid
+    const eligibleSellers = sellers.filter((seller) => {
+      // 1. Exclude dummy or test sellers
+      if (isDummyOrTestSeller(seller)) return false;
+
+      // 2. Grandfathered existing sellers (AR ECO INDIA, SMT, SIH) are always verified
+      if (isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId)) {
+        return true;
+      }
+
+      // 3. New sellers must have paid the ₹1 registration verification fee
+      return Boolean(seller.registrationFeePaid || seller.registrationPaymentStatus === "PAID");
+    });
+
+    // Ensure grandfathered sellers are always present and prioritized at the top
+    const grandfatheredSellers = eligibleSellers.filter(s => isGrandfatheredSeller(s.id));
+    const newlyVerifiedSellers = eligibleSellers.filter(s => !isGrandfatheredSeller(s.id));
+
+    // Sort grandfathered in canonical order: AR ECO INDIA, SMT, SIH
+    grandfatheredSellers.sort((a, b) => {
+      const idxA = GRANDFATHERED_SELLER_IDS.indexOf(a.id as any);
+      const idxB = GRANDFATHERED_SELLER_IDS.indexOf(b.id as any);
+      return idxA - idxB;
+    });
+
+    const combined = [...grandfatheredSellers, ...newlyVerifiedSellers];
+
+    return combined.map((seller: any) => ({
       id: seller.id,
       userId: seller.userId,
       companyName: seller.companyName,
       description: seller.description || "",
       logoUrl: getUrlFromDb(seller.logoUrl) || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400",
-      badges: seller.badges,
-      sustainabilityScore: 90
+      badges: seller.badges && seller.badges.length > 0 ? seller.badges : ["Verified Business"],
+      sustainabilityScore: Number(seller.trustScore) || 90,
     }));
   } catch (e) {
     console.error("Failed to fetch verified sellers", e);
