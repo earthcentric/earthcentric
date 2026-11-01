@@ -101,7 +101,7 @@ export async function createCashfreeOrder(options: {
     const baseUrl = getSecureAppUrl();
     const returnUrl = options.returnUrl && options.returnUrl.startsWith("https://")
       ? options.returnUrl
-      : `${baseUrl}/checkout?order_id={order_id}`;
+      : `${baseUrl}/orders/{order_id}`;
 
     // Sanitize customer_id: alphanumeric, underscores, and hyphens only (max 50 chars)
     const sanitizedCustomerId = (options.customer.id || `cust_${Date.now()}`)

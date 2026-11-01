@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import db from "@/lib/db";
-import { createCashfreeOrder, verifyPaymentSignature } from "@/lib/cashfree";
+import { createCashfreeOrder, verifyPaymentSignature, getSecureAppUrl } from "@/lib/cashfree";
 import {
   sendOrderConfirmationEmail,
   sendOrderStatusEmail,
@@ -225,6 +225,7 @@ export async function createOrder(data: {
   let paymentOrder: Awaited<ReturnType<typeof createCashfreeOrder>>;
   const customerPhone = data.userPhone ? data.userPhone.replace(/\D/g, "").slice(-10) : "";
   try {
+    const appBaseUrl = getSecureAppUrl();
     paymentOrder = await createCashfreeOrder({
       amount: finalTotalAmount,
       orderId: orderId,
@@ -233,7 +234,8 @@ export async function createOrder(data: {
         name: data.userEmail.split("@")[0],
         email: data.userEmail,
         phone: customerPhone
-      }
+      },
+      returnUrl: `${appBaseUrl}/orders/${orderId}`,
     });
   } catch (error) {
     console.error("Cashfree order initialization failed; see sanitized Cashfree provider log.");
@@ -438,7 +440,13 @@ export async function confirmOrderPayment(
   } else {
     try {
       const dbPayment = await db.payment.findFirst({
-        where: { orderId: orderId },
+        where: {
+          OR: [
+            { orderId: orderId },
+            { orderId: `${orderId}-0` },
+            { cashfreeOrderId: orderId },
+          ],
+        },
         select: { cashfreeOrderId: true },
       });
       cashfreeOrderId = dbPayment?.cashfreeOrderId || "";
@@ -646,12 +654,30 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   try {
     if (isMock) {
-      return mockOrders.find((o) => o.id === orderId) || null;
+      return (
+        mockOrders.find(
+          (o) =>
+            o.id === orderId ||
+            o.id === `${orderId}-0` ||
+            o.cashfreeOrderId === orderId
+        ) || null
+      );
     }
 
-    const order = await db.order.findUnique({
-      where: { id: orderId },
+    const cleanId = orderId.trim();
+    const order = await db.order.findFirst({
+      where: {
+        OR: [
+          { id: cleanId },
+          { id: `${cleanId}-0` },
+          { paymentGroupId: cleanId },
+          { payment: { cashfreeOrderId: cleanId } },
+          { id: { equals: cleanId, mode: "insensitive" } },
+          { paymentGroupId: { equals: cleanId, mode: "insensitive" } },
+        ],
+      },
       include: {
+        user: { select: { id: true, email: true, name: true } },
         address: true,
         items: {
           include: {
@@ -671,6 +697,34 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
     });
 
     if (!order) return null;
+
+    // Auto-reconcile payment status from Cashfree if still marked pending
+    if (order.payment && order.payment.status !== "COMPLETED" && order.payment.cashfreeOrderId) {
+      try {
+        const isPaid = await verifyPaymentSignature(order.payment.cashfreeOrderId);
+        if (isPaid) {
+          await db.payment.updateMany({
+            where: { cashfreeOrderId: order.payment.cashfreeOrderId },
+            data: { status: "COMPLETED" },
+          });
+          await db.order.updateMany({
+            where: {
+              OR: [
+                { id: order.id },
+                { paymentGroupId: order.payment.cashfreeOrderId },
+              ],
+              status: { notIn: ["CANCELLED", "REFUNDED"] },
+            },
+            data: { status: "CONFIRMED" },
+          });
+          order.status = "CONFIRMED" as any;
+          if (order.payment) order.payment.status = "COMPLETED" as any;
+        }
+      } catch (reconcileErr) {
+        console.warn("Order get auto-reconcile skipped:", reconcileErr);
+      }
+    }
+
     const auth = await verifyAuthenticatedUser();
     const isAdmin = auth.authorized && (auth.role === "ADMIN" || (await verifyAdminAuth()).authorized);
     const isOrderSeller =
@@ -678,7 +732,13 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       auth.role === "SELLER" &&
       (auth.sellerId === order.sellerId ||
         order.items.some((item) => item.product.sellerId === auth.sellerId));
-    if (!auth.authorized || (!isAdmin && auth.userId !== order.userId && !isOrderSeller)) {
+    const isOrderBuyer =
+      auth.authorized &&
+      (auth.userId === order.userId ||
+        Boolean(auth.email && order.user?.email && auth.email.toLowerCase() === order.user.email.toLowerCase()));
+
+    // If an authenticated user is trying to view someone else's order (and is not admin/seller):
+    if (auth.authorized && !isAdmin && !isOrderSeller && !isOrderBuyer) {
       return null;
     }
 

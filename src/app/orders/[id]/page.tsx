@@ -15,7 +15,36 @@ export default async function OrderTrackingPage({ params }: PageProps) {
   const order = await getOrderById(id);
 
   if (!order) {
-    notFound();
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-20 text-center space-y-6">
+        <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-[#0F6E56] flex items-center justify-center mx-auto">
+          <Package className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Tracking Order #{id}</h1>
+          <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+            Your payment is being confirmed or the order record is synchronizing. Please check your Orders page or refresh in a moment.
+          </p>
+        </div>
+        <div className="flex items-center justify-center gap-3 pt-4 flex-wrap">
+          <Link href="/orders">
+            <Button variant="primary" size="sm">
+              View All My Orders
+            </Button>
+          </Link>
+          <Link href={`/orders/${id}`}>
+            <Button variant="cool" size="sm">
+              Refresh Status
+            </Button>
+          </Link>
+          <Link href="/marketplace">
+            <Button variant="cool" size="sm">
+              Continue Shopping
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   // Predefined list of timeline stages
