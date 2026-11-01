@@ -672,8 +672,8 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
           { id: `${cleanId}-0` },
           { paymentGroupId: cleanId },
           { payment: { cashfreeOrderId: cleanId } },
-          { id: { equals: cleanId, mode: "insensitive" } },
-          { paymentGroupId: { equals: cleanId, mode: "insensitive" } },
+          { id: { equals: cleanId, mode: "insensitive" as const } },
+          { paymentGroupId: { equals: cleanId, mode: "insensitive" as const } },
         ],
       },
       include: {
@@ -807,7 +807,7 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
       where: {
         OR: [
           { userId: { in: userIds } },
-          ...(userEmails.length > 0 ? [{ user: { email: { in: userEmails, mode: "insensitive" } } }] : []),
+          ...(userEmails.length > 0 ? [{ user: { email: { in: userEmails } } }] : []),
         ],
         status: { not: "CANCELLED" },
       },
