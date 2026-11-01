@@ -1,6 +1,6 @@
 import db from "@/lib/db";
 import { cookies } from "next/headers";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { isSuperAdminEmail } from "@/lib/account-roles";
 import { verifyEarthcentricSession } from "@/lib/session-token";
 
@@ -23,10 +23,29 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
   try {
     const clerkAuth = await auth();
     if (clerkAuth?.userId) {
-      const user = await db.user.findUnique({
+      let user = await db.user.findUnique({
         where: { id: clerkAuth.userId },
         select: { id: true, email: true, role: true, seller: { select: { id: true } } },
       });
+
+      if (!user) {
+        try {
+          const clerkUser = await currentUser();
+          const primaryEmail = clerkUser?.emailAddresses?.find(
+            (e) => e.id === clerkUser.primaryEmailAddressId
+          )?.emailAddress?.trim().toLowerCase();
+
+          if (primaryEmail) {
+            user = await db.user.findUnique({
+              where: { email: primaryEmail },
+              select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+            });
+          }
+        } catch (e) {
+          console.warn("verifyAuthenticatedUser currentUser lookup warning:", e);
+        }
+      }
+
       if (user) {
         return {
           authorized: true,
@@ -36,29 +55,48 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           sellerId: user.seller?.id,
         };
       }
-      return { authorized: false };
+
+      // Fallback: If not yet synced in DB, user is still validly authenticated in Clerk
+      try {
+        const clerkUser = await currentUser();
+        const primaryEmail = clerkUser?.emailAddresses?.find(
+          (e) => e.id === clerkUser.primaryEmailAddressId
+        )?.emailAddress?.trim().toLowerCase();
+        if (primaryEmail) {
+          return {
+            authorized: true,
+            userId: clerkAuth.userId,
+            email: primaryEmail,
+            role: "BUYER",
+          };
+        }
+      } catch (e) {
+        // ignore
+      }
     }
 
     const cookieStore = await cookies();
     const sessionCookie = cookieStore.get("earthcentric_session")?.value;
-    if (!sessionCookie) return { authorized: false };
+    if (sessionCookie) {
+      const session = await verifyEarthcentricSession(sessionCookie);
+      if (session) {
+        const user = await db.user.findUnique({
+          where: { id: session.id },
+          select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+        });
+        if (user) {
+          return {
+            authorized: true,
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            sellerId: user.seller?.id,
+          };
+        }
+      }
+    }
 
-    const session = await verifyEarthcentricSession(sessionCookie);
-    if (!session) return { authorized: false };
-
-    const user = await db.user.findUnique({
-      where: { id: session.id },
-      select: { id: true, email: true, role: true, seller: { select: { id: true } } },
-    });
-    if (!user) return { authorized: false };
-
-    return {
-      authorized: true,
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      sellerId: user.seller?.id,
-    };
+    return { authorized: false };
   } catch (error) {
     console.error("verifyAuthenticatedUser error:", error);
     return { authorized: false };

@@ -154,13 +154,18 @@ export default function UserOrdersPage() {
         setError(null);
         const data = await getOrdersByUser(user.id);
         if (!isMounted) return;
-        // Strictly filter to only display orders where payment is successful/done
-        const paidOnly = data.filter((o) => o.paymentStatus === "COMPLETED");
-        setOrders(paidOnly);
-        if (includeReviewStatus) {
-          const productIds = [...new Set(paidOnly.flatMap((order) => order.items.map((item) => item.productId)))];
-          const reviewedIds = await getReviewedProductIds(user.id, productIds);
-          if (isMounted) setReviewedProductStatus({ userId: user.id, productIds: new Set(reviewedIds) });
+        // Show orders where payment is completed or confirmed
+        const visibleOrders = data.filter((o) => 
+          o.paymentStatus === "COMPLETED" || 
+          ["CONFIRMED", "PACKED", "SHIPPED", "DELIVERED"].includes(o.status)
+        );
+        setOrders(visibleOrders);
+        if (includeReviewStatus && visibleOrders.length > 0) {
+          const productIds = [...new Set(visibleOrders.flatMap((order) => order.items.map((item) => item.productId)))];
+          if (productIds.length > 0) {
+            const reviewedIds = await getReviewedProductIds(user.id, productIds).catch(() => []);
+            if (isMounted) setReviewedProductStatus({ userId: user.id, productIds: new Set(reviewedIds) });
+          }
         }
       } catch (err: any) {
         if (!isMounted) return;
