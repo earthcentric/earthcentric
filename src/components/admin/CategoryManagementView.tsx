@@ -24,8 +24,8 @@ import {
   adminUpdateCategory, 
   mergeCategories, 
   deleteCategory,
-  normalizeCategorySlug
 } from "@/actions/categories";
+import { normalizeCategorySlug } from "@/lib/categories";
 import Link from "next/link";
 
 interface CategoryItem {

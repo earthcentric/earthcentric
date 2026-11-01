@@ -32,7 +32,8 @@ import {
 import { SellerProfile } from "@/actions/sellers";
 import { getAdminNotifications, markNotificationAsRead } from "@/actions/notifications";
 import { getIntegrationCredentials, updateIntegrationCredential, CredentialItem } from "@/actions/credentials";
-import { adminCreateCategory, normalizeCategorySlug } from "@/actions/categories";
+import { adminCreateCategory } from "@/actions/categories";
+import { normalizeCategorySlug } from "@/lib/categories";
 import { Button, Card, Badge, Table, TableHeader, TableBody, TableRow, TableCell, TableHead, Input, LiquidButton, Label, Textarea } from "@/components/ui/shared";
 import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { AdminAnalyticsCharts, AdminAnalyticsData } from "@/components/ui/admin-analytics-charts";
