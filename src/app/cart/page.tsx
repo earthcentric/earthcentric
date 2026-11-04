@@ -11,7 +11,11 @@ import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice } f
 export default function CartPage() {
   const { cart, removeFromCart, updateQuantity, cartTotal, cartCount } = useCart();
 
-  // Calculate carbon offset estimate (e.g. 1 item saves 2kg CO2 on average)
+  // Total boxes & total units calculation
+  const totalBoxes = cart.reduce((total, item) => total + item.quantity, 0);
+  const totalUnits = cart.reduce((total, item) => total + item.quantity * (item.unitsPerBox || 100), 0);
+
+  // Calculate carbon offset estimate (e.g. 1 box saves 2.4kg CO2 on average)
   const co2Savings = cart.reduce((total, item) => total + item.quantity * 2.4, 0);
 
   // Total free items & savings calculation
@@ -64,18 +68,23 @@ export default function CartPage() {
                   />
                 </Link>
                 
-                <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
+                <div className="flex-1 min-w-0 space-y-1.5 text-center sm:text-left">
                   {(() => {
+                    const unitsPerBox = item.unitsPerBox && item.unitsPerBox > 0 ? item.unitsPerBox : 100;
                     const effective = getEffectiveUnitPrice(item, item.quantity);
                     const itemTotal = Math.round(effective.unitPrice * item.quantity * 100) / 100;
+                    const itemUnits = item.quantity * unitsPerBox;
+                    const unitRate = (effective.unitPrice / unitsPerBox).toFixed(2);
+
                     return (
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
                         <div>
                           <Link href={`/products/${item.id}`} className="hover:text-primary transition-colors truncate">
                             <h3 className="font-bold text-sm text-foreground truncate cursor-pointer">{item.name}</h3>
                           </Link>
-                          <div className="flex items-baseline space-x-2 mt-0.5">
-                            <span className="text-xs font-bold text-foreground">₹{effective.unitPrice.toLocaleString()} / unit</span>
+                          <div className="flex items-baseline space-x-2 mt-0.5 flex-wrap">
+                            <span className="text-xs font-bold text-foreground">₹{effective.unitPrice.toLocaleString()} / box</span>
+                            <span className="text-[11px] text-muted-foreground font-medium">({unitsPerBox} units/box • ₹{unitRate}/unit)</span>
                             {effective.appliedDiscountType !== "NONE" && (
                               <span className="text-[11px] text-muted-foreground line-through">₹{effective.originalPrice.toLocaleString()}</span>
                             )}
@@ -83,19 +92,22 @@ export default function CartPage() {
                               <Badge className="bg-emerald-100 text-emerald-800 text-[9px] font-bold border-none px-1.5 py-0.5">{effective.badgeText}</Badge>
                             )}
                           </div>
+                          <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 w-fit">
+                            <span>📦 {item.quantity} {item.quantity === 1 ? "Box" : "Boxes"} ({itemUnits.toLocaleString()} Units Total)</span>
+                          </div>
                         </div>
                         <span className="text-sm font-bold sm:ml-4 text-emerald-700 shrink-0">₹{itemTotal.toLocaleString()}</span>
                       </div>
                     );
                   })()}
-                  <p className="text-xs text-muted-foreground">by {item.sellerName}</p>
+                  <p className="text-xs text-muted-foreground">Supplier: {item.sellerName}</p>
                   
-                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-1">
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-0.5">
                     <Badge variant="primary" className="text-[10px] bg-primary/10 text-primary border-none">
-                      🌿 Sustainable Verified
+                      📦 Bulk Box Packaging Only
                     </Badge>
                     <Badge variant="outline" className="text-[10px] text-muted-foreground border-border/40">
-                      Carbon Neutral
+                      Carbon Neutral Logistics
                     </Badge>
                   </div>
 
@@ -149,32 +161,35 @@ export default function CartPage() {
                   })()}
                 </div>
 
-                <div className="flex items-center space-x-6 shrink-0">
-                  {/* Quantity selector */}
-                  <div className="flex items-center space-x-1.5 border border-border/60 rounded-md bg-muted/20 px-1 py-0.5">
-                    <button
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                      disabled={item.quantity <= 1}
-                      className={`p-1 rounded text-muted-foreground font-semibold ${
-                        item.quantity <= 1 ? "opacity-30 cursor-not-allowed" : "hover:bg-muted cursor-pointer"
-                      }`}
-                      aria-label="Decrease quantity"
-                    >
-                      <Minus className="h-3 w-3" />
-                    </button>
-                    <span className="text-xs font-semibold px-2 text-center min-w-[20px]">{item.quantity}</span>
-                    <button
-                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                      className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer font-semibold"
-                      aria-label="Increase quantity"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </button>
+                <div className="flex items-center space-x-4 shrink-0">
+                  {/* Box quantity selector */}
+                  <div className="flex flex-col items-center">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-bold mb-1">Boxes</span>
+                    <div className="flex items-center space-x-1.5 border border-border/60 rounded-md bg-muted/20 px-1 py-0.5">
+                      <button
+                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                        disabled={item.quantity <= 1}
+                        className={`p-1 rounded text-muted-foreground font-semibold ${
+                          item.quantity <= 1 ? "opacity-30 cursor-not-allowed" : "hover:bg-muted cursor-pointer"
+                        }`}
+                        aria-label="Decrease box quantity"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="text-xs font-bold px-2 text-center min-w-[24px]">{item.quantity}</span>
+                      <button
+                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        className="p-1 hover:bg-muted rounded text-muted-foreground cursor-pointer font-semibold"
+                        aria-label="Increase box quantity"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
 
                   <button
                     onClick={() => removeFromCart(item.id)}
-                    className="text-red-500 hover:text-red-700 p-2 hover:bg-red-500/5 rounded-full cursor-pointer transition-colors"
+                    className="text-red-500 hover:text-red-700 p-2 hover:bg-red-500/5 rounded-full cursor-pointer transition-colors mt-4"
                   >
                     <Trash2 className="h-4.5 w-4.5" />
                   </button>
@@ -203,7 +218,11 @@ export default function CartPage() {
               
               <div className="space-y-3 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal ({cartCount} items)</span>
+                  <span className="text-muted-foreground">Total Packaging</span>
+                  <span className="font-semibold text-foreground">{totalBoxes} Boxes ({totalUnits.toLocaleString()} Units)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gross Amount</span>
                   <span className="font-semibold text-foreground">₹{cartTotal}</span>
                 </div>
 
@@ -228,17 +247,28 @@ export default function CartPage() {
                 )}
 
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Verified Packing (Recyclable Box)</span>
+                  <span className="text-muted-foreground">Verified Packing (Commercial Boxes)</span>
                   <span className="text-emerald-600 font-semibold uppercase tracking-wider">FREE</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Logistics (Carbon Offset Ship)</span>
+                  <span className="text-muted-foreground">Logistics (EarthCentric Tracking)</span>
                   <span className="text-emerald-600 font-semibold uppercase tracking-wider">FREE</span>
                 </div>
                 <div className="flex justify-between border-t border-border/30 pt-3 text-sm font-bold text-foreground">
                   <span>Grand Total</span>
                   <span>₹{cartTotal}</span>
                 </div>
+              </div>
+
+              {/* B2B Commercial Checkout Note */}
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs space-y-1">
+                <span className="font-bold text-amber-900 flex items-center gap-1">
+                  <span>📦</span>
+                  <span>Commercial Bulk Purchases Only</span>
+                </span>
+                <p className="text-amber-800 text-[11px] leading-relaxed">
+                  Single-piece retail ordering is disabled. All orders require a verified 15-character GSTIN at checkout.
+                </p>
               </div>
 
               <div className="pt-2">

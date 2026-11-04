@@ -18,6 +18,7 @@ import {
   PayoutRequestInfo,
   SellerOnboardingProfile
 } from "@/actions/payouts";
+import { getAllProductsForAdmin, updateProductCommissionByAdmin, updateProductVisibilityByAdmin } from "@/actions/products";
 import {
   cancelOrderAsAdmin,
   getAllOrdersForAdmin,
@@ -56,6 +57,7 @@ import {
   CheckCircle2,
   LayoutDashboard,
   Users,
+  Package,
   PackageCheck,
   ShoppingBag,
   Wallet,
@@ -121,6 +123,7 @@ export default function AdminDashboard() {
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequestInfo[]>([]);
   const [usersData, setUsersData] = useState<UserManagementData | null>(null);
   const [pendingProducts, setPendingProducts] = useState<any[]>([]);
+  const [allAdminProducts, setAllAdminProducts] = useState<any[]>([]);
   const [pendingDiscounts, setPendingDiscounts] = useState<any[]>([]);
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,6 +156,7 @@ export default function AdminDashboard() {
         reqsRes,
         uDataRes,
         pProdsRes,
+        allProdsRes,
         pDiscRes,
         ordersRes,
         txnsRes,
@@ -168,6 +172,7 @@ export default function AdminDashboard() {
         getAdminPayoutRequests(),
         getPlatformUsers(),
         getPendingProducts(),
+        getAllProductsForAdmin(),
         getPendingDiscounts(),
         getAllOrdersForAdmin(),
         getAdminTransactions(),
@@ -184,6 +189,7 @@ export default function AdminDashboard() {
       if (reqsRes.status === "fulfilled") setPayoutRequests(reqsRes.value);
       if (uDataRes.status === "fulfilled") setUsersData(uDataRes.value);
       if (pProdsRes.status === "fulfilled") setPendingProducts(pProdsRes.value);
+      if (allProdsRes.status === "fulfilled") setAllAdminProducts(allProdsRes.value);
       if (pDiscRes.status === "fulfilled") setPendingDiscounts(pDiscRes.value);
       if (ordersRes.status === "fulfilled") setAllOrders(ordersRes.value);
       if (txnsRes.status === "fulfilled") setTransactions(txnsRes.value);
@@ -479,7 +485,18 @@ export default function AdminDashboard() {
               />}
             {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} globalSearch={globalSearch} adminEmail={user?.email} />}
             {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} globalSearch={globalSearch} />}
-            {activeTab === "products" && <ProductApprovalView pendingProducts={pendingProducts} approvedToday={stats?.approvedToday} rejectedToday={stats?.rejectedToday} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
+            {activeTab === "products" && (
+              <ProductApprovalView
+                pendingProducts={pendingProducts}
+                allAdminProducts={allAdminProducts}
+                allOrders={allOrders}
+                approvedToday={stats?.approvedToday}
+                rejectedToday={stats?.rejectedToday}
+                reload={loadAdminData}
+                adminEmail={user?.email}
+                globalSearch={globalSearch}
+              />
+            )}
             {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "messages" && <AdminMessagesView onViewSellerProfile={(sId) => setSelectedSellerId(sId)} />}
             {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
@@ -1476,17 +1493,75 @@ function UserManagementView({ usersData, onInspectSeller, onInspectBuyer, global
 }
 
 // --------------------------------------------------------------------------
-// PRODUCT APPROVALS VIEW
+// PRODUCT APPROVALS & COMPLETE CATALOG MANAGEMENT VIEW
 // --------------------------------------------------------------------------
-function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday = 0, reload, adminEmail, globalSearch }: { pendingProducts: any[], approvedToday?: number, rejectedToday?: number, reload: () => void, adminEmail?: string, globalSearch?: string }) {
+function ProductApprovalView({
+  pendingProducts,
+  allAdminProducts = [],
+  allOrders = [],
+  approvedToday = 0,
+  rejectedToday = 0,
+  reload,
+  adminEmail,
+  globalSearch
+}: {
+  pendingProducts: any[];
+  allAdminProducts?: any[];
+  allOrders?: any[];
+  approvedToday?: number;
+  rejectedToday?: number;
+  reload: () => void;
+  adminEmail?: string;
+  globalSearch?: string;
+}) {
   const [refreshing, setRefreshing] = useState(false);
-  const displayProducts = globalSearch
-    ? pendingProducts.filter((p: any) => 
-        p.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
-        p.seller?.companyName?.toLowerCase().includes(globalSearch.toLowerCase()) ||
-        p.category?.name?.toLowerCase().includes(globalSearch.toLowerCase())
-      )
-    : pendingProducts;
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED" | "INACTIVE">("ALL");
+  const [commissionInputs, setCommissionInputs] = useState<Record<string, string>>({});
+  const [savingCommissionId, setSavingCommissionId] = useState<string | null>(null);
+  const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
+
+  // Compute platform commission earnings from orders
+  const totalCommissionEarnings = useMemo(() => {
+    return allOrders.reduce((sum: number, o: any) => {
+      const comm = o.commissionAmount !== undefined && o.commissionAmount !== null
+        ? o.commissionAmount
+        : (o.totalAmount || 0) * ((o.commissionRate || 10) / 100);
+      return sum + comm;
+    }, 0);
+  }, [allOrders]);
+
+  const totalGrossPlatformOrders = useMemo(() => {
+    return allOrders.reduce((sum: number, o: any) => sum + (o.grossAmount || o.totalAmount || 0), 0);
+  }, [allOrders]);
+
+  const sourceProducts = allAdminProducts && allAdminProducts.length > 0 ? allAdminProducts : pendingProducts;
+
+  const pendingCount = sourceProducts.filter((p: any) => !p.isApproved && p.status !== "APPROVED" && p.status !== "REJECTED").length;
+  const approvedCount = sourceProducts.filter((p: any) => (p.isApproved || p.status === "APPROVED") && p.isActive !== false).length;
+  const rejectedCount = sourceProducts.filter((p: any) => p.status === "REJECTED").length;
+  const inactiveCount = sourceProducts.filter((p: any) => p.isActive === false).length;
+
+  const displayProducts = sourceProducts.filter((p: any) => {
+    const matchesSearch = !globalSearch || (
+      p.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+      p.seller?.companyName?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+      p.category?.name?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+      (typeof p.category === "string" && p.category.toLowerCase().includes(globalSearch.toLowerCase()))
+    );
+    if (!matchesSearch) return false;
+
+    const isApproved = p.isApproved || p.status === "APPROVED";
+    const isRejected = p.status === "REJECTED";
+    const isInactive = p.isActive === false;
+    const isPending = !isApproved && !isRejected;
+
+    if (statusFilter === "ALL") return true;
+    if (statusFilter === "PENDING") return isPending;
+    if (statusFilter === "APPROVED") return isApproved && !isInactive;
+    if (statusFilter === "REJECTED") return isRejected;
+    if (statusFilter === "INACTIVE") return isInactive;
+    return true;
+  });
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1497,6 +1572,46 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
       toast.error("Could not refresh product approval requests. Try again.");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleSaveCommission = async (productId: string, currentRate: number) => {
+    const inputVal = commissionInputs[productId] ?? currentRate.toString();
+    const rate = Number(inputVal);
+    if (isNaN(rate) || rate < 0 || rate > 100) {
+      toast.error("Please enter a valid commission percentage between 0% and 100%.");
+      return;
+    }
+    setSavingCommissionId(productId);
+    try {
+      const res = await updateProductCommissionByAdmin(productId, rate, adminEmail || "admin@earthcentric.com");
+      if (res.success) {
+        toast.success(`Commission updated to ${rate}%! Future orders for this product will use this snapshot.`);
+        await reload();
+      } else {
+        toast.error(res.error || "Failed to update commission rate.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Could not save commission.");
+    } finally {
+      setSavingCommissionId(null);
+    }
+  };
+
+  const handleToggleVisibility = async (productId: string, currentActive: boolean) => {
+    setTogglingVisibilityId(productId);
+    try {
+      const res = await updateProductVisibilityByAdmin(productId, !currentActive, adminEmail || "admin@earthcentric.com");
+      if (res.success) {
+        toast.success(`Product is now ${!currentActive ? "VISIBLE in marketplace" : "HIDDEN from buyers"}`);
+        await reload();
+      } else {
+        toast.error(res.error || "Failed to update marketplace visibility.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Could not toggle visibility.");
+    } finally {
+      setTogglingVisibilityId(null);
     }
   };
 
@@ -1614,115 +1729,298 @@ function ProductApprovalView({ pendingProducts, approvedToday = 0, rejectedToday
     }
   };
 
-
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-[#1a3321]">Product Approvals</h1>
-          <p className="text-sm text-muted-foreground mt-1">Review newly submitted catalog items for sustainable verification compliance.</p>
+          <h1 className="text-2xl font-extrabold text-[#1a3321]">Super Admin Product Management</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage submitted products, configure marketplace commission rates, verify box packaging, and regulate marketplace visibility.
+          </p>
         </div>
         <Button variant="outline" size="sm" disabled={refreshing} onClick={handleRefresh}>
-          {refreshing ? "Refreshing..." : "Refresh products"}
+          {refreshing ? "Refreshing..." : "Refresh Catalog"}
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* 4 Summary Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-4 bg-white border border-[#e9ece6] shadow-sm rounded-2xl flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Total Catalog</p>
+            <h3 className="text-xl font-black text-[#1a3321]">{sourceProducts.length} Products</h3>
+          </div>
+          <div className="h-10 w-10 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center">
+            <Package className="h-5 w-5" />
+          </div>
+        </Card>
+
         <Card className="p-4 bg-white border border-amber-100 shadow-sm rounded-2xl flex items-center justify-between">
           <div>
-            <p className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Pending Review</p>
-            <h3 className="text-xl font-bold text-amber-600">{displayProducts.length} items</h3>
+            <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Pending Approvals</p>
+            <h3 className="text-xl font-bold text-amber-600">{pendingCount} Items</h3>
           </div>
-          <div className="h-10 w-10 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center"><AlertCircle className="h-5 w-5" /></div>
+          <div className="h-10 w-10 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center">
+            <AlertCircle className="h-5 w-5" />
+          </div>
         </Card>
+
         <Card className="p-4 bg-white border border-emerald-100 shadow-sm rounded-2xl flex items-center justify-between">
           <div>
-            <p className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Approved Today</p>
-            <h3 className="text-xl font-bold text-emerald-600">{approvedToday} items</h3>
+            <p className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Approved & Live</p>
+            <h3 className="text-xl font-bold text-emerald-600">{approvedCount} Items</h3>
           </div>
-          <div className="h-10 w-10 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center"><CheckCircle2 className="h-5 w-5" /></div>
+          <div className="h-10 w-10 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center">
+            <CheckCircle2 className="h-5 w-5" />
+          </div>
         </Card>
-        <Card className="p-4 bg-white border border-rose-100 shadow-sm rounded-2xl flex items-center justify-between">
+
+        <Card className="p-4 bg-white border border-emerald-200 shadow-sm rounded-2xl flex items-center justify-between bg-gradient-to-br from-emerald-50/50 to-white">
           <div>
-            <p className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider mb-1">Rejected Today</p>
-            <h3 className="text-xl font-bold text-rose-600">{rejectedToday} items</h3>
+            <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1">Commission Earnings</p>
+            <h3 className="text-xl font-black text-emerald-800">₹{totalCommissionEarnings.toLocaleString()}</h3>
+            <p className="text-[9px] text-muted-foreground mt-0.5">From ₹{totalGrossPlatformOrders.toLocaleString()} GMV</p>
           </div>
-          <div className="h-10 w-10 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center"><X className="h-5 w-5" /></div>
+          <div className="h-10 w-10 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center">
+            <DollarSign className="h-5 w-5" />
+          </div>
         </Card>
       </div>
 
-      <Card className="bg-white border-none shadow-sm rounded-2xl overflow-hidden mt-8">
+      {/* Filter Badges */}
+      <div className="flex items-center space-x-2 bg-white max-w-full overflow-x-auto no-scrollbar p-1.5 rounded-full shadow-sm border border-[#e9ece6]">
+        <Badge
+          className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-semibold ${
+            statusFilter === "ALL" ? "bg-[#1a3321] text-white hover:bg-[#1a3321]" : "bg-transparent text-muted-foreground hover:bg-[#e9ece6]"
+          }`}
+          onClick={() => setStatusFilter("ALL")}
+        >
+          All Products ({sourceProducts.length})
+        </Badge>
+        <Badge
+          className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-semibold ${
+            statusFilter === "PENDING" ? "bg-[#1a3321] text-white hover:bg-[#1a3321]" : "bg-transparent text-muted-foreground hover:bg-[#e9ece6]"
+          }`}
+          onClick={() => setStatusFilter("PENDING")}
+        >
+          Pending Review ({pendingCount})
+        </Badge>
+        <Badge
+          className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-semibold ${
+            statusFilter === "APPROVED" ? "bg-[#1a3321] text-white hover:bg-[#1a3321]" : "bg-transparent text-muted-foreground hover:bg-[#e9ece6]"
+          }`}
+          onClick={() => setStatusFilter("APPROVED")}
+        >
+          Approved & Live ({approvedCount})
+        </Badge>
+        <Badge
+          className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-semibold ${
+            statusFilter === "REJECTED" ? "bg-[#1a3321] text-white hover:bg-[#1a3321]" : "bg-transparent text-muted-foreground hover:bg-[#e9ece6]"
+          }`}
+          onClick={() => setStatusFilter("REJECTED")}
+        >
+          Rejected ({rejectedCount})
+        </Badge>
+        <Badge
+          className={`border-none px-4 py-1.5 rounded-full cursor-pointer text-xs font-semibold ${
+            statusFilter === "INACTIVE" ? "bg-[#1a3321] text-white hover:bg-[#1a3321]" : "bg-transparent text-muted-foreground hover:bg-[#e9ece6]"
+          }`}
+          onClick={() => setStatusFilter("INACTIVE")}
+        >
+          Hidden / Inactive ({inactiveCount})
+        </Badge>
+      </div>
+
+      {/* Catalog Table */}
+      <Card className="bg-white border border-[#e9ece6] shadow-sm rounded-2xl overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Product Details</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller / Brand</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Category</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Retail Price</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Wholesale Price</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">MOQ</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 w-48">Sustainability Claims</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Compliance Status</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Actions</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-4">Product Details</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller & Packaging</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Delivery & Policies</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Commission %</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Visibility</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Decision Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {displayProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-10 text-xs text-muted-foreground">
-                  No products pending sustainable verification review.
+                <TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">
+                  No products found matching the selected filter.
                 </TableCell>
               </TableRow>
             ) : (
-              displayProducts.map((p: any) => (
-                <TableRow key={p.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
-                  <TableCell className="py-4">
-                    <div className="flex items-center space-x-3">
-                      <img src={p.images[0] || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"} className="h-8 w-8 rounded object-cover" />
-                      <div>
-                        <p className="text-xs font-bold text-[#1a3321]">{p.name}</p>
-                        <p className="text-[10px] text-muted-foreground">ID: {p.id.substring(0, 8)}</p>
+              displayProducts.map((p: any) => {
+                const isApproved = p.isApproved || p.status === "APPROVED";
+                const isRejected = p.status === "REJECTED";
+                const isInactive = p.isActive === false;
+                const isPending = !isApproved && !isRejected;
+
+                const defaultComm = (p.commissionRate !== undefined && p.commissionRate !== null)
+                  ? p.commissionRate
+                  : (p.seller?.commissionRate ?? 10);
+                const currentCommInput = commissionInputs[p.id] ?? defaultComm.toString();
+                const isSavingComm = savingCommissionId === p.id;
+                const isTogglingVis = togglingVisibilityId === p.id;
+
+                const unitsPerBox = p.unitsPerBox && p.unitsPerBox > 0 ? p.unitsPerBox : 100;
+
+                return (
+                  <TableRow key={p.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
+                    {/* Product Details */}
+                    <TableCell className="py-4 pl-4">
+                      <div className="flex items-center space-x-3">
+                        <img
+                          src={p.images?.[0] || p.imageUrls?.[0] || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"}
+                          className="h-10 w-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                          alt={p.name}
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-[#1a3321] line-clamp-1">{p.name}</p>
+                          <p className="text-[10px] text-muted-foreground">ID: {p.id.substring(0, 8)} • {p.category?.name || p.category || "Uncategorized"}</p>
+                        </div>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs text-[#1a3321] font-semibold">{p.seller.companyName}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs text-[#8ca193] font-semibold">{p.category}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs font-black text-[#1a3321]">₹{p.price}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs font-bold text-amber-700">{p.wholesalePrice ? `₹${p.wholesalePrice}` : "N/A"}</p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <p className="text-xs font-semibold text-muted-foreground">{p.moq ? `${p.moq} units` : "1 unit"}</p>
-                  </TableCell>
-                  <TableCell className="py-4 max-w-xs">
-                    <div className="flex items-center space-x-1 mb-1">
-                      <Leaf className="h-3 w-3 text-emerald-600 shrink-0" />
-                      <span className="text-[10px] font-bold text-emerald-800">
-                        Sustainability: {p.sustainabilityScore ?? 85}/100
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2" title={p.sustainabilityDetail || p.claims}>
-                      {p.sustainabilityDetail || p.claims || "Eco-certified sustainable claims"}
-                    </p>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <Badge className="bg-amber-100 text-amber-800 border-none text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-1" /> Pending review</Badge>
-                  </TableCell>
-                  <TableCell className="py-4 text-right pr-6">
-                    <div className="flex items-center justify-end space-x-2">
-                      <Button size="sm" variant="outline" className="text-[10px] h-7 px-3 rounded-full border-[#e9ece6] hover:bg-[#f4f5f3]" onClick={() => setInspectProductId(p.id)}>View</Button>
-                      <Button size="sm" className="bg-[#1a3321] hover:bg-[#25422d] text-white text-[10px] h-7 px-3 rounded-full" onClick={() => handleApproveClick(p)}>Approve</Button>
-                      <Button size="sm" variant="ghost" className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-[10px] h-7 px-3 rounded-full" onClick={() => setRejectId(p.id)}>Reject</Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+
+                    {/* Seller & Box Packaging */}
+                    <TableCell className="py-4">
+                      <p className="text-xs text-[#1a3321] font-semibold">{p.seller?.companyName || "EarthCentric Partner"}</p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                          📦 {unitsPerBox} units/box
+                        </span>
+                        <span className="text-[10px] font-black text-slate-800">
+                          ₹{p.price} / box
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-muted-foreground mt-0.5">{p.stock || 0} boxes in stock</p>
+                    </TableCell>
+
+                    {/* Delivery & Policies */}
+                    <TableCell className="py-4 text-xs">
+                      <p className="text-[11px] text-slate-700 font-medium">{p.deliveryTime || "Ships within 24-48 hrs"}</p>
+                      <p className="text-[10px] text-muted-foreground">{p.returnEligibility || "10-day replacement"}</p>
+                      {p.materialUsed && <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded">{p.materialUsed}</span>}
+                    </TableCell>
+
+                    {/* Commission Configuration (%) */}
+                    <TableCell className="py-4">
+                      <div className="flex items-center space-x-1.5">
+                        <div className="relative w-16">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.5"
+                            value={currentCommInput}
+                            onChange={(e) => setCommissionInputs({ ...commissionInputs, [p.id]: e.target.value })}
+                            className="w-full text-xs font-bold text-center border border-slate-300 rounded px-1.5 py-1 focus:ring-1 focus:ring-emerald-500 outline-none"
+                          />
+                          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">%</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isSavingComm}
+                          onClick={() => handleSaveCommission(p.id, defaultComm)}
+                          className="text-[10px] h-7 px-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                        >
+                          {isSavingComm ? "..." : "Save"}
+                        </Button>
+                      </div>
+                      <p className="text-[9px] text-muted-foreground mt-0.5">Rate for new orders</p>
+                    </TableCell>
+
+                    {/* Marketplace Visibility */}
+                    <TableCell className="py-4">
+                      <button
+                        onClick={() => handleToggleVisibility(p.id, p.isActive !== false)}
+                        disabled={isTogglingVis}
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
+                          p.isActive !== false
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                            : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
+                        }`}
+                      >
+                        {p.isActive !== false ? "✓ Visible (Live)" : "✕ Hidden (Inactive)"}
+                      </button>
+                    </TableCell>
+
+                    {/* Status */}
+                    <TableCell className="py-4">
+                      {isApproved ? (
+                        <Badge className="bg-emerald-100 text-emerald-800 border-none text-[9px] font-bold">
+                          <CheckCircle2 className="h-2.5 w-2.5 mr-1" /> APPROVED
+                        </Badge>
+                      ) : isRejected ? (
+                        <div>
+                          <Badge className="bg-rose-100 text-rose-800 border-none text-[9px] font-bold">
+                            <X className="h-2.5 w-2.5 mr-1" /> REJECTED
+                          </Badge>
+                          {p.rejectionReason && (
+                            <p className="text-[9px] text-rose-700 mt-1 max-w-[140px] truncate" title={p.rejectionReason}>
+                              {p.rejectionReason}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <Badge className="bg-amber-100 text-amber-800 border-none text-[9px] font-bold">
+                          <AlertCircle className="h-2.5 w-2.5 mr-1" /> PENDING REVIEW
+                        </Badge>
+                      )}
+                    </TableCell>
+
+                    {/* Decision Actions */}
+                    <TableCell className="py-4 text-right pr-6">
+                      <div className="flex items-center justify-end space-x-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-[10px] h-7 px-2.5 rounded-full border-[#e9ece6] hover:bg-[#f4f5f3]"
+                          onClick={() => setInspectProductId(p.id)}
+                        >
+                          Inspect
+                        </Button>
+
+                        {!isApproved && (
+                          <Button
+                            size="sm"
+                            className="bg-[#1a3321] hover:bg-[#25422d] text-white text-[10px] h-7 px-3 rounded-full"
+                            onClick={() => handleApproveClick(p)}
+                          >
+                            Approve
+                          </Button>
+                        )}
+
+                        {isApproved && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-[10px] h-7 px-2.5 rounded-full"
+                            onClick={() => setRejectId(p.id)}
+                          >
+                            Revoke
+                          </Button>
+                        )}
+
+                        {isPending && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-[10px] h-7 px-2.5 rounded-full"
+                            onClick={() => setRejectId(p.id)}
+                          >
+                            Reject
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

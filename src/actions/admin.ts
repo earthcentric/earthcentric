@@ -2019,3 +2019,24 @@ export async function updateProductPromotionsByAdmin(
   }
 }
 
+// Re-export complete Super Admin Product Management functions as async functions
+export async function getAllProductsForAdmin() {
+  const { getAllProductsForAdmin: fn } = await import("./products");
+  return fn();
+}
+
+export async function updateProductCommissionByAdmin(productId: string, commissionRate: number) {
+  const { updateProductCommissionByAdmin: fn } = await import("./products");
+  return fn(productId, commissionRate);
+}
+
+export async function updateSellerCommissionByAdmin(sellerId: string, commissionRate: number) {
+  const { updateSellerCommissionByAdmin: fn } = await import("./products");
+  return fn(sellerId, commissionRate);
+}
+
+export async function updateProductVisibilityByAdmin(productId: string, isLive: boolean) {
+  const { updateProductVisibilityByAdmin: fn } = await import("./products");
+  return fn(productId, isLive);
+}
+

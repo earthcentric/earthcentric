@@ -31,6 +31,8 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
   // Compute pricing details
   const effective = getEffectiveUnitPrice(product, 1);
   const discountPercent = effective.discountPercentage;
+  const unitsPerBox = product.unitsPerBox || product.bulkOrderQuantity || 100;
+  const unitRate = unitsPerBox > 0 ? (effective.unitPrice / unitsPerBox).toFixed(2) : "0.00";
   const hasSlabDeal = product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0;
   const hasWholesaleBulk = Boolean(product.bulkOrderQuantity && product.bulkOrderQuantity > 0 && product.bulkOrderPrice && product.bulkOrderPrice > 0);
   const hasBulkDeal = hasSlabDeal || hasWholesaleBulk;
@@ -205,6 +207,17 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
             </div>
           )}
 
+          {/* Box-Based Bulk Specification */}
+          <div className="bg-[#f0f7f3] border border-[#d3e8dc] text-[#1a442e] text-[10px] font-bold px-2 py-1 rounded-lg flex items-center justify-between">
+            <span className="flex items-center gap-1">
+              <span>📦</span>
+              <span>1 Box = {unitsPerBox} Units</span>
+            </span>
+            <span className="text-[9px] text-[#0F6E56] font-extrabold uppercase tracking-wide">
+              Bulk Only
+            </span>
+          </div>
+
           {/* Description */}
           <p className="text-[11px] text-slate-400 font-medium line-clamp-1">
             {product.description}
@@ -227,20 +240,22 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
 
       {/* Footer / Pricing & Cart */}
       <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-4 text-left">
-        {(() => {
-          return (
-            <div className="flex items-baseline space-x-1.5 flex-wrap gap-y-1">
-              <span className="text-base font-black text-slate-900">
-                ₹{effective.unitPrice.toLocaleString()}
+        <div>
+          <div className="flex items-baseline space-x-1 flex-wrap">
+            <span className="text-base font-black text-slate-900">
+              ₹{effective.unitPrice.toLocaleString()}
+            </span>
+            <span className="text-[10px] text-slate-500 font-bold">/ box</span>
+            {(effective.appliedDiscountType !== "NONE" || effective.originalPrice > effective.unitPrice) && (
+              <span className="text-xs text-slate-400 font-semibold line-through ml-1">
+                ₹{effective.originalPrice.toLocaleString()}
               </span>
-              {(effective.appliedDiscountType !== "NONE" || effective.originalPrice > effective.unitPrice) && (
-                <span className="text-xs text-slate-400 font-semibold line-through">
-                  ₹{effective.originalPrice.toLocaleString()}
-                </span>
-              )}
-            </div>
-          );
-        })()}
+            )}
+          </div>
+          <p className="text-[9px] text-[#0F6E56] font-bold mt-0.5">
+            = ₹{unitRate}/unit ({unitsPerBox} pcs)
+          </p>
+        </div>
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -248,7 +263,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
             onAddToCart(e, product);
           }}
           className="h-8 w-8 rounded-full bg-[#0F6E56] hover:bg-[#0c5a46] text-white flex items-center justify-center transition-colors cursor-pointer border-none shadow-sm shrink-0"
-          title="Add to Cart"
+          title={`Add 1 Box (${unitsPerBox} Units) to Cart`}
         >
           <ShoppingBag className="h-4 w-4" />
         </button>

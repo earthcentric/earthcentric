@@ -136,6 +136,7 @@ model Seller {
   registrationFeeOrderId     String?
   registrationFeeTransactionId String?
   cashfreeBeneficiaryId      String?
+  commissionRate             Float?                     @default(10.0)
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
 
@@ -194,6 +195,8 @@ model Product {
   price                Float
   wholesalePrice       Float?
   originalPrice        Float?
+  unitsPerBox          Int           @default(100) // Bulk pieces / units per box
+  commissionRate       Float?        @default(10.0) // Super Admin configured commission %
   moq                  Int           @default(1)
   unit                 String        @default("piece") // e.g. piece, kg, box
   bulkPriceSlabs       Json? // [{min: 100, price: 150}]
@@ -255,6 +258,12 @@ model Order {
   addressId      String
   address        Address     @relation(fields: [addressId], references: [id])
   totalAmount    Float
+  grossAmount    Float?
+  commissionRate Float?        @default(10.0)
+  commissionAmount Float?
+  sellerNetAmount Float?
+  totalBoxes     Int?          @default(1)
+  gstin          String?
   paymentGroupId String? // To group orders from different sellers paid together
   status         OrderStatus @default(PLACED)
   deliveredAt    DateTime?
@@ -341,6 +350,13 @@ model OrderItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
+  boxes     Int?    @default(1)
+  unitsPerBox Int?  @default(100)
+  totalUnits  Int?  @default(100)
+  pricePerBox Float?
+  commissionRate Float? @default(10.0)
+  commissionAmount Float?
+  sellerNetAmount Float?
   price     Float // Lock in price at checkout
 }
 

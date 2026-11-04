@@ -401,6 +401,15 @@ export default async function OrderTrackingPage({ params }: PageProps) {
                   </Badge>
                 </div>
               </div>
+
+              {order.gstin && (
+                <div>
+                  <span className="font-semibold block text-foreground">Commercial B2B GSTIN:</span>
+                  <span className="font-mono text-xs text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block mt-0.5">
+                    {order.gstin.slice(0, 2)}•••••••{order.gstin.slice(-3)}
+                  </span>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -425,27 +434,45 @@ export default async function OrderTrackingPage({ params }: PageProps) {
         </h3>
         
         <div className="divide-y divide-border/25">
-          {order.items.map((item) => (
-            <div key={item.productId} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
-              <div className="flex items-center space-x-4">
-                <img
-                  src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
-                  alt={item.name}
-                  className="h-12 w-12 rounded-lg object-cover border border-border/20 shrink-0"
-                />
-                <div>
-                  <h4 className="font-bold text-xs">{item.name}</h4>
-                  <span className="text-[10px] text-muted-foreground">Qty: {item.quantity} x ₹{item.price}</span>
+          {order.items.map((item) => {
+            const boxes = item.boxes || item.quantity;
+            const unitsPerBox = item.unitsPerBox || 100;
+            const totalUnits = item.totalUnits || (boxes * unitsPerBox);
+            const pricePerBox = item.pricePerBox || item.price;
+
+            return (
+              <div key={item.productId} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
+                <div className="flex items-center space-x-4">
+                  <img
+                    src={item.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600"}
+                    alt={item.name}
+                    className="h-12 w-12 rounded-lg object-cover border border-border/20 shrink-0"
+                  />
+                  <div>
+                    <h4 className="font-bold text-xs">{item.name}</h4>
+                    <p className="text-[11px] text-emerald-800 font-semibold mt-0.5">
+                      📦 {boxes} {boxes === 1 ? "Box" : "Boxes"} ({totalUnits.toLocaleString()} units • {unitsPerBox} units/box)
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">₹{pricePerBox.toLocaleString()} / box</span>
+                  </div>
                 </div>
+                <span className="font-bold text-xs text-foreground">₹{(pricePerBox * boxes).toLocaleString()}</span>
               </div>
-              <span className="font-bold text-xs text-foreground">₹{item.price * item.quantity}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        <div className="border-t border-border/30 pt-4 flex justify-between items-center text-xs font-bold text-foreground">
-          <span>Grand Total Charged</span>
-          <span>₹{order.totalAmount}</span>
+        <div className="border-t border-border/30 pt-4 space-y-1.5 text-xs">
+          <div className="flex justify-between items-center text-muted-foreground">
+            <span>Total Commercial Packaging</span>
+            <span className="font-semibold text-foreground">
+              {order.totalBoxes || order.items.reduce((acc, i) => acc + (i.boxes || i.quantity), 0)} Boxes
+            </span>
+          </div>
+          <div className="flex justify-between items-center font-bold text-foreground pt-1 border-t border-border/10">
+            <span>Gross Total Paid</span>
+            <span className="text-sm">₹{(order.grossAmount || order.totalAmount).toLocaleString()}</span>
+          </div>
         </div>
       </Card>
     </div>

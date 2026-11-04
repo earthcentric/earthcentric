@@ -536,8 +536,8 @@ export default function UserOrdersPage() {
                       )}
                       <div>
                         <h4 className="text-sm font-semibold text-slate-800 line-clamp-1">{item.name}</h4>
-                        <p className="text-xs text-muted-foreground">
-                          Qty: {item.quantity} × ₹{item.price.toLocaleString("en-IN")}
+                        <p className="text-xs text-emerald-800 font-medium">
+                          📦 {item.boxes || item.quantity} {item.boxes === 1 || item.quantity === 1 ? "Box" : "Boxes"} ({(item.totalUnits || (item.quantity * (item.unitsPerBox || 100))).toLocaleString()} units) • ₹{(item.pricePerBox || item.price).toLocaleString("en-IN")}/box
                         </p>
                       </div>
                     </div>

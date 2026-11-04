@@ -86,6 +86,12 @@ export interface ProductItem {
   bulkPriceSlabs?: any;
   bulkOrderQuantity?: number | null; // Seller wholesale: default bulk quantity
   bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
+  unitsPerBox?: number;              // Bulk packaging: number of pieces / units per box
+  pricePerBox?: number;              // Price per complete box
+  commissionRate?: number;           // Super Admin configured commission percentage
+  deliveryTime?: string | null;      // Estimated delivery timeline
+  returnEligibility?: string | null; // Return or replacement policy
+  materialUsed?: string | null;      // Primary materials / eco components
   tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
   individualDiscount?: IndividualDiscount | any | null;
   buyXGetYOffer?: BuyXGetYOffer | any | null;
@@ -2356,6 +2362,12 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         bulkPriceSlabs: p.bulkPriceSlabs,
         bulkOrderQuantity: (p as any).bulkOrderQuantity ?? null,
         bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
+        unitsPerBox: (p as any).unitsPerBox || (p as any).bulkOrderQuantity || 100,
+        pricePerBox: p.price,
+        commissionRate: (p as any).commissionRate ?? 10.0,
+        deliveryTime: (p as any).deliveryTime || null,
+        returnEligibility: (p as any).returnEligibility || null,
+        materialUsed: (p as any).materialUsed || null,
         tierDiscounts: (p as any).tierDiscounts || null,
         individualDiscount: (p as any).individualDiscount || null,
         buyXGetYOffer: (p as any).buyXGetYOffer || null,
@@ -2462,6 +2474,12 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       bulkPriceSlabs: p.bulkPriceSlabs,
       bulkOrderQuantity: (p as any).bulkOrderQuantity ?? null,
       bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
+      unitsPerBox: (p as any).unitsPerBox || 100,
+      pricePerBox: p.price,
+      commissionRate: (p as any).commissionRate ?? 10.0,
+      deliveryTime: (p as any).deliveryTime || null,
+      returnEligibility: (p as any).returnEligibility || null,
+      materialUsed: (p as any).materialUsed || null,
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
@@ -2496,6 +2514,11 @@ export async function createProduct(data: {
   bulkPriceSlabs?: any;
   bulkOrderQuantity?: number; // Seller wholesale: default bulk quantity
   bulkOrderPrice?: number;    // Seller wholesale: total price for that bulk quantity
+  unitsPerBox?: number;       // Bulk quantity per box (units / pieces)
+  commissionRate?: number;    // Optional product-specific commission %
+  deliveryTime?: string;      // Delivery timeframe (e.g. 3-5 business days)
+  returnEligibility?: string; // Return / replacement conditions
+  materialUsed?: string;      // Eco material composition
   tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
   individualDiscount?: IndividualDiscount | any | null;
   buyXGetYOffer?: BuyXGetYOffer | any | null;
@@ -2624,6 +2647,12 @@ export async function createProduct(data: {
         rating: 5.0,
         reviewsCount: 0,
         moq: data.moq ? Number(data.moq) : 1,
+        unitsPerBox: data.unitsPerBox ? Number(data.unitsPerBox) : (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : 100),
+        pricePerBox: Number(data.price),
+        commissionRate: data.commissionRate !== undefined ? Number(data.commissionRate) : 10.0,
+        deliveryTime: data.deliveryTime || "3-5 business days",
+        returnEligibility: data.returnEligibility || "B2B replacement within 7 days for transit damage",
+        materialUsed: data.materialUsed || null,
         ...(data.wholesalePrice ? { wholesalePrice: Number(data.wholesalePrice) } : {}),
         ...(data.originalPrice ? { originalPrice: Number(data.originalPrice) } : {}),
         bulkPriceSlabs: data.bulkPriceSlabs || null,
@@ -2698,6 +2727,11 @@ export async function createProduct(data: {
         individualDiscount: isIndivEnabled ? { ...(data.individualDiscount as any), status: "PENDING" } : null,
         buyXGetYOffer: isBxgyEnabled ? (data.buyXGetYOffer as any) : null,
         moq: data.moq ? Number(data.moq) : 1,
+        unitsPerBox: data.unitsPerBox ? Number(data.unitsPerBox) : (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : 100),
+        commissionRate: data.commissionRate !== undefined ? Number(data.commissionRate) : (seller.commissionRate ?? 10.0),
+        deliveryTime: data.deliveryTime || "3-5 business days",
+        returnEligibility: data.returnEligibility || "B2B replacement within 7 days for transit damage",
+        materialUsed: data.materialUsed || null,
         wholesalePrice: data.wholesalePrice ? Number(data.wholesalePrice) : null,
         originalPrice: data.originalPrice ? Number(data.originalPrice) : null,
         bulkPriceSlabs: data.bulkPriceSlabs || null,
@@ -2824,6 +2858,12 @@ export async function createProduct(data: {
       bulkPriceSlabs: p.bulkPriceSlabs,
       bulkOrderQuantity: (p as any).bulkOrderQuantity ?? null,
       bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
+      unitsPerBox: (p as any).unitsPerBox || 100,
+      pricePerBox: p.price,
+      commissionRate: (p as any).commissionRate ?? 10.0,
+      deliveryTime: (p as any).deliveryTime || null,
+      returnEligibility: (p as any).returnEligibility || null,
+      materialUsed: (p as any).materialUsed || null,
       tierDiscounts: (p as any).tierDiscounts || null,
       individualDiscount: (p as any).individualDiscount || null,
       buyXGetYOffer: (p as any).buyXGetYOffer || null,
@@ -2855,6 +2895,11 @@ export async function updateProduct(
     bulkPriceSlabs?: any;
     bulkOrderQuantity?: number | null; // Seller wholesale: default bulk quantity
     bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
+    unitsPerBox?: number | null;
+    commissionRate?: number | null;
+    deliveryTime?: string | null;
+    returnEligibility?: string | null;
+    materialUsed?: string | null;
     tierDiscounts?: TierDiscount[] | { enabled: boolean; tiers: TierDiscount[] } | any | null;
     individualDiscount?: IndividualDiscount | any | null;
     buyXGetYOffer?: BuyXGetYOffer | any | null;
@@ -2959,6 +3004,11 @@ export async function updateProduct(
     if (data.bulkPriceSlabs !== undefined) updatePayload.bulkPriceSlabs = data.bulkPriceSlabs;
     if (data.bulkOrderQuantity !== undefined) updatePayload.bulkOrderQuantity = data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null;
     if (data.bulkOrderPrice !== undefined) updatePayload.bulkOrderPrice = data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null;
+    if (data.unitsPerBox !== undefined) updatePayload.unitsPerBox = data.unitsPerBox ? Number(data.unitsPerBox) : 100;
+    if (data.commissionRate !== undefined) updatePayload.commissionRate = data.commissionRate !== null ? Number(data.commissionRate) : 10.0;
+    if (data.deliveryTime !== undefined) updatePayload.deliveryTime = data.deliveryTime || null;
+    if (data.returnEligibility !== undefined) updatePayload.returnEligibility = data.returnEligibility || null;
+    if (data.materialUsed !== undefined) updatePayload.materialUsed = data.materialUsed || null;
     if (data.tierDiscounts !== undefined) updatePayload.tierDiscounts = data.tierDiscounts as any;
     if (data.individualDiscount !== undefined) {
       const indiv = data.individualDiscount as any;
@@ -3190,6 +3240,11 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
   dynamicProducts.forEach((p) => map.set(p.id, p));
   let list = Array.from(map.values()).map((product) => ({
     ...product,
+    unitsPerBox: product.unitsPerBox || (product as any).bulkOrderQuantity || 100,
+    pricePerBox: product.price,
+    commissionRate: product.commissionRate ?? 10.0,
+    deliveryTime: product.deliveryTime || "3-5 business days",
+    returnEligibility: product.returnEligibility || "B2B replacement within 7 days for transit damage",
     rating: 0,
     reviewsCount: 0,
     reviews: [],
@@ -3486,5 +3541,275 @@ export async function getReviewedProductIds(userId: string, productIds: string[]
   } catch (error) {
     console.error("Failed to load the user's reviewed products:", error);
     return [];
+  }
+}
+
+/**
+ * Super Admin: Fetch all products with filter (All, Pending, Approved, Rejected, Inactive)
+ */
+export async function getAllProductsForAdmin(
+  filterStatus: "all" | "pending" | "approved" | "rejected" | "inactive" = "all"
+): Promise<any[]> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (!isMock) {
+      const { verifyAdminAuth } = await import("@/lib/auth-server");
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        throw new Error("Unauthorized: Super Admin access is required to view admin product catalog.");
+      }
+    }
+
+    if (isMock) {
+      const allMock = [...MOCK_PRODUCTS, ...dynamicProducts];
+      return allMock
+        .filter((p) => {
+          if (filterStatus === "pending") return !p.isApproved && p.status !== "REJECTED";
+          if (filterStatus === "approved") return p.isApproved && p.status === "APPROVED";
+          if (filterStatus === "rejected") return p.status === "REJECTED";
+          if (filterStatus === "inactive") return (p as any).isArchived || (!p.isApproved && p.status !== "PENDING_APPROVAL");
+          return true;
+        })
+        .map((p) => ({
+          ...p,
+          unitsPerBox: p.unitsPerBox || (p as any).bulkOrderQuantity || 100,
+          commissionRate: p.commissionRate ?? 10.0,
+          deliveryTime: p.deliveryTime || "3-5 business days",
+          returnEligibility: p.returnEligibility || "B2B replacement within 7 days",
+          materialUsed: p.materialUsed || null,
+        }));
+    }
+
+    const whereClause: any = {};
+    if (filterStatus === "pending") {
+      whereClause.isApproved = false;
+      whereClause.isArchived = false;
+      whereClause.status = { in: ["PENDING_APPROVAL", "DRAFT", "NEEDS_CHANGES"] };
+    } else if (filterStatus === "approved") {
+      whereClause.isApproved = true;
+      whereClause.isArchived = false;
+      whereClause.status = "APPROVED";
+    } else if (filterStatus === "rejected") {
+      whereClause.status = "REJECTED";
+    } else if (filterStatus === "inactive") {
+      whereClause.OR = [{ isArchived: true }, { status: "BLOCKED" }];
+    }
+
+    const products = await db.product.findMany({
+      where: whereClause,
+      include: {
+        category: true,
+        images: true,
+        seller: {
+          include: {
+            user: { select: { email: true, name: true, phone: true } },
+          },
+        },
+        reviews: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      description: p.description,
+      price: p.price,
+      stock: p.stock, // Available boxes
+      unitsPerBox: (p as any).unitsPerBox || (p as any).bulkOrderQuantity || 100,
+      pricePerBox: p.price,
+      commissionRate: (p as any).commissionRate ?? (p.seller?.commissionRate ?? 10.0),
+      deliveryTime: (p as any).deliveryTime || "3-5 business days",
+      returnEligibility: (p as any).returnEligibility || "B2B replacement within 7 days",
+      materialUsed: (p as any).materialUsed || null,
+      sustainabilityScore: p.sustainabilityScore ?? 85,
+      sustainabilityDetail: p.sustainabilityDetail || "",
+      status: p.status,
+      rejectionReason: p.rejectionReason,
+      isApproved: p.isApproved,
+      isArchived: p.isArchived,
+      images: p.images.map((img) => getUrlFromDb(img.url)),
+      category: p.category.name,
+      categoryId: p.categoryId,
+      sellerId: p.sellerId,
+      seller: {
+        id: p.seller.id,
+        companyName: p.seller.companyName,
+        ownerName: p.seller.ownerName || p.seller.user?.name || "Seller",
+        email: p.seller.user?.email || "",
+        phone: p.seller.phone || p.seller.user?.phone || "",
+        badges: p.seller.badges,
+        commissionRate: p.seller.commissionRate ?? 10.0,
+      },
+      createdAt: p.createdAt,
+    }));
+  } catch (error) {
+    console.error("Failed to load products for admin:", error);
+    throw new Error("Could not load products for Super Admin catalog.");
+  }
+}
+
+/**
+ * Super Admin: Configure commission percentage for a specific product
+ */
+export async function updateProductCommissionByAdmin(
+  productId: string,
+  commissionRate: number,
+  adminEmail: string = "admin@earthcentric.com"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (isNaN(commissionRate) || commissionRate < 0 || commissionRate > 100) {
+      return { success: false, error: "Commission percentage must be between 0% and 100%." };
+    }
+
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (!isMock) {
+      const { verifyAdminAuth } = await import("@/lib/auth-server");
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        return { success: false, error: "Unauthorized: Super Admin access required." };
+      }
+
+      await db.product.update({
+        where: { id: productId },
+        data: { commissionRate: Number(commissionRate) },
+      });
+
+      try {
+        await db.auditLog.create({
+          data: {
+            action: "UPDATE_PRODUCT_COMMISSION",
+            adminEmail: adminAuth.email || adminEmail,
+            details: `Updated commission rate for product ${productId} to ${commissionRate}%`,
+          },
+        });
+      } catch (e) {}
+    } else {
+      dynamicProducts = dynamicProducts.map((p) =>
+        p.id === productId ? { ...p, commissionRate: Number(commissionRate) } : p
+      );
+      const mIdx = MOCK_PRODUCTS.findIndex((p) => p.id === productId);
+      if (mIdx !== -1) {
+        MOCK_PRODUCTS[mIdx].commissionRate = Number(commissionRate);
+      }
+    }
+
+    try {
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+    } catch (e) {}
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Failed to update product commission:", error);
+    return { success: false, error: error?.message || "Failed to update commission rate." };
+  }
+}
+
+/**
+ * Super Admin: Configure default commission percentage for a seller
+ */
+export async function updateSellerCommissionByAdmin(
+  sellerId: string,
+  commissionRate: number,
+  adminEmail: string = "admin@earthcentric.com"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (isNaN(commissionRate) || commissionRate < 0 || commissionRate > 100) {
+      return { success: false, error: "Commission percentage must be between 0% and 100%." };
+    }
+
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (!isMock) {
+      const { verifyAdminAuth } = await import("@/lib/auth-server");
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        return { success: false, error: "Unauthorized: Super Admin access required." };
+      }
+
+      await db.seller.update({
+        where: { id: sellerId },
+        data: { commissionRate: Number(commissionRate) },
+      });
+
+      try {
+        await db.auditLog.create({
+          data: {
+            action: "UPDATE_SELLER_COMMISSION",
+            adminEmail: adminAuth.email || adminEmail,
+            details: `Updated default commission rate for seller ${sellerId} to ${commissionRate}%`,
+          },
+        });
+      } catch (e) {}
+    }
+
+    try {
+      revalidatePath("/admin/dashboard");
+    } catch (e) {}
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Failed to update seller commission:", error);
+    return { success: false, error: error?.message || "Failed to update seller commission rate." };
+  }
+}
+
+/**
+ * Super Admin: Manage product visibility in the marketplace
+ */
+export async function updateProductVisibilityByAdmin(
+  productId: string,
+  isApproved: boolean,
+  adminEmail: string = "admin@earthcentric.com"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (!isMock) {
+      const { verifyAdminAuth } = await import("@/lib/auth-server");
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        return { success: false, error: "Unauthorized: Super Admin access required." };
+      }
+
+      await db.product.update({
+        where: { id: productId },
+        data: {
+          isApproved: isApproved,
+          status: isApproved ? "APPROVED" : "BLOCKED",
+        },
+      });
+
+      try {
+        await db.auditLog.create({
+          data: {
+            action: "UPDATE_PRODUCT_VISIBILITY",
+            adminEmail: adminAuth.email || adminEmail,
+            details: `${isApproved ? "Enabled" : "Disabled"} marketplace visibility for product ${productId}`,
+          },
+        });
+      } catch (e) {}
+    } else {
+      dynamicProducts = dynamicProducts.map((p) =>
+        p.id === productId ? { ...p, isApproved, status: isApproved ? "APPROVED" : "BLOCKED" } : p
+      );
+      const mIdx = MOCK_PRODUCTS.findIndex((p) => p.id === productId);
+      if (mIdx !== -1) {
+        MOCK_PRODUCTS[mIdx].isApproved = isApproved;
+        MOCK_PRODUCTS[mIdx].status = isApproved ? "APPROVED" : "BLOCKED";
+      }
+    }
+
+    try {
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+    } catch (e) {}
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Failed to toggle product visibility:", error);
+    return { success: false, error: error?.message || "Failed to update product visibility." };
   }
 }

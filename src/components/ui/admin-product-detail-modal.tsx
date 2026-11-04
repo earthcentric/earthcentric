@@ -78,23 +78,31 @@ export function AdminProductDetailModal({ productId, onClose }: { productId: str
                   </div>
 
                   <div className="space-y-2">
-                    <h3 className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider">Pricing & Stock</h3>
+                    <h3 className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider">Bulk Box Packaging & Logistics</h3>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 rounded-lg border bg-muted/10">
-                        <p className="text-xs text-muted-foreground">Retail Price</p>
+                      <div className="p-3 rounded-lg border bg-emerald-50/40 border-emerald-100">
+                        <p className="text-xs text-muted-foreground">Price per Box</p>
                         <p className="text-lg font-bold text-[#1a3321]">₹{product.price}</p>
                       </div>
-                      <div className="p-3 rounded-lg border bg-muted/10">
-                        <p className="text-xs text-muted-foreground">Wholesale Price</p>
-                        <p className="text-lg font-bold text-[#1a3321]">{product.wholesalePrice ? `₹${product.wholesalePrice}` : "N/A"}</p>
+                      <div className="p-3 rounded-lg border bg-emerald-50/40 border-emerald-100">
+                        <p className="text-xs text-muted-foreground">Units per Box</p>
+                        <p className="text-lg font-bold text-[#1a3321]">{product.unitsPerBox || 100} units</p>
                       </div>
                       <div className="p-3 rounded-lg border bg-muted/10">
-                        <p className="text-xs text-muted-foreground">MOQ</p>
-                        <p className="text-sm font-semibold">{product.moq || 1} {product.unit || "units"}</p>
+                        <p className="text-xs text-muted-foreground">Effective Unit Rate</p>
+                        <p className="text-sm font-semibold">₹{((product.price) / (product.unitsPerBox || 100)).toFixed(2)} / unit</p>
                       </div>
                       <div className="p-3 rounded-lg border bg-muted/10">
-                        <p className="text-xs text-muted-foreground">Stock Available</p>
-                        <p className="text-sm font-semibold">{product.stock || 0}</p>
+                        <p className="text-xs text-muted-foreground">Available Boxes in Stock</p>
+                        <p className="text-sm font-semibold">{product.stock || 0} boxes</p>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-muted/10">
+                        <p className="text-xs text-muted-foreground">Delivery Timeline</p>
+                        <p className="text-xs font-semibold">{product.deliveryTime || "Dispatches within 24–48 hours"}</p>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-muted/10">
+                        <p className="text-xs text-muted-foreground">Return & Guarantee</p>
+                        <p className="text-xs font-semibold">{product.returnEligibility || "10-day replacement"}</p>
                       </div>
                     </div>
                   </div>

@@ -1146,12 +1146,22 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editHighlights, setEditHighlights] = useState<string[]>([""]);
   const [editTechSpecs, setEditTechSpecs] = useState<{ label: string; value: string }[]>([{ label: "", value: "" }]);
 
+  // Edit Bulk Box Packaging & Delivery state
+  const [editUnitsPerBox, setEditUnitsPerBox] = useState("100");
+  const [editDeliveryTime, setEditDeliveryTime] = useState("");
+  const [editReturnEligibility, setEditReturnEligibility] = useState("");
+  const [editMaterialUsed, setEditMaterialUsed] = useState("");
+
   const handleEditClick = (p: any) => {
     setEditingProduct(p);
     setEditName(p.name);
     setEditDesc(p.description);
     setEditPrice(p.price.toString());
     setEditStock(p.stock.toString());
+    setEditUnitsPerBox(p.unitsPerBox ? p.unitsPerBox.toString() : "100");
+    setEditDeliveryTime(p.deliveryTime || "Dispatches within 24–48 hours");
+    setEditReturnEligibility(p.returnEligibility || "10-day replacement for transit damage");
+    setEditMaterialUsed(p.materialUsed || "");
     const initialDate = p.productDate ? (typeof p.productDate === 'string' ? p.productDate.split("T")[0] : new Date(p.productDate).toISOString().split("T")[0]) : (p.createdAt ? (typeof p.createdAt === 'string' ? p.createdAt.split("T")[0] : new Date(p.createdAt).toISOString().split("T")[0]) : new Date().toISOString().split("T")[0]);
     setEditDate(initialDate);
     setEditCat(p.category);
@@ -1499,6 +1509,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       description: editDesc,
       price: Number(editPrice),
       stock: Number(editStock),
+      unitsPerBox: Number(editUnitsPerBox) || 100,
+      deliveryTime: editDeliveryTime,
+      returnEligibility: editReturnEligibility,
+      materialUsed: editMaterialUsed,
       productDate: editDate,
       categoryName: editCat,
       sustainabilityScore: Number(editScore) || 85,
@@ -1736,22 +1750,38 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                   <Input type="number" placeholder="MRP" value={editOriginalPrice} onChange={(e) => setEditOriginalPrice(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <Label>Active Deal Price (₹)</Label>
+                  <Label>Price per Box (₹)</Label>
                   <Input type="number" required value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <Label>Stock</Label>
+                  <Label>Available Boxes in Stock</Label>
                   <Input type="number" required value={editStock} onChange={(e) => setEditStock(e.target.value)} />
                 </div>
               </div>
-              <div className="space-y-1">
-                <Label>Product Date</Label>
-                <Input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Bulk Quantity per Box (Units)</Label>
+                  <Input type="number" min="1" required value={editUnitsPerBox} onChange={(e) => setEditUnitsPerBox(e.target.value)} placeholder="e.g. 50, 100, 200" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Product Date</Label>
+                  <Input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <Label>Wholesale MOQ (Min Bulk Qty)</Label>
-                  <Input type="number" placeholder="e.g. 25, 50 (Bulk only)" value={editMoq} onChange={(e) => setEditMoq(e.target.value)} />
+                  <Label>Delivery Timeline</Label>
+                  <Input placeholder="e.g. Ships within 24-48 business hours" value={editDeliveryTime} onChange={(e) => setEditDeliveryTime(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Return & Guarantee Policy</Label>
+                  <Input placeholder="e.g. 10-day replacement for damage" value={editReturnEligibility} onChange={(e) => setEditReturnEligibility(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Sustainable Material Used</Label>
+                  <Input placeholder="e.g. 100% Bamboo / Organic Cotton" value={editMaterialUsed} onChange={(e) => setEditMaterialUsed(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <Label>Sustainability Score (1-100)</Label>
@@ -2431,6 +2461,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodDesc, setProdDesc] = useState("");
   const [prodPrice, setProdPrice] = useState("");
   const [prodStock, setProdStock] = useState("30");
+  const [prodUnitsPerBox, setProdUnitsPerBox] = useState("100");
+  const [prodDeliveryTime, setProdDeliveryTime] = useState("Dispatches within 24–48 hours");
+  const [prodReturnEligibility, setProdReturnEligibility] = useState("10-day replacement for transit damage");
+  const [prodMaterialUsed, setProdMaterialUsed] = useState("");
   const [prodCat, setProdCat] = useState("Organic Apparel");
   const [prodScore, setProdScore] = useState("90");
   const [prodDetails, setProdDetails] = useState("");
@@ -2532,6 +2566,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
         description: prodDesc,
         price: Number(prodPrice),
         stock: Number(prodStock),
+        unitsPerBox: Number(prodUnitsPerBox) || 100,
+        deliveryTime: prodDeliveryTime,
+        returnEligibility: prodReturnEligibility,
+        materialUsed: prodMaterialUsed,
         productDate: prodDate,
         categoryName: prodCat,
         sustainabilityScore: Number(prodScore) || 85,
@@ -2568,6 +2606,16 @@ function AddProductForm({ onBack, profile, reload }: any) {
         <h1 className="text-xl font-bold text-[#2d4a36]">Add New Listing</h1>
       </div>
       <Card className="p-6 border-none shadow-sm rounded-2xl bg-white max-w-2xl">
+        <div className="mb-6 p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs space-y-1">
+          <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+            <span>🛡️</span>
+            <span>Super Admin Approval & Commission Workflow</span>
+          </span>
+          <p className="text-emerald-900 text-[11px] leading-relaxed">
+            All newly uploaded products enter the Super Admin approval workflow before going live. The marketplace commission will be automatically calculated and deducted from each completed buyer order.
+          </p>
+        </div>
+
         <form onSubmit={handleAddProduct} className="space-y-6">
           {/* Form fields here */}
           <div className="grid grid-cols-2 gap-4">
@@ -2584,10 +2632,45 @@ function AddProductForm({ onBack, profile, reload }: any) {
             </div>
           </div>
           <div className="space-y-1"><Label>Description</Label><Textarea required value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} /></div>
+          
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1"><Label>Original Price / MRP (₹)</Label><Input type="number" placeholder="MRP" value={prodOriginalPrice} onChange={(e) => setProdOriginalPrice(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Active Sale Price (₹)</Label><Input type="number" required value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Stock</Label><Input type="number" required value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Price per Box (₹) *</Label><Input type="number" required placeholder="e.g. 4500" value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Available Boxes in Stock *</Label><Input type="number" required placeholder="e.g. 50" value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label>Bulk Quantity per Box (Units) *</Label>
+              <Input type="number" min="1" required placeholder="e.g. 50, 100, 200" value={prodUnitsPerBox} onChange={(e) => setProdUnitsPerBox(e.target.value)} />
+              <p className="text-[10px] text-muted-foreground">Predefined bulk unit count per standard carton box</p>
+            </div>
+            <div className="space-y-1">
+              <Label>Product Date</Label>
+              <Input type="date" required value={prodDate} onChange={(e) => setProdDate(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label>Delivery Timeline</Label>
+              <Input placeholder="e.g. Ships within 24-48 business hours" value={prodDeliveryTime} onChange={(e) => setProdDeliveryTime(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Return & Guarantee Policy</Label>
+              <Input placeholder="e.g. 10-day replacement for transit damage" value={prodReturnEligibility} onChange={(e) => setProdReturnEligibility(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label>Sustainable Material Used</Label>
+              <Input placeholder="e.g. 100% Biodegradable Bamboo Fibre" value={prodMaterialUsed} onChange={(e) => setProdMaterialUsed(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Sustainability Score (1-100)</Label>
+              <Input type="number" required value={prodScore} onChange={(e) => setProdScore(e.target.value)} />
+            </div>
           </div>
 
           {/* Wholesale / Bulk Order Pricing Configuration */}
@@ -3280,31 +3363,62 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
             <TableHeader>
               <TableRow className="border-b border-[#e9ece6] hover:bg-transparent">
                 <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4 pl-4">ORDER ID</TableHead>
-                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">CUSTOMER DETAILS</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">FULFILLMENT DESTINATION</TableHead>
                 <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">ORDER DATE</TableHead>
-                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">ITEMS / DESCRIPTION</TableHead>
-                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">AMOUNT</TableHead>
-                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">FULFILLMENT</TableHead>
-                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4 text-center">ACTION STEPS</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">PRODUCT & PACKAGING</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">GROSS AMOUNT</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">COMMISSION</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">NET PAYABLE</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4">STATUS</TableHead>
+                <TableHead className="text-[10px] font-semibold text-[#8ca193] tracking-wider py-4 text-center">ACTIONS</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredOrders.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">No orders matching the filter.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-10 text-xs text-muted-foreground">No orders matching the filter.</TableCell></TableRow>
               ) : (
                 filteredOrders.map((o: any) => {
                   const isDelivered = o.status === "DELIVERED" || o.status === "COMPLETED";
+                  const gross = o.grossAmount || o.totalAmount || 0;
+                  const commRate = o.commissionRate !== undefined && o.commissionRate !== null ? o.commissionRate : 10;
+                  const commAmount = o.commissionAmount !== undefined && o.commissionAmount !== null
+                    ? o.commissionAmount
+                    : Math.round((gross * commRate / 100) * 100) / 100;
+                  const netPayable = o.sellerNetAmount !== undefined && o.sellerNetAmount !== null
+                    ? o.sellerNetAmount
+                    : Math.round((gross - commAmount) * 100) / 100;
+
+                  // Box Packaging
+                  const primaryItem = o.items?.[0];
+                  const boxes = primaryItem?.boxes || primaryItem?.quantity || o.totalBoxes || 1;
+                  const unitsPerBox = primaryItem?.unitsPerBox || 100;
+                  const totalUnits = primaryItem?.totalUnits || (boxes * unitsPerBox);
+
                   return (
-                    <TableRow key={o.id} className="border-b border-[#e9ece6]/50">
-                      <TableCell className="pl-4 py-4 font-bold text-[11px] text-[#2d4a36]">EC-ORD-{o.id.substring(4, 10).toUpperCase()}</TableCell>
-                      <TableCell className="py-4">
-                        <p className="text-xs font-bold">{o.user?.name || "Customer"}</p>
-                        <p className="text-[9px] text-muted-foreground">{o.user?.email || "Retail Buyer"}</p>
-                        <p className="text-[9px] text-[#0F6E56] font-semibold">{o.user?.phone || "Not Available"}</p>
+                    <TableRow key={o.id} className="border-b border-[#e9ece6]/50 hover:bg-slate-50/50">
+                      <TableCell className="pl-4 py-4 font-bold text-[11px] text-[#2d4a36]">
+                        EC-ORD-{o.id.substring(4, 10).toUpperCase()}
                       </TableCell>
+
+                      {/* Strict Privacy: Destination Hub Only */}
+                      <TableCell className="py-4">
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-bold text-slate-800">
+                            {o.address?.city || "Destination City"}, {o.address?.state || "State"}
+                          </p>
+                          <p className="text-[10px] font-mono text-slate-500">
+                            PIN: {o.address?.postalCode || "—"}
+                          </p>
+                          <span className="text-[9px] text-[#0F6E56] font-semibold bg-[#0F6E56]/10 px-1.5 py-0.5 rounded-full inline-block">
+                            EarthCentric Logistics Hub
+                          </span>
+                        </div>
+                      </TableCell>
+
                       <TableCell className="text-[11px] text-muted-foreground py-4">
                         {new Date(o.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </TableCell>
+
                       <TableCell className="py-4">
                         <div
                           className="group cursor-pointer inline-block"
@@ -3312,7 +3426,7 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
                             const rect = e.currentTarget.getBoundingClientRect();
                             setActivePreviewRect(rect);
                             setActivePreviewMousePos({ x: e.clientX, y: e.clientY });
-                            setActivePreviewProductId(o.items?.[0]?.productId || o.items?.[0]?.product?.id || o.items?.[0]?.id || "p1");
+                            setActivePreviewProductId(primaryItem?.productId || primaryItem?.product?.id || primaryItem?.id || "p1");
                             setIsMobilePreview(window.innerWidth < 768);
                           }}
                           onMouseLeave={() => setActivePreviewProductId(null)}
@@ -3321,19 +3435,49 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
                             const rect = e.currentTarget.getBoundingClientRect();
                             setActivePreviewRect(rect);
                             setActivePreviewMousePos({ x: e.clientX, y: e.clientY });
-                            setActivePreviewProductId(o.items?.[0]?.productId || o.items?.[0]?.product?.id || o.items?.[0]?.id || "p1");
+                            setActivePreviewProductId(primaryItem?.productId || primaryItem?.product?.id || primaryItem?.id || "p1");
                             setIsMobilePreview(true);
                           }}
                         >
                           <p className="text-[11px] font-bold text-[#2d4a36] hover:underline flex items-center gap-1">
-                            <span>{o.items?.[0]?.product?.name || o.items?.[0]?.name || "Product"}</span>
-                            <span className="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded font-mono">x{o.items?.[0]?.quantity || 1}</span>
+                            <span>{primaryItem?.product?.name || primaryItem?.name || "Bulk Product"}</span>
                             <span className="text-slate-400 hover:text-emerald-700 ml-0.5 text-[10px]" title="Hover or tap for Product Preview">ℹ️</span>
                           </p>
-                          <p className="text-[9px] text-muted-foreground">{o.items?.length || 1} package units • Hover for preview</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                              📦 {boxes} {boxes === 1 ? "Box" : "Boxes"} ({totalUnits.toLocaleString()} units)
+                            </span>
+                          </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-[11px] font-bold py-4">₹{o.totalAmount}</TableCell>
+
+                      {/* Gross Amount */}
+                      <TableCell className="text-[11px] font-bold py-4 text-slate-700">
+                        ₹{gross.toLocaleString()}
+                      </TableCell>
+
+                      {/* Commission Snapshot */}
+                      <TableCell className="text-[11px] py-4">
+                        <span className="text-amber-700 font-bold block">
+                          -₹{commAmount.toLocaleString()}
+                        </span>
+                        <span className="text-[9px] text-muted-foreground">
+                          ({commRate}% commission)
+                        </span>
+                      </TableCell>
+
+                      {/* Net Payable to Seller */}
+                      <TableCell className="py-4">
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 text-center w-fit">
+                          <span className="text-xs font-black text-emerald-800 block">
+                            ₹{netPayable.toLocaleString()}
+                          </span>
+                          <span className="text-[8px] font-bold text-emerald-600 uppercase tracking-wider block">
+                            Net Payable
+                          </span>
+                        </div>
+                      </TableCell>
+
                       <TableCell className="py-4">
                         {o.status === "PLACED" ? (
                           <Badge variant="outline" className="bg-amber-50 text-amber-600 border-none text-[9px] px-2 py-0.5 rounded-full font-semibold">Placed</Badge>
@@ -3349,6 +3493,7 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
                           <Badge variant="outline" className="bg-amber-50 text-amber-600 border-none text-[9px] px-2 py-0.5 rounded-full font-semibold">{o.status}</Badge>
                         )}
                       </TableCell>
+
                       <TableCell className="py-4 text-center">
                         <div className="flex items-center justify-center space-x-2">
                           {!isDelivered && o.status !== "CANCELLED" && (
@@ -3375,13 +3520,13 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
                               Cancellation: {o.cancellation.status}
                             </span>
                           )}
-                          <button onClick={() => setSelectedInvoice(o)} className="text-[10px] text-muted-foreground border border-[#d8dcd3] px-2 py-1.5 rounded-lg hover:bg-white cursor-pointer">
+                          <button onClick={() => setSelectedInvoice(o)} className="text-[10px] text-[#2d4a36] font-bold border border-[#2d4a36]/30 bg-[#2d4a36]/5 px-2.5 py-1.5 rounded-lg hover:bg-[#2d4a36]/10 cursor-pointer">
                             Invoice
                           </button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  )
+                  );
                 })
               )}
             </TableBody>
@@ -3397,51 +3542,80 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
               <div>
                 <div className="flex items-center space-x-1.5 mb-0.5">
                   <Leaf className="h-4 w-4 text-[#2d4a36]" />
-                  <h3 className="font-extrabold text-sm text-[#2d4a36]">EarthCentric Sales Receipt</h3>
+                  <h3 className="font-extrabold text-sm text-[#2d4a36]">EarthCentric Seller Settlement Receipt</h3>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Invoice #EC-INV-{selectedInvoice.id.substring(4, 10).toUpperCase()}</p>
+                <p className="text-[10px] text-muted-foreground">Order Ref #EC-INV-{selectedInvoice.id.substring(4, 10).toUpperCase()}</p>
               </div>
               <button onClick={() => setSelectedInvoice(null)} className="p-1 hover:bg-muted rounded-full"><X className="h-4 w-4" /></button>
             </div>
             
             <div className="grid grid-cols-2 gap-4 text-[11px] leading-relaxed">
               <div>
-                <p className="font-bold text-muted-foreground uppercase text-[9px] tracking-wider">Billed To:</p>
-                <p className="font-semibold text-foreground mt-0.5">{selectedInvoice.user?.name || "Customer"}</p>
-                <p className="text-muted-foreground mt-0.5">{selectedInvoice.user?.email || "buyer@earthcentric.com"}</p>
+                <p className="font-bold text-muted-foreground uppercase text-[9px] tracking-wider">Marketplace Facilitator:</p>
+                <p className="font-semibold text-foreground mt-0.5">EarthCentric Sustainable Marketplace</p>
+                <p className="text-muted-foreground mt-0.5">Order Mediated via EarthCentric Logistics</p>
               </div>
               <div>
-                <p className="font-bold text-muted-foreground uppercase text-[9px] tracking-wider">Shipping Address:</p>
+                <p className="font-bold text-muted-foreground uppercase text-[9px] tracking-wider">Fulfillment Destination:</p>
                 <p className="text-foreground font-semibold mt-0.5">
-                  {selectedInvoice.address.street}, {selectedInvoice.address.city}, {selectedInvoice.address.state} - {selectedInvoice.address.postalCode}, {selectedInvoice.address.country}
+                  {selectedInvoice.address?.city}, {selectedInvoice.address?.state} — PIN {selectedInvoice.address?.postalCode}
+                </p>
+                <p className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                  ✓ Buyer identity mediated through EarthCentric
                 </p>
               </div>
             </div>
 
             <div className="border-y border-dashed py-4 space-y-2">
-              <p className="font-bold text-muted-foreground uppercase text-[9px] tracking-wider">Items Ordered:</p>
-              {selectedInvoice.items && selectedInvoice.items.map((it: any, idx: number) => (
-                <div key={idx} className="flex justify-between text-xs font-medium">
-                  <span className="text-foreground">{it.name} (x{it.quantity})</span>
-                  <span className="font-bold">₹{(it.price * it.quantity).toLocaleString()}</span>
-                </div>
-              ))}
+              <p className="font-bold text-muted-foreground uppercase text-[9px] tracking-wider">Purchased Product & Bulk Boxes:</p>
+              {selectedInvoice.items && selectedInvoice.items.map((it: any, idx: number) => {
+                const itemBoxes = it.boxes || it.quantity || 1;
+                const itemUnits = it.totalUnits || (itemBoxes * (it.unitsPerBox || 100));
+                const itemPrice = it.pricePerBox || it.price;
+                return (
+                  <div key={idx} className="flex justify-between text-xs font-medium py-1">
+                    <div>
+                      <span className="text-foreground font-bold">{it.name}</span>
+                      <p className="text-[10px] text-muted-foreground">
+                        📦 {itemBoxes} Box{itemBoxes > 1 ? "es" : ""} ({itemUnits.toLocaleString()} units • {it.unitsPerBox || 100} units/box)
+                      </p>
+                    </div>
+                    <span className="font-bold text-slate-800">₹{(itemPrice * itemBoxes).toLocaleString()}</span>
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Subtotal</span>
-                <span>₹{selectedInvoice.totalAmount.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Green Tax (0.5%)</span>
-                <span>₹{Math.round(selectedInvoice.totalAmount * 0.005)}</span>
-              </div>
-              <div className="flex justify-between font-black text-sm text-[#2d4a36] pt-2 border-t">
-                <span>Invoice Total</span>
-                <span>₹{Math.round(selectedInvoice.totalAmount * 1.005).toLocaleString()}</span>
-              </div>
-            </div>
+            {(() => {
+              const invGross = selectedInvoice.grossAmount || selectedInvoice.totalAmount || 0;
+              const invCommRate = selectedInvoice.commissionRate !== undefined && selectedInvoice.commissionRate !== null ? selectedInvoice.commissionRate : 10;
+              const invCommAmount = selectedInvoice.commissionAmount !== undefined && selectedInvoice.commissionAmount !== null
+                ? selectedInvoice.commissionAmount
+                : Math.round((invGross * invCommRate / 100) * 100) / 100;
+              const invNet = selectedInvoice.sellerNetAmount !== undefined && selectedInvoice.sellerNetAmount !== null
+                ? selectedInvoice.sellerNetAmount
+                : Math.round((invGross - invCommAmount) * 100) / 100;
+
+              return (
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Gross Order Amount</span>
+                    <span className="font-semibold text-foreground">₹{invGross.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-amber-700 font-medium">
+                    <span>EarthCentric Commission ({invCommRate}%)</span>
+                    <span className="font-bold">-₹{invCommAmount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between font-black text-sm bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-emerald-900 mt-2">
+                    <span>Seller Net Payable</span>
+                    <span className="text-emerald-800 font-black">₹{invNet.toLocaleString()}</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground text-right italic">
+                    Net amount credited to your registered payout account per settlement cycle.
+                  </p>
+                </div>
+              );
+            })()}
 
             <div className="flex justify-end space-x-2 pt-2 border-t">
               <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)}>Close</Button>

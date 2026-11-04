@@ -24,6 +24,7 @@ import {
   startCancellationRefund,
   type RefundState,
 } from "@/lib/order-cancellations";
+import { validateGSTIN } from "@/lib/gstin";
 
 const CANCELLATION_WINDOW_HOURS = 72; // 3 days (72 hours) duration cancellation policy
 
@@ -31,9 +32,16 @@ export interface OrderItemInput {
   productId: string;
   name: string;
   price: number;
-  quantity: number;
+  quantity: number; // Represents number of boxes in bulk model
   image: string;
   sellerId?: string;
+  boxes?: number;
+  unitsPerBox?: number;
+  totalUnits?: number;
+  pricePerBox?: number;
+  commissionRate?: number;
+  commissionAmount?: number;
+  sellerNetAmount?: number;
 }
 
 export interface AddressInput {
@@ -55,6 +63,12 @@ export interface OrderDetail {
     phone?: string;
   };
   totalAmount: number;
+  grossAmount?: number;
+  commissionRate?: number;
+  commissionAmount?: number;
+  sellerNetAmount?: number;
+  totalBoxes?: number;
+  gstin?: string;
   status: "PLACED" | "CONFIRMED" | "PACKED" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "RETURNED" | "REFUNDED";
   createdAt: Date;
   estimatedDeliveryDate?: Date | string | null;
@@ -63,8 +77,15 @@ export interface OrderDetail {
   items: {
     productId: string;
     name: string;
-    quantity: number;
+    quantity: number; // boxes
+    boxes?: number;
+    unitsPerBox?: number;
+    totalUnits?: number;
     price: number;
+    pricePerBox?: number;
+    commissionRate?: number;
+    commissionAmount?: number;
+    sellerNetAmount?: number;
     image: string;
     sku?: string;
     sellerId?: string;
@@ -72,8 +93,8 @@ export interface OrderDetail {
     seller?: {
       id: string;
       companyName: string;
-      email: string;
-      phone: string;
+      email?: string;
+      phone?: string;
     };
   }[];
   paymentStatus: "PENDING" | "COMPLETED" | "FAILED";
@@ -114,7 +135,7 @@ export interface OrderDetail {
   }[];
   user?: {
     name: string;
-    email: string;
+    email?: string;
     phone?: string;
     image?: string | null;
     emailVerified?: Date | null;
@@ -165,14 +186,35 @@ export async function createOrder(data: {
   address: AddressInput;
   items: OrderItemInput[];
   totalAmount: number;
+  gstin?: string;
+  totalBoxes?: number;
 }) {
   const orderId = `ord-${Math.random().toString(36).substring(2, 9)}`;
 
-  // Server-side recalculation & validation of item prices, individual product discounts, tier discounts & Buy X Get Y offers
+  // Requirement 3: GST-Based Bulk Purchase validation
+  const gstinCheck = validateGSTIN(data.gstin);
+  if (!gstinCheck.isValid) {
+    return {
+      success: false,
+      error: gstinCheck.error || "A valid 15-character GSTIN is required for B2B commercial bulk purchasing (e.g. 29ABCDE1234F1Z5).",
+    };
+  }
+  const validatedGstin = gstinCheck.normalizedGstin!;
+
+  // Server-side recalculation & validation of box quantities, item prices, and commission snapshots
   let serverCalculatedTotal = 0;
   const verifiedItems: OrderItemInput[] = [];
 
   for (const item of data.items) {
+    // Requirement 4: Box-Based Bulk Ordering Only - No Retail Purchases
+    const boxQty = Number(item.quantity);
+    if (!Number.isInteger(boxQty) || boxQty < 1) {
+      return {
+        success: false,
+        error: `Invalid box quantity for "${item.name}". Minimum bulk order quantity is 1 complete box.`,
+      };
+    }
+
     const product = await getProductById(item.productId);
     if (!product) {
       return { success: false, error: `Product not found: ${item.name}` };
@@ -183,37 +225,40 @@ export async function createOrder(data: {
         error: `Cannot purchase "${product.name}". It is not currently active or approved on the marketplace.`
       };
     }
-    if (product.stock !== undefined && product.stock < item.quantity) {
+    if (product.stock !== undefined && product.stock < boxQty) {
       return {
         success: false,
-        error: `Insufficient stock for "${product.name}". Available: ${product.stock}, requested: ${item.quantity}.`
+        error: `Insufficient stock for "${product.name}". Available: ${product.stock} boxes, requested: ${boxQty} boxes.`
       };
     }
 
-    const effective = getEffectiveUnitPrice(product, item.quantity);
-    const unitPrice = effective.unitPrice;
+    const unitsPerBox = product.unitsPerBox || (product as any).bulkOrderQuantity || 100;
+    const totalUnits = boxQty * unitsPerBox;
+    const pricePerBox = product.price;
+    const commissionRate = product.commissionRate !== undefined && product.commissionRate !== null ? Number(product.commissionRate) : 10.0;
 
-    // Quantity in cart is the purchased/payable quantity. Free items are delivered at ₹0 extra cost.
-    const itemTotal = Math.round(unitPrice * item.quantity * 100) / 100;
+    // Commission Formula:
+    // Commission = Gross Order Amount × Commission Percentage / 100
+    // Seller Net Amount = Gross Order Amount − Commission − Applicable seller-side deductions
+    const itemTotal = Math.round(pricePerBox * boxQty * 100) / 100;
+    const itemCommission = Math.round(((itemTotal * commissionRate) / 100) * 100) / 100;
+    const itemSellerNet = Math.round((itemTotal - itemCommission) * 100) / 100;
+
     serverCalculatedTotal += itemTotal;
 
     verifiedItems.push({
       ...item,
-      price: unitPrice,
+      price: pricePerBox,
+      pricePerBox: pricePerBox,
+      quantity: boxQty,
+      boxes: boxQty,
+      unitsPerBox,
+      totalUnits,
+      commissionRate,
+      commissionAmount: itemCommission,
+      sellerNetAmount: itemSellerNet,
+      sellerId: item.sellerId || product.sellerId,
     });
-
-    // Check for active Buy X Get Y promotion
-    const freeQuantity = calculateBuyXGetYFreeItems(product.buyXGetYOffer, item.quantity);
-    if (freeQuantity > 0) {
-      verifiedItems.push({
-        productId: item.productId,
-        name: `${item.name} (Free Item - BXGY Offer)`,
-        price: 0,
-        quantity: freeQuantity,
-        image: item.image,
-        sellerId: item.sellerId || product.sellerId,
-      });
-    }
   }
 
   const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : data.totalAmount;
@@ -263,12 +308,23 @@ export async function createOrder(data: {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const newOrders: OrderDetail[] = [];
       Object.entries(itemsBySeller).forEach(([sellerId, items], index) => {
-        const orderAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const orderGrossAmount = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const orderCommission = items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0);
+        const orderSellerNet = items.reduce((sum, item) => sum + (item.sellerNetAmount || (item.price * item.quantity)), 0);
+        const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
+        const orderCommissionRate = orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 10.0;
         const splitOrderId = `${orderId}-${index}`;
+
         const newOrder: OrderDetail = {
           id: splitOrderId,
           userId: data.userId,
-          totalAmount: orderAmount,
+          totalAmount: orderGrossAmount,
+          grossAmount: orderGrossAmount,
+          commissionRate: orderCommissionRate,
+          commissionAmount: orderCommission,
+          sellerNetAmount: orderSellerNet,
+          totalBoxes: orderTotalBoxes,
+          gstin: validatedGstin,
           status: "PLACED",
           createdAt: new Date(),
           address: data.address,
@@ -276,8 +332,16 @@ export async function createOrder(data: {
             productId: item.productId,
             name: item.name,
             quantity: item.quantity,
+            boxes: item.quantity,
+            unitsPerBox: item.unitsPerBox || 100,
+            totalUnits: item.totalUnits || (item.quantity * 100),
             price: item.price,
+            pricePerBox: item.price,
+            commissionRate: item.commissionRate || 10.0,
+            commissionAmount: item.commissionAmount || 0,
+            sellerNetAmount: item.sellerNetAmount || (item.price * item.quantity),
             image: item.image,
+            sellerId: item.sellerId,
           })),
           paymentStatus: "PENDING",
           cashfreeOrderId: paymentOrder.order_id,
@@ -285,7 +349,7 @@ export async function createOrder(data: {
           timeline: [
             {
               status: "PLACED",
-              description: "Order placed. Awaiting payment authorization.",
+              description: "Commercial bulk order placed. Awaiting payment authorization.",
               createdAt: new Date(),
             },
           ],
@@ -336,7 +400,11 @@ export async function createOrder(data: {
     const createdOrders = [];
     let index = 0;
     for (const [sellerId, items] of Object.entries(itemsBySeller)) {
-      const orderAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const orderGrossAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const orderCommission = items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0);
+      const orderSellerNet = items.reduce((sum, item) => sum + (item.sellerNetAmount || (item.price * item.quantity)), 0);
+      const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
+      const orderCommissionRate = orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 10.0;
       const splitOrderId = `${orderId}-${index}`;
       const sId = sellerId === mockSellerId ? undefined : sellerId;
 
@@ -345,28 +413,41 @@ export async function createOrder(data: {
           id: splitOrderId,
           userId: data.userId,
           addressId: address.id,
-          totalAmount: orderAmount,
+          totalAmount: orderGrossAmount,
+          grossAmount: orderGrossAmount,
+          commissionRate: orderCommissionRate,
+          commissionAmount: orderCommission,
+          sellerNetAmount: orderSellerNet,
+          totalBoxes: orderTotalBoxes,
+          gstin: validatedGstin,
           status: "PLACED",
           sellerId: sId,
           paymentGroupId: paymentOrder.order_id, // Grouping multiple orders under one payment
           items: {
             create: items.map((item) => ({
               productId: item.productId,
-              quantity: item.quantity,
+              quantity: item.quantity, // boxes
+              boxes: item.quantity,
+              unitsPerBox: item.unitsPerBox || 100,
+              totalUnits: item.totalUnits || (item.quantity * 100),
+              pricePerBox: item.price,
               price: item.price,
+              commissionRate: item.commissionRate || 10.0,
+              commissionAmount: item.commissionAmount || 0,
+              sellerNetAmount: item.sellerNetAmount || (item.price * item.quantity),
             })),
           },
           payment: {
             create: {
               cashfreeOrderId: paymentOrder.order_id,
-              amount: orderAmount,
+              amount: orderGrossAmount,
               status: "PENDING",
             },
           },
           timeline: {
             create: {
               status: "PLACED",
-              description: "Order placed. Awaiting payment authorization.",
+              description: "Bulk order placed. Awaiting payment authorization.",
             },
           },
         },
@@ -390,6 +471,12 @@ export async function createOrder(data: {
       id: firstOrder.id,
       userId: firstOrder.userId,
       totalAmount: firstOrder.totalAmount,
+      grossAmount: firstOrder.grossAmount ?? firstOrder.totalAmount,
+      commissionRate: firstOrder.commissionRate ?? 10.0,
+      commissionAmount: firstOrder.commissionAmount ?? 0,
+      sellerNetAmount: firstOrder.sellerNetAmount ?? firstOrder.totalAmount,
+      totalBoxes: firstOrder.totalBoxes ?? 1,
+      gstin: validatedGstin,
       status: firstOrder.status as any,
       createdAt: firstOrder.createdAt,
       address: data.address,
@@ -397,7 +484,14 @@ export async function createOrder(data: {
         productId: it.productId,
         name: it.product.name,
         quantity: it.quantity,
+        boxes: it.boxes ?? it.quantity,
+        unitsPerBox: it.unitsPerBox ?? 100,
+        totalUnits: it.totalUnits ?? (it.quantity * 100),
         price: it.price,
+        pricePerBox: it.pricePerBox ?? it.price,
+        commissionRate: it.commissionRate ?? 10.0,
+        commissionAmount: it.commissionAmount ?? 0,
+        sellerNetAmount: it.sellerNetAmount ?? it.price * it.quantity,
         image: it.product.images[0]?.url || "",
       })),
       paymentStatus: "PENDING",
@@ -742,26 +836,67 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       return null;
     }
 
+    const grossAmount = order.grossAmount ?? order.totalAmount;
+    const commissionRate = order.commissionRate ?? 10.0;
+    const commissionAmount = order.commissionAmount ?? Math.round(((grossAmount * commissionRate) / 100) * 100) / 100;
+    const sellerNetAmount = order.sellerNetAmount ?? Math.round((grossAmount - commissionAmount) * 100) / 100;
+    const totalBoxes = order.totalBoxes ?? order.items.reduce((s, it) => s + (it.boxes || it.quantity), 0);
+
     return {
       id: order.id,
       userId: order.userId,
+      user: isOrderSeller && !isAdmin ? {
+        name: order.user?.name ? `Commercial Buyer (${order.user.name.split(" ")[0]})` : "Commercial Buyer",
+      } : (order.user ? {
+        name: order.user.name || "Customer",
+        email: order.user.email || "",
+      } : undefined),
       totalAmount: order.totalAmount,
+      grossAmount,
+      commissionRate,
+      commissionAmount,
+      sellerNetAmount,
+      totalBoxes,
+      gstin: isAdmin ? (order.gstin || undefined) : (order.gstin ? `${order.gstin.slice(0, 5)}****${order.gstin.slice(-3)}` : undefined),
       status: order.status as any,
       createdAt: order.createdAt,
-      address: {
+      address: isOrderSeller && !isAdmin ? {
+        street: "EarthCentric Fulfillment Hub",
+        city: order.address.city,
+        state: order.address.state,
+        postalCode: order.address.postalCode,
+        country: order.address.country,
+      } : {
         street: order.address.street,
         city: order.address.city,
         state: order.address.state,
         postalCode: order.address.postalCode,
         country: order.address.country,
       },
-      items: order.items.map((it) => ({
-        productId: it.productId,
-        name: it.product.name,
-        quantity: it.quantity,
-        price: it.price,
-        image: it.product.images[0]?.url || "",
-      })),
+      items: order.items.map((it) => {
+        const boxes = it.boxes ?? it.quantity;
+        const unitsPerBox = it.unitsPerBox ?? (it.product as any).unitsPerBox ?? 100;
+        const totalUnits = it.totalUnits ?? (boxes * unitsPerBox);
+        const pricePerBox = it.pricePerBox ?? it.price;
+        const itemCommissionRate = it.commissionRate ?? commissionRate;
+        const itemCommission = it.commissionAmount ?? Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100;
+        const itemSellerNet = it.sellerNetAmount ?? Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100;
+
+        return {
+          productId: it.productId,
+          name: it.product.name,
+          quantity: boxes,
+          boxes,
+          unitsPerBox,
+          totalUnits,
+          price: pricePerBox,
+          pricePerBox,
+          commissionRate: itemCommissionRate,
+          commissionAmount: itemCommission,
+          sellerNetAmount: itemSellerNet,
+          image: it.product.images[0]?.url || "",
+        };
+      }),
       paymentStatus: (order.payment?.status as any) || "PENDING",
       cancellation: mapLatestCancellation(order.cancellations),
       ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
@@ -1122,34 +1257,69 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
   }
   try {
     if (isMock) {
-      // In mock mode, initialize sample orders if mockOrders is empty
+      // In mock mode, initialize sample box-based commercial orders if mockOrders is empty
       if (mockOrders.length === 0) {
         mockOrders = [
           {
             id: "ord-8834a",
             userId: "buyer-1",
-            user: { name: "Harshavardhan Sharma", email: "harsha.sharma@gmail.com", phone: "+91 98765 43210" },
-            totalAmount: 1899,
+            user: { name: "Commercial Buyer" },
+            totalAmount: 10000,
+            grossAmount: 10000,
+            commissionRate: 10.0,
+            commissionAmount: 1000,
+            sellerNetAmount: 9000,
+            totalBoxes: 5,
             status: "CONFIRMED",
             createdAt: new Date(Date.now() - 3600000 * 4),
-            address: { street: "12 Baker St", city: "London", state: "Greater London", postalCode: "NW1 6XE", country: "UK" },
-            items: [{ productId: "p1", name: "Organic Cotton Classic Tee", quantity: 1, price: 1899, image: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=100&auto=format&fit=crop&q=80" }],
+            address: { street: "EarthCentric Fulfillment Hub", city: "Bengaluru", state: "Karnataka", postalCode: "560001", country: "India" },
+            items: [{
+              productId: "prod-pdf-1",
+              name: "Sauce Dip Bowl (Bulk Pack)",
+              quantity: 5,
+              boxes: 5,
+              unitsPerBox: 100,
+              totalUnits: 500,
+              price: 2000,
+              pricePerBox: 2000,
+              commissionRate: 10.0,
+              commissionAmount: 1000,
+              sellerNetAmount: 9000,
+              image: "/images/products/product_p1_1.png"
+            }],
             paymentStatus: "COMPLETED",
             timeline: [],
           },
           {
             id: "ord-4921b",
             userId: "buyer-2",
-            user: { name: "Aarav Patel", email: "aarav.patel@yahoo.com", phone: "+91 98123 45678" },
-            totalAmount: 4198,
+            user: { name: "Commercial Buyer" },
+            totalAmount: 6000,
+            grossAmount: 6000,
+            commissionRate: 10.0,
+            commissionAmount: 600,
+            sellerNetAmount: 5400,
+            totalBoxes: 3,
             status: "PLACED",
             createdAt: new Date(Date.now() - 3600000 * 2),
-            address: { street: "44 MG Road", city: "Bangalore", state: "Karnataka", postalCode: "560001", country: "India" },
+            address: { street: "EarthCentric Fulfillment Hub", city: "Mumbai", state: "Maharashtra", postalCode: "400001", country: "India" },
             items: [
-              { productId: "p2", name: "Zero-Waste Bamboo Cutlery Set", quantity: 1, price: 699, image: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=100&auto=format&fit=crop&q=80" },
-              { productId: "p3", name: "Solar Powered Portable Charger", quantity: 1, price: 3499, image: "https://images.unsplash.com/photo-1620286127226-a36113702e51?w=100&auto=format&fit=crop&q=80" }
+              {
+                productId: "prod-pdf-2",
+                name: "Round Plate 10 Inch (Bulk)",
+                quantity: 3,
+                boxes: 3,
+                unitsPerBox: 50,
+                totalUnits: 150,
+                price: 2000,
+                pricePerBox: 2000,
+                commissionRate: 10.0,
+                commissionAmount: 600,
+                sellerNetAmount: 5400,
+                image: "/images/products/product_p1_2.png"
+              }
             ],
-            paymentStatus: "PENDING",
+            paymentStatus: "COMPLETED",
             timeline: [],
           }
         ];
@@ -1187,7 +1357,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
       },
       include: {
         address: true,
-        user: { select: { id: true, name: true, email: true, phone: true, image: true, emailVerified: true } },
+        user: { select: { id: true, name: true } }, // Privacy: Exclude buyer email and phone
         items: {
           include: {
             product: {
@@ -1206,42 +1376,70 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
       orderBy: { createdAt: "desc" },
     });
 
-    return dbOrders.map((order) => ({
-      id: order.id,
-      userId: order.userId,
-      user: order.user ? {
-        name: order.user.name || "Customer",
-        email: order.user.email || "",
-        phone: order.user.phone || "",
-        image: order.user.image,
-        emailVerified: order.user.emailVerified,
-      } : undefined,
-      totalAmount: order.totalAmount,
-      status: order.status as any,
-      createdAt: order.createdAt,
-      address: {
-        street: order.address.street,
-        city: order.address.city,
-        state: order.address.state,
-        postalCode: order.address.postalCode,
-        country: order.address.country,
-      },
-      items: order.items.map((it) => ({
-        productId: it.productId,
-        name: it.product.name,
-        quantity: it.quantity,
-        price: it.price,
-        image: it.product.images[0]?.url || "",
-      })),
-      paymentStatus: (order.payment?.status as any) || "PENDING",
-      cancellation: mapLatestCancellation(order.cancellations),
-      ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
-      timeline: order.timeline.map((t) => ({
-        status: t.status,
-        description: t.description,
-        createdAt: t.createdAt,
-      })),
-    }));
+    return dbOrders.map((order) => {
+      const grossAmount = order.grossAmount ?? order.totalAmount;
+      const commissionRate = order.commissionRate ?? 10.0;
+      const commissionAmount = order.commissionAmount ?? Math.round(((grossAmount * commissionRate) / 100) * 100) / 100;
+      const sellerNetAmount = order.sellerNetAmount ?? Math.round((grossAmount - commissionAmount) * 100) / 100;
+      const totalBoxes = order.totalBoxes ?? order.items.reduce((sum, it) => sum + (it.boxes || it.quantity), 0);
+
+      return {
+        id: order.id,
+        userId: order.userId,
+        // Requirement 5: Strict Buyer Privacy - Never expose buyer phone or email to sellers
+        user: {
+          name: order.user?.name ? `Commercial Buyer (${order.user.name.split(" ")[0]})` : "Commercial Buyer",
+        },
+        totalAmount: order.totalAmount,
+        grossAmount,
+        commissionRate,
+        commissionAmount,
+        sellerNetAmount,
+        totalBoxes,
+        status: order.status as any,
+        createdAt: order.createdAt,
+        // Requirement 5: Strict Buyer Privacy - Mask private address to EarthCentric mediated hub
+        address: {
+          street: "EarthCentric Central Fulfillment Hub",
+          city: order.address.city,
+          state: order.address.state,
+          postalCode: order.address.postalCode,
+          country: order.address.country,
+        },
+        items: order.items.map((it) => {
+          const boxes = it.boxes ?? it.quantity;
+          const unitsPerBox = it.unitsPerBox ?? (it.product as any).unitsPerBox ?? (it.product as any).bulkOrderQuantity ?? 100;
+          const totalUnits = it.totalUnits ?? (boxes * unitsPerBox);
+          const pricePerBox = it.pricePerBox ?? it.price;
+          const itemCommissionRate = it.commissionRate ?? commissionRate;
+          const itemCommission = it.commissionAmount ?? Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100;
+          const itemSellerNet = it.sellerNetAmount ?? Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100;
+
+          return {
+            productId: it.productId,
+            name: it.product.name,
+            quantity: boxes,
+            boxes,
+            unitsPerBox,
+            totalUnits,
+            price: pricePerBox,
+            pricePerBox,
+            commissionRate: itemCommissionRate,
+            commissionAmount: itemCommission,
+            sellerNetAmount: itemSellerNet,
+            image: it.product.images[0]?.url || "",
+          };
+        }),
+        paymentStatus: (order.payment?.status as any) || "PENDING",
+        cancellation: mapLatestCancellation(order.cancellations),
+        ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
+        timeline: order.timeline.map((t) => ({
+          status: t.status,
+          description: t.description,
+          createdAt: t.createdAt,
+        })),
+      };
+    });
   } catch (e) {
     console.error("getOrdersBySeller failed:", e);
     throw new Error("Could not retrieve seller orders. Please try again.");
@@ -2334,11 +2532,20 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
           ...order,
           items: sellerItems,
           brandTotalAmount,
-          user: {
+          user: sellerIdFilter ? {
+            name: "Commercial Buyer (Verified)",
+          } : {
             name: (order as any).user?.name || "Verified Buyer",
             email: (order as any).user?.email || "buyer@earthcentric.com",
             phone: (order as any).user?.phone || "+91 9876543210",
           },
+          address: sellerIdFilter ? {
+            street: "EarthCentric Central Fulfillment Hub",
+            city: order.address?.city || "Bengaluru",
+            state: order.address?.state || "Karnataka",
+            postalCode: order.address?.postalCode || "560001",
+            country: order.address?.country || "India",
+          } : order.address,
         },
       };
     }
@@ -2404,14 +2611,22 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
       brandTotalAmount,
       status: dbOrder.status as any,
       createdAt: dbOrder.createdAt,
-      address: {
+      address: sellerIdFilter ? {
+        street: "EarthCentric Central Fulfillment Hub",
+        city: dbOrder.address.city,
+        state: dbOrder.address.state,
+        postalCode: dbOrder.address.postalCode,
+        country: dbOrder.address.country,
+      } : {
         street: dbOrder.address.street,
         city: dbOrder.address.city,
         state: dbOrder.address.state,
         postalCode: dbOrder.address.postalCode,
         country: dbOrder.address.country,
       },
-      user: {
+      user: sellerIdFilter ? {
+        name: dbOrder.user?.name ? `Commercial Buyer (${dbOrder.user.name.split(" ")[0]})` : "Commercial Buyer",
+      } : {
         name: dbOrder.user?.name || "Customer",
         email: dbOrder.user?.email || "N/A",
         phone: dbOrder.user?.phone || "N/A",

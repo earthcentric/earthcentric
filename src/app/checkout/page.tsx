@@ -9,15 +9,22 @@ import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/
 import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
 import { load } from '@cashfreepayments/cashfree-js';
 import { getUserAddresses, addUserAddress, AddressData, getBuyerProfile, updateBuyerProfile } from "@/actions/profile";
-import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star, Phone } from "lucide-react";
+import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star, Phone, Building2, FileText, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
+import { validateGSTIN } from "@/lib/gstin";
 
 export default function CheckoutPage() {
   const { cart, cartTotal, clearCart } = useCart();
   const { user, updateUser } = useAuth();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // GSTIN state for mandatory commercial bulk checkout
+  const [gstin, setGstin] = useState("");
+  const [gstinTouched, setGstinTouched] = useState(false);
+  const [gstinError, setGstinError] = useState<string | null>(null);
+  const [gstinDetails, setGstinDetails] = useState<{ stateName?: string; pan?: string } | null>(null);
 
   // Contact details
   const [contactPhone, setContactPhone] = useState(user?.phone || "");
@@ -85,6 +92,28 @@ export default function CheckoutPage() {
     setContactPhone(cleanDigits);
   };
 
+  const handleGstinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const clean = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
+    setGstin(clean);
+    setGstinTouched(true);
+    if (clean.length === 0) {
+      setGstinError("GSTIN is required for bulk commercial orders.");
+      setGstinDetails(null);
+    } else if (clean.length < 15) {
+      setGstinError(`Enter full 15-character GSTIN (${clean.length}/15 entered).`);
+      setGstinDetails(null);
+    } else {
+      const res = validateGSTIN(clean);
+      if (!res.isValid) {
+        setGstinError(res.error || "Invalid GSTIN format.");
+        setGstinDetails(null);
+      } else {
+        setGstinError(null);
+        setGstinDetails({ stateName: res.stateName, pan: res.pan });
+      }
+    }
+  };
+
   const handleSaveNewAddress = async () => {
     if (!street || !city || !state || !postalCode || !country) {
       alert("Please fill in all address fields.");
@@ -124,6 +153,15 @@ export default function CheckoutPage() {
     }
     if (cart.length === 0) return;
 
+    // Strict GSTIN Validation (Requirement 3: Mandatory for bulk commercial checkout)
+    const gstinValidation = validateGSTIN(gstin);
+    if (!gstinValidation.isValid) {
+      setGstinTouched(true);
+      setGstinError(gstinValidation.error || "A valid 15-character GSTIN is required for bulk commercial checkout.");
+      alert(gstinValidation.error || "Please enter a valid 15-character GSTIN before proceeding with bulk commercial checkout.");
+      return;
+    }
+
     const digitsPhone = contactPhone.replace(/\D/g, "").slice(0, 10);
     if (!digitsPhone || digitsPhone.length !== 10) {
       alert("Please provide a valid 10-digit mobile number for order delivery & verification.");
@@ -138,20 +176,31 @@ export default function CheckoutPage() {
 
     startTransition(async () => {
       const address = getSelectedAddress()!;
-      const items = cart.map((item) => ({
-        productId: item.id,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        image: item.image,
-        sellerId: item.sellerId,
-      }));
+      const items = cart.map((item) => {
+        const unitsPerBox = item.unitsPerBox && item.unitsPerBox > 0 ? item.unitsPerBox : 100;
+        return {
+          productId: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          boxes: item.quantity,
+          unitsPerBox: unitsPerBox,
+          totalUnits: item.quantity * unitsPerBox,
+          pricePerBox: item.price,
+          image: item.image,
+          sellerId: item.sellerId,
+        };
+      });
+
+      const totalBoxes = cart.reduce((acc, item) => acc + item.quantity, 0);
 
       // Call server action to create Order & Cashfree ID
       const res = await createOrder({
         userId: user.id,
         userEmail: user.email,
         userPhone: digitsPhone,
+        gstin: gstinValidation.normalizedGstin,
+        totalBoxes,
         address,
         items,
         totalAmount: cartTotal,
@@ -355,6 +404,86 @@ export default function CheckoutPage() {
             </div>
           </Card>
 
+          {/* GSTIN & Commercial Bulk Verification Card */}
+          <Card className="border-border/40 p-6 space-y-4 bg-card shadow-xs">
+            <div className="flex items-center justify-between border-b border-border/20 pb-3">
+              <h3 className="font-bold text-sm text-primary uppercase tracking-wider flex items-center space-x-2">
+                <Building2 className="h-4 w-4 text-[#0F6E56]" />
+                <span>GSTIN Commercial Verification</span>
+              </h3>
+              <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded ${
+                gstin.length === 15 && !gstinError
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-muted text-muted-foreground"
+              }`}>
+                {gstin.length}/15 chars
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs font-semibold text-foreground mb-1.5 flex items-center justify-between">
+                  <span>Buyer GSTIN (Goods and Services Tax ID) <span className="text-red-500">*</span></span>
+                  <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-bold">
+                    Mandatory for Bulk Orders
+                  </span>
+                </Label>
+                <div className="relative">
+                  <Input
+                    type="text"
+                    maxLength={15}
+                    value={gstin}
+                    onChange={handleGstinChange}
+                    placeholder="e.g. 29ABCDE1234F1Z5"
+                    className={`font-mono uppercase tracking-wider text-sm font-bold ${
+                      gstinError && gstinTouched
+                        ? "border-red-400 focus:ring-red-400 bg-red-50/20"
+                        : gstin.length === 15 && !gstinError
+                        ? "border-emerald-500 focus:ring-emerald-500 bg-emerald-50/20"
+                        : ""
+                    }`}
+                    required
+                  />
+                  {gstin.length === 15 && !gstinError && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600 flex items-center gap-1 text-xs font-bold">
+                      <Check className="h-4 w-4" />
+                      <span>Verified</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Validation Feedback & Error Messages */}
+                {gstinTouched && gstinError && (
+                  <div className="mt-2 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 p-2.5 rounded-lg font-medium">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Invalid GSTIN for Bulk Purchase</p>
+                      <p className="text-[11px] text-red-500 mt-0.5">{gstinError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {gstinDetails && !gstinError && (
+                  <div className="mt-2 flex items-center justify-between bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-xs">
+                    <div className="flex items-center gap-1.5 text-emerald-800">
+                      <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <span className="font-semibold">
+                        Registered State: <strong>{gstinDetails.stateName}</strong> • PAN: <strong className="font-mono">{gstinDetails.pan}</strong>
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                      B2B Approved
+                    </span>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+                  Bulk order checkout is strictly for registered commercial entities. Tax receipts are generated automatically. GST details are securely stored and accessible solely to authorized EarthCentric admin personnel.
+                </p>
+              </div>
+            </div>
+          </Card>
+
           <Card className="border-border/40 p-6 space-y-5 bg-card">
             <h3 className="font-bold text-sm text-primary uppercase tracking-wider flex items-center space-x-2 border-b border-border/20 pb-3">
               <CreditCard className="h-4 w-4" />
@@ -458,9 +587,11 @@ export default function CheckoutPage() {
             
             <div className="space-y-3 max-h-64 overflow-y-auto">
               {cart.map((item) => {
+                const unitsPerBox = item.unitsPerBox && item.unitsPerBox > 0 ? item.unitsPerBox : 100;
                 const freeCount = calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer);
                 const itemSavings = freeCount * item.price;
-                const totalDelivered = item.quantity + freeCount;
+                const totalDeliveredBoxes = item.quantity + freeCount;
+                const totalDeliveredUnits = totalDeliveredBoxes * unitsPerBox;
                 const effective = getEffectiveUnitPrice(item, item.quantity);
                 const itemPayable = Math.round(effective.unitPrice * item.quantity * 100) / 100;
 
@@ -470,13 +601,14 @@ export default function CheckoutPage() {
                       <div className="pr-2 flex-1 min-w-0">
                         <p className="font-bold text-foreground truncate">{item.name}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          Purchased Qty: <strong className="text-foreground">{item.quantity}</strong>
-                          {freeCount > 0 && <> • Free Qty: <strong className="text-emerald-700">+{freeCount}</strong></>}
-                          {" "}• Delivered: <strong>{totalDelivered}</strong>
+                          Purchased: <strong className="text-foreground">{item.quantity} {item.quantity === 1 ? "Box" : "Boxes"}</strong>
+                          {" "}({(item.quantity * unitsPerBox).toLocaleString()} units • {unitsPerBox} units/box)
+                          {freeCount > 0 && <> • Free Boxes: <strong className="text-emerald-700">+{freeCount}</strong></>}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
                         <span className="font-bold text-foreground text-xs block">₹{itemPayable.toLocaleString()}</span>
+                        <span className="text-[10px] text-muted-foreground block">₹{effective.unitPrice.toLocaleString()}/box</span>
                         {effective.appliedDiscountType !== "NONE" && (
                           <span className="text-[10px] text-muted-foreground line-through block">₹{(effective.originalPrice * item.quantity).toLocaleString()}</span>
                         )}
@@ -508,8 +640,9 @@ export default function CheckoutPage() {
             </div>
 
             {(() => {
-              const totalPurchasedQty = cart.reduce((acc, item) => acc + item.quantity, 0);
-              const totalFreeItems = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer), 0);
+              const totalPurchasedBoxes = cart.reduce((acc, item) => acc + item.quantity, 0);
+              const totalPurchasedUnits = cart.reduce((acc, item) => acc + item.quantity * (item.unitsPerBox || 100), 0);
+              const totalFreeBoxes = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer), 0);
               const totalFreeSavings = cart.reduce((acc, item) => acc + calculateBuyXGetYFreeItems(item.quantity, item.buyXGetYOffer) * item.price, 0);
               const totalUnitSavings = cart.reduce((acc, item) => {
                 const effective = getEffectiveUnitPrice(item, item.quantity);
@@ -519,8 +652,8 @@ export default function CheckoutPage() {
               return (
                 <div className="border-t border-border/30 pt-4 space-y-2 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Purchased Quantity</span>
-                    <span className="font-semibold text-foreground">{totalPurchasedQty} Items</span>
+                    <span className="text-muted-foreground">Total Packaging</span>
+                    <span className="font-semibold text-foreground">{totalPurchasedBoxes} Boxes ({totalPurchasedUnits.toLocaleString()} Units)</span>
                   </div>
 
                   {totalUnitSavings > 0 && (
@@ -533,11 +666,11 @@ export default function CheckoutPage() {
                     </div>
                   )}
 
-                  {totalFreeItems > 0 && (
+                  {totalFreeBoxes > 0 && (
                     <>
                       <div className="flex justify-between text-emerald-700 font-semibold">
-                        <span>Free Items Earned</span>
-                        <span>+{totalFreeItems} Items</span>
+                        <span>Free Boxes Earned</span>
+                        <span>+{totalFreeBoxes} Boxes</span>
                       </div>
                       <div className="flex justify-between text-emerald-700 bg-emerald-50 p-2 rounded-lg font-bold border border-emerald-100">
                         <span className="flex items-center gap-1">
@@ -550,8 +683,8 @@ export default function CheckoutPage() {
                   )}
 
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Items Delivered</span>
-                    <span className="font-semibold text-foreground">{totalPurchasedQty + totalFreeItems} Items</span>
+                    <span className="text-muted-foreground">Total Delivered Boxes</span>
+                    <span className="font-semibold text-foreground">{totalPurchasedBoxes + totalFreeBoxes} Boxes</span>
                   </div>
 
                   <div className="flex justify-between text-emerald-600 font-semibold">
@@ -559,7 +692,7 @@ export default function CheckoutPage() {
                     <span>SPONSORED</span>
                   </div>
                   <div className="flex justify-between border-t border-border/30 pt-3 text-sm font-bold text-foreground">
-                    <span>Final Amount Due</span>
+                    <span>Gross Amount Due</span>
                     <span>₹{cartTotal.toLocaleString()}</span>
                   </div>
                 </div>

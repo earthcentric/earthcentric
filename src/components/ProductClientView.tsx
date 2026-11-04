@@ -264,6 +264,10 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Predefined Bulk Packaging configuration
+  const unitsPerBox = product.unitsPerBox && product.unitsPerBox > 0 ? product.unitsPerBox : 100;
+  const unitRate = Number((product.price / unitsPerBox).toFixed(2));
+
   // Calculate active unit price accounting for individual product discounts, tier discounts, and bulk slabs
   const getActiveUnitPrice = () => {
     const effective = getEffectiveUnitPrice(product, quantity);
@@ -278,9 +282,13 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
         price: product.price,
         originalPrice: product.originalPrice,
         image: product.images[0] || "",
-        sellerName: product.seller?.companyName || "EarthCentric",
+        sellerName: product.seller?.companyName || "EarthCentric Verified Supplier",
         sellerId: product.sellerId,
-        moq: product.moq,
+        moq: 1,
+        boxes: quantity,
+        unitsPerBox: unitsPerBox,
+        pricePerBox: product.price,
+        totalUnits: quantity * unitsPerBox,
         individualDiscount: product.individualDiscount,
         tierDiscounts: product.tierDiscounts,
         buyXGetYOffer: product.buyXGetYOffer,
@@ -336,7 +344,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
           <div className="fixed bottom-20 right-6 z-50 rounded-xl bg-[#0c3c26] text-white px-5 py-3 shadow-2xl flex items-center space-x-2 animate-bounce">
             <ShoppingCart className="h-4 w-4" />
             <span className="text-sm font-bold">
-              Added {quantity} item(s) to Cart!
+              Added {quantity} box{quantity > 1 ? "es" : ""} ({(quantity * unitsPerBox).toLocaleString()} units) to Cart!
             </span>
           </div>
         )}
@@ -532,6 +540,9 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       <span className="text-4xl font-black text-slate-900">
                         ₹{effective.unitPrice.toLocaleString()}
                       </span>
+                      <span className="text-sm font-bold text-slate-500 uppercase tracking-wide">
+                        / box ({unitsPerBox} units)
+                      </span>
                       {isDiscountActive && (
                         <span className="text-lg text-slate-400 line-through font-semibold">
                           ₹{effective.originalPrice.toLocaleString()}
@@ -544,14 +555,36 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       )}
                     </div>
 
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-[#0F6E56] bg-[#0F6E56]/10 px-3 py-1 rounded-full border border-[#0F6E56]/20">
+                        📦 1 Box = {unitsPerBox} Units
+                      </span>
+                      <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+                        ₹{unitRate.toFixed(2)} per unit
+                      </span>
+                      <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                        Bulk Boxes Only
+                      </span>
+                    </div>
+
                     {isDiscountActive && (
                       <div className="mt-2.5 flex items-center gap-3 text-xs font-bold text-emerald-700 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200/60 w-fit">
                         <span>🎉 You save ₹{amountSaved.toLocaleString()} ({discountPercentage}% OFF)</span>
                       </div>
                     )}
 
-                    <p className="text-sm text-slate-500 font-medium mt-1">
-                      Inclusive of all taxes • Free Shipping available
+                    <div className="mt-3 bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 text-xs space-y-1">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                        <ShieldCheck className="h-4 w-4 text-amber-700 shrink-0" />
+                        <span>B2B Commercial Bulk Orders Only — No Retail</span>
+                      </div>
+                      <p className="text-amber-800 text-[11px] leading-relaxed">
+                        Retail single-piece purchasing is disabled. Orders are processed in full box quantities only. Valid GSTIN required at checkout.
+                      </p>
+                    </div>
+
+                    <p className="text-xs text-slate-500 font-medium mt-1">
+                      Inclusive of all taxes • Dispatched via EarthCentric Verified Logistics
                     </p>
                   </div>
                 );
@@ -793,25 +826,35 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="border border-slate-100 rounded-2xl p-5 space-y-2">
                 <Truck className="h-6 w-6 text-[#0F6E56]" />
-                <h4 className="font-bold text-sm text-slate-800">Fast Delivery</h4>
+                <h4 className="font-bold text-sm text-slate-800">Delivery Timeline</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Order now, ships within 24 hours.
+                  {product.deliveryTime || "Dispatches within 24–48 hours across India."}
                 </p>
               </div>
               <div className="border border-slate-100 rounded-2xl p-5 space-y-2">
                 <ShieldCheck className="h-6 w-6 text-[#0F6E56]" />
-                <h4 className="font-bold text-sm text-slate-800">Buyer Protection</h4>
+                <h4 className="font-bold text-sm text-slate-800">Return & Guarantee</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Secure payments & easy returns.
+                  {product.returnEligibility || "10-day replacement for transit damage."}
                 </p>
               </div>
             </div>
 
-            {/* ===== Quantity + Add to Cart ===== */}
+            {/* ===== Box Quantity + Add to Cart ===== */}
             {product.stock > 0 && (
               <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-[#0F6E56]"></span>
+                    Select Number of Boxes (Min: 1 Box)
+                  </span>
+                  <span className="text-slate-500">
+                    {product.stock} box{product.stock > 1 ? "es" : ""} available in stock
+                  </span>
+                </div>
+
                 <div className="flex items-center space-x-4">
-                  {/* Quantity Stepper (1 to stock) */}
+                  {/* Quantity Stepper (1 to stock boxes) */}
                   <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50 shadow-xs">
                     <button suppressHydrationWarning
                       type="button"
@@ -820,26 +863,31 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       className={`h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors border-r border-slate-200 ${
                         quantity <= 1 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
                       }`}
-                      aria-label="Decrease quantity"
+                      aria-label="Decrease box quantity"
                     >
                       <Minus className="h-4 w-4" />
                     </button>
-                    <input
-                      type="number"
-                      min={1}
-                      max={product.stock || 9999}
-                      value={quantity}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        if (!isNaN(val)) {
-                          handleQuantityChange(val);
-                        } else if (e.target.value === "") {
-                          setQuantity(1);
-                          if (isInCart) updateQuantity(product.id, 1);
-                        }
-                      }}
-                      className="h-12 w-16 text-center text-base font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
+                    <div className="flex flex-col items-center justify-center px-3 min-w-[70px]">
+                      <input
+                        type="number"
+                        min={1}
+                        max={product.stock || 9999}
+                        value={quantity}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val)) {
+                            handleQuantityChange(val);
+                          } else if (e.target.value === "") {
+                            setQuantity(1);
+                            if (isInCart) updateQuantity(product.id, 1);
+                          }
+                        }}
+                        className="w-12 text-center text-base font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[10px] text-slate-400 font-semibold uppercase -mt-1">
+                        {quantity === 1 ? "Box" : "Boxes"}
+                      </span>
+                    </div>
                     <button suppressHydrationWarning
                       type="button"
                       onClick={() => handleQuantityChange(quantity + 1)}
@@ -847,7 +895,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       className={`h-12 w-12 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors border-l border-slate-200 ${
                         product.stock > 0 && quantity >= product.stock ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
                       }`}
-                      aria-label="Increase quantity"
+                      aria-label="Increase box quantity"
                     >
                       <Plus className="h-4 w-4" />
                     </button>
@@ -861,7 +909,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
                     >
                       <ShoppingBag className="h-5 w-5" />
-                      <span>View Cart</span>
+                      <span>View Cart ({quantity} Box{quantity > 1 ? "es" : ""})</span>
                     </button>
                   ) : (
                     <button suppressHydrationWarning
@@ -878,18 +926,18 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   )}
                 </div>
 
-                {/* Subtotal calculation note for immediate visual feedback */}
-                {isInCart ? (
-                  <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
-                    <span className="text-emerald-700 font-bold flex items-center gap-1">✓ Added in Cart ({quantity} unit{quantity > 1 ? "s" : ""})</span>
-                    <span>Total: <strong className="text-slate-900 font-bold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</strong></span>
+                {/* Subtotal calculation note with box breakdown */}
+                <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-emerald-900">
+                      📦 {quantity} {quantity === 1 ? "Box" : "Boxes"} = {(quantity * unitsPerBox).toLocaleString()} Units Total
+                    </span>
+                    <span className="text-slate-500 font-medium">({unitsPerBox} units/box)</span>
                   </div>
-                ) : quantity > 1 ? (
-                  <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
-                    <span>Quantity: <strong className="text-slate-800">{quantity} units</strong></span>
-                    <span>Total: <strong className="text-emerald-700 font-bold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</strong> (₹{getActiveUnitPrice().toLocaleString()} / unit)</span>
+                  <div className="text-right font-bold text-slate-900">
+                    Total: <span className="text-[#0c3c26] text-sm font-extrabold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
                   </div>
-                ) : null}
+                </div>
 
                 {/* Bulk Quote Request Button */}
                 <button suppressHydrationWarning
@@ -898,7 +946,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   className="w-full h-12 bg-white hover:bg-slate-50 text-[#0c3c26] font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-all cursor-pointer border-2 border-[#0c3c26] shadow-sm"
                 >
                   <MessageSquare className="h-5 w-5" />
-                  <span>Request Wholesale Bulk Quote</span>
+                  <span>Request Custom Enterprise Quote</span>
                 </button>
               </div>
             )}
@@ -1106,7 +1154,9 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               <p className="text-sm font-bold text-slate-800 truncate max-w-[250px] sm:max-w-[400px]">
                 {product.name}
               </p>
-              <p className="text-sm font-black text-[#0F6E56]">₹{product.price}</p>
+              <p className="text-sm font-black text-[#0F6E56]">
+                ₹{product.price} <span className="text-xs font-semibold text-slate-500">/ box ({unitsPerBox} units)</span>
+              </p>
             </div>
           </div>
 
@@ -1120,26 +1170,13 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 className={`h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 border-r border-slate-200 ${
                   quantity <= 1 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
                 }`}
-                aria-label="Decrease quantity"
+                aria-label="Decrease box quantity"
               >
                 <Minus className="h-3.5 w-3.5" />
               </button>
-              <input
-                type="number"
-                min={1}
-                max={product.stock || 9999}
-                value={quantity}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  if (!isNaN(val)) {
-                    handleQuantityChange(val);
-                  } else if (e.target.value === "") {
-                    setQuantity(1);
-                    if (isInCart) updateQuantity(product.id, 1);
-                  }
-                }}
-                className="h-9 w-12 text-center text-sm font-bold text-slate-900 bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              />
+              <div className="px-2 text-xs font-bold text-slate-800">
+                {quantity} {quantity === 1 ? "box" : "boxes"}
+              </div>
               <button suppressHydrationWarning
                 type="button"
                 onClick={() => handleQuantityChange(quantity + 1)}
@@ -1147,7 +1184,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 className={`h-9 w-9 flex items-center justify-center text-slate-600 hover:bg-slate-100 border-l border-slate-200 ${
                   product.stock > 0 && quantity >= product.stock ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
                 }`}
-                aria-label="Increase quantity"
+                aria-label="Increase box quantity"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
@@ -1159,7 +1196,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
               >
                 <ShoppingBag className="h-4 w-4" />
-                <span>View Cart</span>
+                <span>View Cart ({quantity} Box{quantity > 1 ? "es" : ""})</span>
               </button>
             ) : (
               <button suppressHydrationWarning

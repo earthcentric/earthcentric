@@ -12,7 +12,12 @@ export interface CartItem {
   price: number;
   originalPrice?: number;
   image: string;
-  quantity: number;
+  quantity: number; // Number of bulk boxes
+  boxes?: number;
+  unitsPerBox?: number; // Predefined units per box
+  totalUnits?: number;  // boxes * unitsPerBox
+  pricePerBox?: number;
+  commissionRate?: number;
   sellerName: string;
   sellerId: string;
   moq?: number;
@@ -123,6 +128,9 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   }, [cart, isLoaded, user?.id]);
 
   const addToCart = (product: Omit<CartItem, "quantity">, quantity = 1) => {
+    const boxQty = Math.max(1, Math.round(quantity));
+    const unitsPerBox = (product as any).unitsPerBox || (product as any).bulkOrderQuantity || 100;
+
     // Check one-time offer popup per session for active Buy X Get Y offers
     if (product.buyXGetYOffer && isBuyXGetYActive(product.buyXGetYOffer)) {
       const sessionKey = `buy_x_offer_shown_${product.id}`;
@@ -137,15 +145,20 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
-    // Optimistic client state update
+    // Optimistic client state update (box-based only)
     setCart((prevCart) => {
       const existingItem = prevCart.find((item) => item.id === product.id);
       if (existingItem) {
+        const newBoxes = existingItem.quantity + boxQty;
         return prevCart.map((item) =>
           item.id === product.id
             ? {
                 ...item,
-                quantity: item.quantity + quantity,
+                quantity: newBoxes,
+                boxes: newBoxes,
+                unitsPerBox,
+                totalUnits: newBoxes * unitsPerBox,
+                pricePerBox: product.price,
                 buyXGetYOffer: product.buyXGetYOffer !== undefined ? product.buyXGetYOffer : item.buyXGetYOffer,
                 individualDiscount: product.individualDiscount !== undefined ? product.individualDiscount : item.individualDiscount,
                 tierDiscounts: product.tierDiscounts !== undefined ? product.tierDiscounts : item.tierDiscounts,
@@ -154,12 +167,19 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
             : item
         );
       }
-      return [...prevCart, { ...product, quantity }];
+      return [...prevCart, {
+        ...product,
+        quantity: boxQty,
+        boxes: boxQty,
+        unitsPerBox,
+        totalUnits: boxQty * unitsPerBox,
+        pricePerBox: product.price,
+      }];
     });
 
     // Save changes to database in the background if authenticated
     if (user?.id) {
-      addToDbCart(user.id, product.id, quantity).catch((err) =>
+      addToDbCart(user.id, product.id, boxQty).catch((err) =>
         console.error("Failed to sync addToCart to database:", err)
       );
     }
@@ -189,10 +209,16 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         return prevCart.filter((i) => i.id !== id);
       }
       
-      // Normal ordering: buyer can purchase any quantity (minimum 1 unit; MOQ is strictly for bulk/wholesale quotes)
-      finalQty = Math.max(1, quantity);
+      // Box-based bulk ordering only: minimum 1 full box
+      finalQty = Math.max(1, Math.round(quantity));
+      const unitsPerBox = item.unitsPerBox || 100;
       
-      return prevCart.map((i) => (i.id === id ? { ...i, quantity: finalQty } : i));
+      return prevCart.map((i) => (i.id === id ? {
+        ...i,
+        quantity: finalQty,
+        boxes: finalQty,
+        totalUnits: finalQty * unitsPerBox,
+      } : i));
     });
 
     // Save changes to database in the background if authenticated
