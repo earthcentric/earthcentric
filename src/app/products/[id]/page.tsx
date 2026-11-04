@@ -8,7 +8,20 @@ interface PageProps {
 
 export default async function ProductDetailsPage({ params }: PageProps) {
   const { id } = await params;
-  const product = await getProductById(id);
+  if (!id) {
+    notFound();
+  }
+
+  const rawId = id.trim();
+  let decodedId = rawId;
+  try {
+    decodedId = decodeURIComponent(rawId).trim();
+  } catch {}
+
+  let product = await getProductById(rawId);
+  if (!product && decodedId !== rawId) {
+    product = await getProductById(decodedId);
+  }
 
   if (!product) {
     notFound();

@@ -600,7 +600,7 @@ export default function Navbar() {
               <Link href="/marketplace" className="text-white hover:text-emerald-400 transition-colors">
                 Marketplace
               </Link>
-              <Link href="/#verified-sellers" className="text-slate-200 hover:text-emerald-400 transition-colors">
+              <Link href="/verified-sellers" className="text-slate-200 hover:text-emerald-400 transition-colors">
                 Verified Sellers
               </Link>
               <Link href="/marketplace?deals=true" className="text-slate-200 hover:text-emerald-400 transition-colors">
@@ -659,7 +659,7 @@ export default function Navbar() {
               Impact Tracker
             </Link>
             <Link
-              href="/#verified-sellers"
+              href="/verified-sellers"
               className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
               onClick={() => setIsMobileMenuOpen(false)}
             >

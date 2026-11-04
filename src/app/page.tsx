@@ -10,7 +10,7 @@ import DisplayCards from "@/components/ui/display-cards";
 import ScrollGlobe from "@/components/ui/scroll-globe";
 import { useCart } from "@/context/CartContext";
 import { getProducts, ProductItem } from "@/actions/products";
-import { getVerifiedSellers } from "@/actions/sellers";
+import ProductCard from "@/components/marketplace/ProductCard";
 import TestimonialsSection from "@/components/marketplace/TestimonialsSection";
 
 const CATEGORIES = [
@@ -114,157 +114,6 @@ const SUSTAINABILITY_DATA = [
   }
 ];
 
-const FEATURED_PRODUCTS = [
-  {
-    id: "prod-pdf-1",
-    name: "Sauce Dip Bowl",
-    category: "Bowls",
-    price: 1,
-    image: "/images/products/product_p1_1.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-2",
-    name: "Snack Plate",
-    category: "Plates",
-    price: 2,
-    image: "/images/products/product_p1_2.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-3",
-    name: "Glass",
-    category: "Tableware",
-    price: 1,
-    image: "/images/products/product_p1_3.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-4",
-    name: "1D Tray",
-    category: "Trays",
-    price: 2,
-    image: "/images/products/product_p1_4.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-5",
-    name: "6\" x 6\" Clamshell Box",
-    category: "Clamshells",
-    price: 1,
-    image: "/images/products/product_p1_5.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-6",
-    name: "9\" x 9\" Clamshell Box",
-    category: "Clamshells",
-    price: 2,
-    image: "/images/products/product_p1_6.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-7",
-    name: "100 ml Round Bowl",
-    category: "Bowls",
-    price: 1,
-    image: "/images/products/product_p1_7.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-8",
-    name: "120 ml Square Bowl",
-    category: "Bowls",
-    price: 2,
-    image: "/images/products/product_p1_8.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-9",
-    name: "150 ml Kiwi Bowl",
-    category: "Bowls",
-    price: 1,
-    image: "/images/products/product_p1_9.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-10",
-    name: "180 ml Deep Round Bowl",
-    category: "Bowls",
-    price: 2,
-    image: "/images/products/product_p1_10.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-11",
-    name: "7\" Round Plate",
-    category: "Plates",
-    price: 1,
-    image: "/images/products/product_p2_7.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  },
-  {
-    id: "prod-pdf-12",
-    name: "5 CP Meal Tray & Lid",
-    category: "Meal Trays & Plates",
-    price: 2,
-    image: "/images/products/product_p3_10.png",
-    sellerName: "EarthCentric",
-    sellerId: "cmvcbbtm80001txgw8dd0r3lk",
-  }
-];
-
-const SELLERS = [
-  {
-    id: "cmvcbbtm80001txgw8dd0r3lk",
-    name: "AR ECO INDIA",
-    companyName: "AR ECO INDIA",
-    location: "India",
-    category: "Biodegradable Sugarcane Bagasse Tableware",
-    score: 98,
-    productCount: 34,
-    image: "/images/products/product_p1_1.png",
-    logoUrl: "/images/products/product_p1_1.png",
-    description: "Certified manufacturer of 100% biodegradable, compostable sugarcane bagasse tableware and eco packaging.",
-  },
-  {
-    id: "sel-gpee9e8",
-    name: "SMT",
-    companyName: "SMT",
-    location: "India",
-    category: "Sustainable Consumer Goods",
-    score: 95,
-    productCount: 12,
-    image: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1788503450/sellers/logos/lobotvry1v7psryqm7e7.jpg",
-    logoUrl: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1788503450/sellers/logos/lobotvry1v7psryqm7e7.jpg",
-    description: "Verified sustainable manufacturer of eco-friendly consumer goods.",
-  },
-  {
-    id: "sel-ns5xvde",
-    name: "SIH",
-    companyName: "SIH",
-    location: "India",
-    category: "Zero Waste Living",
-    score: 96,
-    productCount: 8,
-    image: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1793085900/sellers/logos/file_rj1mjh.webp",
-    logoUrl: "https://res.cloudinary.com/dtktlz2wu/image/upload/v1793085900/sellers/logos/file_rj1mjh.webp",
-    description: "Verified eco-friendly seller dedicated to zero-waste sustainable merchandise.",
-  },
-];
-
-
 const BASE_SAVINGS: Record<string, { carbon: number; water: number; waste: number }> = {
   "cotton-shirt": { carbon: 12.5, water: 420, waste: 0.22 },
   "bamboo-brush": { carbon: 0.65, water: 150, waste: 0.05 },
@@ -313,8 +162,9 @@ export default function Homepage() {
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
   const [selectedWowItemId, setSelectedWowItemId] = useState<string | null>(null);
   const [purchaseQuantity, setPurchaseQuantity] = useState(50);
-  const [verifiedSellers, setVerifiedSellers] = useState<any[]>([]);
   const [homeCategories, setHomeCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
+  const [products, setProducts] = useState<ProductItem[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
 
   useEffect(() => {
     fetch("/api/categories")
@@ -323,33 +173,99 @@ export default function Homepage() {
       .catch(() => {});
   }, []);
 
-  // Convert FEATURED_PRODUCTS to a compatible format for initial rendering
-  const initialProducts: ProductItem[] = FEATURED_PRODUCTS.map((p) => ({
-    id: p.id,
-    name: p.name,
-    slug: p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    description: "",
-    price: p.price,
-    stock: 10,
-    images: [p.image],
-    category: p.category,
-    categoryId: "",
-    isApproved: true,
-    sellerId: p.sellerId,
-    seller: {
-      id: p.sellerId,
-      companyName: p.sellerName,
-      badges: [],
-    },
-    certifications: [],
-    rating: 0,
-    reviewsCount: 0,
-  }));
+  useEffect(() => {
+    let isMounted = true;
+    async function loadData() {
+      try {
+        setLoadingProducts(true);
+        const fetchedProducts = await getProducts({ includeUnapproved: false });
+        if (isMounted) {
+          setProducts(Array.isArray(fetchedProducts) ? fetchedProducts : []);
+        }
+      } catch (err) {
+        console.error("Failed to load products on homepage:", err);
+      } finally {
+        if (isMounted) {
+          setLoadingProducts(false);
+        }
+      }
+    }
+    loadData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  const [products, setProducts] = useState<ProductItem[]>(initialProducts);
+  const handleAddToCart = (e: React.MouseEvent | null, item: ProductItem) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const units = item.unitsPerBox || item.bulkOrderQuantity || 100;
+    addToCart({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      originalPrice: item.originalPrice,
+      image: item.images?.[0] || "",
+      sellerName: "EarthCentric",
+      sellerId: item.sellerId,
+      moq: 1,
+      boxes: 1,
+      unitsPerBox: units,
+      pricePerBox: item.price,
+      twoBoxPrice: item.twoBoxPrice,
+      threePlusBoxPrice: item.threePlusBoxPrice,
+      totalUnits: units,
+      buyXGetYOffer: item.buyXGetYOffer || null,
+      individualDiscount: item.individualDiscount || null,
+      tierDiscounts: item.tierDiscounts || null,
+      bulkPriceSlabs: (item as any).bulkPriceSlabs || null,
+    }, 1);
+    setAddedItemName(item.name);
+    setTimeout(() => setAddedItemName(null), 2500);
+  };
+
+  const fallbackSustainabilityItems: ProductItem[] = [
+    {
+      id: "preview-1",
+      name: "Organic Raw Cotton Shirt",
+      slug: "organic-raw-cotton-shirt",
+      description: "",
+      price: 2,
+      stock: 50,
+      images: [],
+      category: "Apparel",
+      categoryId: "apparel",
+      isApproved: true,
+      sellerId: "earthcentric",
+      seller: { id: "earthcentric", companyName: "EarthCentric", badges: [] },
+      certifications: [],
+      rating: 5,
+      reviewsCount: 10,
+    },
+    {
+      id: "preview-2",
+      name: "Biodegradable Bamboo Toothbrush",
+      slug: "biodegradable-bamboo-toothbrush",
+      description: "",
+      price: 1,
+      stock: 50,
+      images: [],
+      category: "Zero-Waste",
+      categoryId: "zero-waste",
+      isApproved: true,
+      sellerId: "earthcentric",
+      seller: { id: "earthcentric", companyName: "EarthCentric", badges: [] },
+      certifications: [],
+      rating: 5,
+      reviewsCount: 15,
+    },
+  ];
 
   // Dynamically map products to sustainability intelligence items
-  const sustainabilityItems = products.map((prod) => {
+  const intelligenceSource = products.length > 0 ? products : fallbackSustainabilityItems;
+  const sustainabilityItems = intelligenceSource.map((prod) => {
     let carbonRate = 0.65;
     let waterRate = 150;
     let wasteRate = 0.05;
@@ -410,44 +326,6 @@ export default function Homepage() {
 
   const activeWowItem = sustainabilityItems.find(item => item.id === selectedWowItemId) || sustainabilityItems[0];
 
-  // Dynamically map verifiedSellers to matching format for the scrolling globe panel
-  const mappedSellers = (verifiedSellers && verifiedSellers.length > 0 ? verifiedSellers : SELLERS).map((s) => {
-    const name = s.companyName || s.name || "Eco Brand";
-    const logo = s.logoUrl || s.image || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400";
-    const description = s.description || "Verified Sustainable Supplier committed to environmental excellence and auditing.";
-    
-    // Fallbacks for fields that might not be in DB profile mapping:
-    const location = s.location || "India";
-    const category = s.category || "Eco-Friendly Products";
-    const productCount = s.productCount || 12;
-
-    return {
-      name,
-      location,
-      category: category.toUpperCase(),
-      productCount,
-      image: logo,
-      description,
-      id: s.id || null
-    };
-  });
-
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const fetchedProducts = await getProducts();
-        if (fetchedProducts && fetchedProducts.length > 0) {
-          setProducts(fetchedProducts);
-        }
-        const fetchedSellers = await getVerifiedSellers();
-        setVerifiedSellers(Array.isArray(fetchedSellers) ? fetchedSellers : []);
-      } catch (err) {
-        console.error("Failed to load data from DB:", err);
-      }
-    }
-    loadData();
-  }, []);
-
   const sections = [
     {
       id: "hero",
@@ -484,8 +362,8 @@ export default function Homepage() {
 
                 <div className="pt-6 border-t border-[#d0c6b8]/30 max-w-xl grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs text-muted-foreground font-semibold">
                   <div>
-                    <span className="block text-lg font-black text-primary">{verifiedSellers.length > 0 ? verifiedSellers.length : '1'}</span>
-                    <span>Verified Sellers</span>
+                    <span className="block text-lg font-black text-primary">{products.length > 0 ? `${products.length}+` : '100+'}</span>
+                    <span>Audited Products</span>
                   </div>
                   <div>
                     <span className="block text-lg font-black text-primary">5-Stage</span>
@@ -514,68 +392,39 @@ export default function Homepage() {
               <p className="text-sm text-muted-foreground">Handpicked items from verified manufacturers featuring lifetime carbon offsetting.</p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              {products.slice(0, 12).map((item) => {
-                const itemImage = item.images?.[0] || "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=400";
-                const sellerName = item.seller?.companyName || "Earth Centric";
-                return (
-                  <div 
-                    key={item.id}
-                    className="group relative bg-card border border-border/40 rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_12px_24px_rgba(23,53,40,0.1),0_0_15px_rgba(34,197,94,0.1)] flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="aspect-square relative overflow-hidden bg-muted/20">
-                        <img 
-                          src={itemImage} 
-                          alt={item.name} 
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                        <div className="absolute top-2 left-2 flex flex-col gap-1.5 items-start">
-                          <span className="bg-[#173528]/95 text-white text-[8px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider shadow-sm">
-                            {item.category}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="p-4 space-y-1.5 text-left">
-                        <p className="text-[9px] font-bold text-accent uppercase tracking-wider">{sellerName}</p>
-                        <Link href={`/products/${item.id}`}>
-                          <h4 className="text-xs font-bold text-primary line-clamp-2 group-hover:text-emerald-600 transition-colors cursor-pointer min-h-[32px]">{item.name}</h4>
-                        </Link>
-                        <p className="text-sm font-black text-primary">₹{item.price.toLocaleString()}</p>
-                      </div>
-                    </div>
-                    <div className="px-4 pb-4 pt-0">
-                      <Button 
-                        onClick={() => {
-                          addToCart({
-                            id: item.id,
-                            name: item.name,
-                            price: item.price,
-                            originalPrice: item.originalPrice,
-                            image: itemImage,
-                            sellerName: sellerName,
-                            sellerId: item.sellerId,
-                            moq: item.moq,
-                            buyXGetYOffer: item.buyXGetYOffer || null,
-                            individualDiscount: item.individualDiscount || null,
-                            tierDiscounts: item.tierDiscounts || null,
-                            bulkPriceSlabs: (item as any).bulkPriceSlabs || null,
-                          }, 1);
-                          setAddedItemName(item.name);
-                          setTimeout(() => setAddedItemName(null), 2000);
-                        }}
-                        size="sm"
-                        variant="cool"
-                        className="w-full text-[9px] font-bold py-1.5 flex items-center justify-center space-x-1"
-                      >
-                        <ShoppingBag className="h-3 w-3" />
-                        <span>Add to Cart</span>
-                      </Button>
-                    </div>
+            {loadingProducts ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                  <div key={i} className="bg-white border border-slate-100 rounded-3xl p-4 animate-pulse space-y-4">
+                    <div className="aspect-square bg-slate-100 rounded-2xl" />
+                    <div className="h-4 bg-slate-100 rounded w-3/4" />
+                    <div className="h-3 bg-slate-100 rounded w-1/2" />
+                    <div className="h-6 bg-slate-100 rounded w-1/3" />
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : products.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                {products.slice(0, 12).map((item) => (
+                  <ProductCard
+                    key={item.id}
+                    product={item}
+                    onAddToCart={(e, p) => handleAddToCart(e, p)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white/60 border border-dashed border-border/60 rounded-3xl p-8 space-y-3">
+                <Leaf className="h-8 w-8 text-emerald-600 mx-auto" />
+                <h3 className="text-base font-bold text-primary">Catalog Updating</h3>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                  Approved products will appear here automatically. Visit the marketplace to explore all live sustainable categories.
+                </p>
+                <Link href="/marketplace">
+                  <Button variant="cool" size="sm" className="mt-2 text-xs">Explore Marketplace</Button>
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* WOW Component: Sustainability Intelligence Dashboard */}
@@ -751,83 +600,6 @@ export default function Homepage() {
       )
     },
     {
-      id: "verified-sellers-section",
-      badge: "Sellers",
-      content: (
-        <section id="verified-sellers" className="w-full bg-slate-50 py-16 md:py-24 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-12 md:mt-24 border-t border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-12">
-            <div className="space-y-2">
-              <Badge variant="primary">Verified Network</Badge>
-              <h2 className="text-3xl font-bold tracking-tight text-primary sm:text-4xl">
-                Verified Sellers
-              </h2>
-              <p className="text-sm text-muted-foreground max-w-2xl">
-                These brands have passed our rigorous 5-step verification process ensuring absolute sustainability and zero greenwashing.
-              </p>
-            </div>
-          </div>
-          
-          {(() => {
-            const displaySellers = verifiedSellers && verifiedSellers.length > 0 ? verifiedSellers : SELLERS;
-            if (displaySellers.length === 0) {
-              return (
-                <div className="text-center py-12 text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl bg-white">
-                  No verified sellers currently listed.
-                </div>
-              );
-            }
-            return (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {displaySellers.map((seller) => (
-                  <Card key={seller.id} className="p-6 space-y-4 hover:shadow-lg transition-all duration-300 border-border/40 hover:-translate-y-1 bg-white">
-                    <div className="flex items-start justify-between">
-                      <div className="h-16 w-16 rounded-full border border-border/40 overflow-hidden bg-slate-50 flex items-center justify-center shrink-0">
-                        {seller.logoUrl || seller.image ? (
-                          <img
-                            src={seller.logoUrl || seller.image}
-                            alt={seller.companyName || seller.name}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <Leaf className="h-8 w-8 text-[#2d4a36]" />
-                        )}
-                      </div>
-                      <Badge variant="accent" className="text-[10px] font-bold px-2 py-0.5">
-                        Verified
-                      </Badge>
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-lg text-primary truncate" title={seller.companyName || seller.name}>
-                        {seller.companyName || seller.name}
-                      </h3>
-                      <div className="flex items-center space-x-1 mt-1 text-emerald-600">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider">Verified Business</span>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px]">
-                      {seller.description || "Certified sustainable supplier on EarthCentric marketplace."}
-                    </p>
-                    <div className="pt-2 border-t border-border/40">
-                      <Link href={`/marketplace?seller=${seller.id}`}>
-                        <Button variant="cool" size="sm" className="w-full text-xs cursor-pointer">
-                          View Seller
-                        </Button>
-                      </Link>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            );
-          })()}
-
-        </section>
-      )
-    },
-    {
       id: "credentials",
       badge: "Credentials",
       content: (
@@ -959,76 +731,6 @@ export default function Homepage() {
       )
     },
     {
-      id: "verified-sellers",
-      badge: "Standards",
-      content: (
-        <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 md:py-36 space-y-12">
-          <div className="text-center space-y-2 max-w-xl mx-auto">
-            <div className="inline-flex items-center space-x-1.5 rounded-full bg-accent/20 border border-accent/30 px-3 py-1 text-[10px] font-bold text-primary uppercase tracking-wider">
-              <Award className="h-3 w-3 text-emerald-600 animate-pulse" />
-              <span>EarthCentric Direct Verification</span>
-            </div>
-            <h2 className="text-3xl font-extrabold text-primary tracking-tight sm:text-4xl">
-              Certified Sustainable Hubs
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Every product is audited and fulfilled under EarthCentric quality and carbon-neutral standards.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pt-4">
-            {mappedSellers.slice(0, 6).map((s, idx) => (
-              <div 
-                key={idx}
-                className="glass-card bg-card border border-border/40 rounded-3xl p-6 flex flex-col justify-between space-y-6 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden"
-              >
-                <div className="space-y-4 text-left">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm block">🌿</span>
-                      <h3 className="font-extrabold text-base text-primary tracking-tight truncate max-w-[220px]">
-                        EarthCentric Hub #{idx + 1}
-                      </h3>
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="inline-flex items-center space-x-1 bg-muted/40 rounded-full px-2.5 py-1 text-[10px] text-muted-foreground font-semibold">
-                      <MapPin className="h-3 w-3 text-[#8B5E3C]" />
-                      <span>{s.location}</span>
-                    </span>
-                    <span className="inline-flex items-center space-x-1 bg-muted/40 rounded-full px-2.5 py-1 text-[10px] text-muted-foreground font-semibold">
-                      <span>{s.productCount} Audited Items</span>
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3 min-h-[48px]">
-                    {s.description}
-                  </p>
-                  
-                  <div className="text-[10px] font-bold text-accent uppercase tracking-wider truncate">
-                    Domain: <span className="text-primary">{s.category}</span>
-                  </div>
-                </div>
-
-                <div className="border-t border-[#d0c6b8]/20 pt-4 flex items-center justify-between">
-                  <div className="flex items-center space-x-1 text-[10px] text-emerald-700 font-bold">
-                    <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Audit Status: Passed</span>
-                  </div>
-                  <Link href={s.id ? `/marketplace?seller=${s.id}` : `/marketplace?search=${encodeURIComponent(s.name)}`}>
-                    <Button variant="cool" size="sm" className="text-[10px] py-1.5 px-3">
-                      View Profile
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )
-    },
-    {
       id: "testimonials",
       badge: "Testimonials",
       content: <TestimonialsSection />,
@@ -1088,7 +790,7 @@ export default function Homepage() {
           <span className="text-xs font-semibold">Added "{addedItemName}" to Cart!</span>
         </div>
       )}
-      <ScrollGlobe sections={sections} sellerCount={verifiedSellers.length > 0 ? verifiedSellers.length : 1} />
+      <ScrollGlobe sections={sections} />
     </>
   );
 }
