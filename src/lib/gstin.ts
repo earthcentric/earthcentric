@@ -136,3 +136,98 @@ export function validateGSTIN(input?: string | null): GSTINValidationResult {
   };
 }
 
+/**
+ * Normalizes input Indian mobile number by stripping non-digits and leading +91 / 0
+ */
+export function normalizeIndianMobile(input?: string | null): string {
+  if (!input) return "";
+  let digits = input.trim().replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) {
+    digits = digits.substring(2);
+  } else if (digits.length === 11 && digits.startsWith("0")) {
+    digits = digits.substring(1);
+  }
+  return digits;
+}
+
+/**
+ * Validates a 10-digit Indian mobile number
+ */
+export function validateIndianMobile(input?: string | null): {
+  isValid: boolean;
+  normalizedPhone?: string;
+  error?: string;
+} {
+  const digits = normalizeIndianMobile(input);
+
+  if (!digits) {
+    return {
+      isValid: false,
+      error: "Registered mobile number is required.",
+    };
+  }
+
+  if (digits.length !== 10) {
+    return {
+      isValid: false,
+      error: `Mobile number must be exactly 10 digits (currently ${digits.length}).`,
+      normalizedPhone: digits,
+    };
+  }
+
+  if (!/^[6-9]\d{9}$/.test(digits)) {
+    return {
+      isValid: false,
+      error: "Mobile number must be a valid 10-digit Indian number starting with 6, 7, 8, or 9.",
+      normalizedPhone: digits,
+    };
+  }
+
+  return {
+    isValid: true,
+    normalizedPhone: digits,
+  };
+}
+
+/**
+ * Validates both GSTIN and Mobile Number together for unlocking B2B commercial bulk pricing
+ */
+export function validateGstAndPhone(
+  gstinInput?: string | null,
+  phoneInput?: string | null
+): {
+  isValid: boolean;
+  error?: string;
+  normalizedGstin?: string;
+  normalizedPhone?: string;
+  stateName?: string;
+  pan?: string;
+} {
+  const gstinRes = validateGSTIN(gstinInput);
+  if (!gstinRes.isValid) {
+    return {
+      isValid: false,
+      error: gstinRes.error || "A valid 15-character GSTIN is required.",
+      normalizedGstin: gstinRes.normalizedGstin,
+    };
+  }
+
+  const phoneRes = validateIndianMobile(phoneInput);
+  if (!phoneRes.isValid) {
+    return {
+      isValid: false,
+      error: phoneRes.error || "A valid 10-digit registered mobile number is required.",
+      normalizedGstin: gstinRes.normalizedGstin,
+      normalizedPhone: phoneRes.normalizedPhone,
+    };
+  }
+
+  return {
+    isValid: true,
+    normalizedGstin: gstinRes.normalizedGstin,
+    normalizedPhone: phoneRes.normalizedPhone,
+    stateName: gstinRes.stateName,
+    pan: gstinRes.pan,
+  };
+}
+

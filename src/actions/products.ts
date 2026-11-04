@@ -88,6 +88,11 @@ export interface ProductItem {
   bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
   unitsPerBox?: number;              // Bulk packaging: number of pieces / units per box
   pricePerBox?: number;              // Price per complete box
+  twoBoxPrice?: number | null;       // Configured approved price for 2 boxes (e.g. ₹3.50, NOT ₹4)
+  threePlusBoxPrice?: number | null; // Configured approved price per box for 3+ boxes (e.g. ₹1.60/box)
+  bulkPricingApproved?: boolean;     // Super Admin bulk pricing approval status
+  minBulkBoxes?: number | null;      // Minimum bulk order quantity in boxes
+  maxBulkBoxes?: number | null;      // Maximum bulk order quantity in boxes
   commissionRate?: number;           // Super Admin configured commission percentage
   deliveryTime?: string | null;      // Estimated delivery timeline
   returnEligibility?: string | null; // Return or replacement policy
@@ -2521,6 +2526,11 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
       unitsPerBox: (p as any).unitsPerBox || 100,
       pricePerBox: p.price,
+      twoBoxPrice: (p as any).twoBoxPrice ?? (p.price * 1.75),
+      threePlusBoxPrice: (p as any).threePlusBoxPrice ?? (p.price * 0.8),
+      minBulkBoxes: (p as any).minBulkBoxes ?? 2,
+      maxBulkBoxes: (p as any).maxBulkBoxes ?? null,
+      bulkPricingApproved: (p as any).bulkPricingApproved ?? false,
       commissionRate: (p as any).commissionRate ?? 10.0,
       deliveryTime: (p as any).deliveryTime || null,
       returnEligibility: (p as any).returnEligibility || null,
@@ -2569,6 +2579,11 @@ export async function createProduct(data: {
   bulkOrderQuantity?: number; // Seller wholesale: default bulk quantity
   bulkOrderPrice?: number;    // Seller wholesale: total price for that bulk quantity
   unitsPerBox?: number;       // Bulk quantity per box (units / pieces)
+  twoBoxPrice?: number;       // Price for 2 boxes (e.g. ₹3.50; NOT 2 × ₹2)
+  threePlusBoxPrice?: number; // Price per box for 3 or more boxes (e.g. ₹1.60)
+  minBulkBoxes?: number;      // Minimum bulk order boxes (default 2)
+  maxBulkBoxes?: number | null; // Maximum bulk order boxes
+  bulkPricingApproved?: boolean; // Super Admin bulk pricing approval flag
   commissionRate?: number;    // Optional product-specific commission %
   deliveryTime?: string;      // Delivery timeframe (e.g. 3-5 business days)
   returnEligibility?: string; // Return / replacement conditions
@@ -2703,6 +2718,11 @@ export async function createProduct(data: {
         moq: data.moq ? Number(data.moq) : 1,
         unitsPerBox: data.unitsPerBox ? Number(data.unitsPerBox) : (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : 100),
         pricePerBox: Number(data.price),
+        twoBoxPrice: data.twoBoxPrice !== undefined && data.twoBoxPrice !== null ? Number(data.twoBoxPrice) : (Number(data.price || 2) * 1.75),
+        threePlusBoxPrice: data.threePlusBoxPrice !== undefined && data.threePlusBoxPrice !== null ? Number(data.threePlusBoxPrice) : (Number(data.price || 2) * 0.8),
+        minBulkBoxes: data.minBulkBoxes !== undefined && data.minBulkBoxes !== null ? Number(data.minBulkBoxes) : 2,
+        maxBulkBoxes: data.maxBulkBoxes !== undefined && data.maxBulkBoxes !== null ? Number(data.maxBulkBoxes) : null,
+        bulkPricingApproved: data.bulkPricingApproved !== undefined ? Boolean(data.bulkPricingApproved) : false,
         commissionRate: data.commissionRate !== undefined ? Number(data.commissionRate) : 10.0,
         deliveryTime: data.deliveryTime || "3-5 business days",
         returnEligibility: data.returnEligibility || "B2B replacement within 7 days for transit damage",
@@ -2782,6 +2802,11 @@ export async function createProduct(data: {
         buyXGetYOffer: isBxgyEnabled ? (data.buyXGetYOffer as any) : null,
         moq: data.moq ? Number(data.moq) : 1,
         unitsPerBox: data.unitsPerBox ? Number(data.unitsPerBox) : (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : 100),
+        twoBoxPrice: data.twoBoxPrice !== undefined && data.twoBoxPrice !== null ? Number(data.twoBoxPrice) : (Number(data.price || 2) * 1.75),
+        threePlusBoxPrice: data.threePlusBoxPrice !== undefined && data.threePlusBoxPrice !== null ? Number(data.threePlusBoxPrice) : (Number(data.price || 2) * 0.8),
+        minBulkBoxes: data.minBulkBoxes !== undefined && data.minBulkBoxes !== null ? Number(data.minBulkBoxes) : 2,
+        maxBulkBoxes: data.maxBulkBoxes !== undefined && data.maxBulkBoxes !== null ? Number(data.maxBulkBoxes) : null,
+        bulkPricingApproved: data.bulkPricingApproved !== undefined ? Boolean(data.bulkPricingApproved) : false,
         commissionRate: data.commissionRate !== undefined ? Number(data.commissionRate) : (seller.commissionRate ?? 10.0),
         deliveryTime: data.deliveryTime || "3-5 business days",
         returnEligibility: data.returnEligibility || "B2B replacement within 7 days for transit damage",
@@ -2914,6 +2939,11 @@ export async function createProduct(data: {
       bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
       unitsPerBox: (p as any).unitsPerBox || 100,
       pricePerBox: p.price,
+      twoBoxPrice: (p as any).twoBoxPrice ?? (p.price * 1.75),
+      threePlusBoxPrice: (p as any).threePlusBoxPrice ?? (p.price * 0.8),
+      minBulkBoxes: (p as any).minBulkBoxes ?? 2,
+      maxBulkBoxes: (p as any).maxBulkBoxes ?? null,
+      bulkPricingApproved: (p as any).bulkPricingApproved ?? false,
       commissionRate: (p as any).commissionRate ?? 10.0,
       deliveryTime: (p as any).deliveryTime || null,
       returnEligibility: (p as any).returnEligibility || null,
@@ -2950,6 +2980,11 @@ export async function updateProduct(
     bulkOrderQuantity?: number | null; // Seller wholesale: default bulk quantity
     bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
     unitsPerBox?: number | null;
+    twoBoxPrice?: number | null;
+    threePlusBoxPrice?: number | null;
+    minBulkBoxes?: number | null;
+    maxBulkBoxes?: number | null;
+    bulkPricingApproved?: boolean;
     commissionRate?: number | null;
     deliveryTime?: string | null;
     returnEligibility?: string | null;
@@ -2995,6 +3030,11 @@ export async function updateProduct(
             bulkPriceSlabs: data.bulkPriceSlabs || null,
             bulkOrderQuantity: data.bulkOrderQuantity !== undefined ? (data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null) : (p as any).bulkOrderQuantity,
             bulkOrderPrice: data.bulkOrderPrice !== undefined ? (data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null) : (p as any).bulkOrderPrice,
+            twoBoxPrice: data.twoBoxPrice !== undefined ? (data.twoBoxPrice ? Number(data.twoBoxPrice) : null) : (p as any).twoBoxPrice,
+            threePlusBoxPrice: data.threePlusBoxPrice !== undefined ? (data.threePlusBoxPrice ? Number(data.threePlusBoxPrice) : null) : (p as any).threePlusBoxPrice,
+            minBulkBoxes: data.minBulkBoxes !== undefined ? (data.minBulkBoxes ? Number(data.minBulkBoxes) : null) : (p as any).minBulkBoxes,
+            maxBulkBoxes: data.maxBulkBoxes !== undefined ? (data.maxBulkBoxes ? Number(data.maxBulkBoxes) : null) : (p as any).maxBulkBoxes,
+            bulkPricingApproved: data.bulkPricingApproved !== undefined ? Boolean(data.bulkPricingApproved) : (p as any).bulkPricingApproved,
             wholesalePrice: data.wholesalePrice !== undefined ? (data.wholesalePrice ? Number(data.wholesalePrice) : undefined) : (data.bulkOrderPrice && data.bulkOrderQuantity ? Number(data.bulkOrderPrice) / Number(data.bulkOrderQuantity) : p.wholesalePrice),
             tierDiscounts: data.tierDiscounts !== undefined ? data.tierDiscounts : null,
             individualDiscount: data.individualDiscount !== undefined ? data.individualDiscount : null,
@@ -3059,6 +3099,11 @@ export async function updateProduct(
     if (data.bulkOrderQuantity !== undefined) updatePayload.bulkOrderQuantity = data.bulkOrderQuantity ? Number(data.bulkOrderQuantity) : null;
     if (data.bulkOrderPrice !== undefined) updatePayload.bulkOrderPrice = data.bulkOrderPrice ? Number(data.bulkOrderPrice) : null;
     if (data.unitsPerBox !== undefined) updatePayload.unitsPerBox = data.unitsPerBox ? Number(data.unitsPerBox) : 100;
+    if (data.twoBoxPrice !== undefined) updatePayload.twoBoxPrice = data.twoBoxPrice ? Number(data.twoBoxPrice) : null;
+    if (data.threePlusBoxPrice !== undefined) updatePayload.threePlusBoxPrice = data.threePlusBoxPrice ? Number(data.threePlusBoxPrice) : null;
+    if (data.minBulkBoxes !== undefined) updatePayload.minBulkBoxes = data.minBulkBoxes ? Number(data.minBulkBoxes) : null;
+    if (data.maxBulkBoxes !== undefined) updatePayload.maxBulkBoxes = data.maxBulkBoxes ? Number(data.maxBulkBoxes) : null;
+    if (data.bulkPricingApproved !== undefined) updatePayload.bulkPricingApproved = Boolean(data.bulkPricingApproved);
     if (data.commissionRate !== undefined) updatePayload.commissionRate = data.commissionRate !== null ? Number(data.commissionRate) : 10.0;
     if (data.deliveryTime !== undefined) updatePayload.deliveryTime = data.deliveryTime || null;
     if (data.returnEligibility !== undefined) updatePayload.returnEligibility = data.returnEligibility || null;
@@ -3865,5 +3910,75 @@ export async function updateProductVisibilityByAdmin(
   } catch (error: any) {
     console.error("Failed to toggle product visibility:", error);
     return { success: false, error: error?.message || "Failed to update product visibility." };
+  }
+}
+
+/**
+ * Super Admin: Review, approve, or override bulk box pricing for a product
+ */
+export async function updateProductBulkPricingByAdmin(
+  productId: string,
+  data: {
+    price?: number;
+    twoBoxPrice?: number;
+    threePlusBoxPrice?: number;
+    minBulkBoxes?: number;
+    maxBulkBoxes?: number | null;
+    bulkPricingApproved?: boolean;
+  },
+  adminEmail: string = "admin@earthcentric.com"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    const updateData: any = {};
+    if (data.price !== undefined) updateData.price = Number(data.price);
+    if (data.twoBoxPrice !== undefined) updateData.twoBoxPrice = Number(data.twoBoxPrice);
+    if (data.threePlusBoxPrice !== undefined) updateData.threePlusBoxPrice = Number(data.threePlusBoxPrice);
+    if (data.minBulkBoxes !== undefined) updateData.minBulkBoxes = Number(data.minBulkBoxes);
+    if (data.maxBulkBoxes !== undefined) updateData.maxBulkBoxes = data.maxBulkBoxes ? Number(data.maxBulkBoxes) : null;
+    if (data.bulkPricingApproved !== undefined) updateData.bulkPricingApproved = Boolean(data.bulkPricingApproved);
+
+    if (!isMock) {
+      const { verifyAdminAuth } = await import("@/lib/auth-server");
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        return { success: false, error: "Unauthorized: Super Admin access required." };
+      }
+
+      await db.product.update({
+        where: { id: productId },
+        data: updateData,
+      });
+
+      try {
+        await db.auditLog.create({
+          data: {
+            action: "UPDATE_PRODUCT_BULK_PRICING",
+            adminEmail: adminAuth.email || adminEmail,
+            details: `Updated bulk pricing for product ${productId}: 1-box=₹${data.price}, 2-box=₹${data.twoBoxPrice}, 3+box=₹${data.threePlusBoxPrice}, approved=${data.bulkPricingApproved}`,
+          },
+        });
+      } catch (e) {}
+    } else {
+      dynamicProducts = dynamicProducts.map((p) =>
+        p.id === productId ? { ...p, ...updateData } : p
+      );
+      const mIdx = MOCK_PRODUCTS.findIndex((p) => p.id === productId);
+      if (mIdx !== -1) {
+        MOCK_PRODUCTS[mIdx] = { ...MOCK_PRODUCTS[mIdx], ...updateData };
+      }
+    }
+
+    try {
+      revalidatePath("/admin/dashboard");
+      revalidatePath("/marketplace");
+      revalidatePath(`/products/${productId}`);
+      revalidatePath("/cart");
+    } catch (e) {}
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Failed to update bulk pricing by admin:", error);
+    return { success: false, error: error?.message || "Failed to update bulk pricing." };
   }
 }

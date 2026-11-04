@@ -196,6 +196,11 @@ model Product {
   wholesalePrice       Float?
   originalPrice        Float?
   unitsPerBox          Int           @default(100) // Bulk pieces / units per box
+  twoBoxPrice          Float?        // Specific approved price for exactly 2 boxes (e.g. ₹3.50)
+  threePlusBoxPrice    Float?        // Specific approved price per box for 3+ boxes (e.g. ₹1.60)
+  bulkPricingApproved  Boolean       @default(true) // Super Admin bulk pricing approval
+  minBulkBoxes         Int?          @default(2)
+  maxBulkBoxes         Int?
   commissionRate       Float?        @default(10.0) // Super Admin configured commission %
   moq                  Int           @default(1)
   unit                 String        @default("piece") // e.g. piece, kg, box

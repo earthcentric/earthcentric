@@ -243,17 +243,17 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
         <div>
           <div className="flex items-baseline space-x-1 flex-wrap">
             <span className="text-base font-black text-slate-900">
-              ₹{effective.unitPrice.toLocaleString()}
+              ₹{product.price ?? 2}
             </span>
-            <span className="text-[10px] text-slate-500 font-bold">/ box</span>
-            {(effective.appliedDiscountType !== "NONE" || effective.originalPrice > effective.unitPrice) && (
+            <span className="text-xs text-slate-700 font-extrabold">/ Box</span>
+            {effective.originalPrice > (product.price ?? 2) && (
               <span className="text-xs text-slate-400 font-semibold line-through ml-1">
                 ₹{effective.originalPrice.toLocaleString()}
               </span>
             )}
           </div>
-          <p className="text-[9px] text-[#0F6E56] font-bold mt-0.5">
-            = ₹{unitRate}/unit ({unitsPerBox} pcs)
+          <p className="text-[10px] text-[#0F6E56] font-extrabold mt-0.5 tracking-wide">
+            {unitsPerBox} Pieces per Box
           </p>
         </div>
         <button

@@ -32,7 +32,10 @@ import {
   MessageSquare,
   Loader2,
   Bell,
+  Lock,
+  Package,
 } from "lucide-react";
+import { getBoxPricingBreakdown } from "@/lib/box-pricing";
 
 interface ProductClientViewProps {
   product: ProductItem;
@@ -40,7 +43,7 @@ interface ProductClientViewProps {
 
 export default function ProductClientView({ product }: ProductClientViewProps) {
   const router = useRouter();
-  const { cart, addToCart, updateQuantity, openCart } = useCart();
+  const { cart, addToCart, updateQuantity, openCart, isGstVerified, openGstModal, verifiedGstin } = useCart();
   const { user } = useAuth();
   const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
   const isWishlisted = isInWishlist(product.id);
@@ -63,7 +66,18 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     }
   }, [cartItem?.quantity]);
 
+  // Requirement 2: Incrementing from 1 to 2+ boxes requires GST verification
   const handleQuantityChange = (newQty: number) => {
+    if (newQty > 1 && !isGstVerified) {
+      openGstModal(() => {
+        const clampedQty = Math.max(1, Math.min(product.stock || 9999, newQty));
+        setQuantity(clampedQty);
+        if (isInCart) {
+          updateQuantity(product.id, clampedQty);
+        }
+      });
+      return;
+    }
     const clampedQty = Math.max(1, Math.min(product.stock || 9999, newQty));
     setQuantity(clampedQty);
     if (isInCart) {
@@ -264,14 +278,22 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Predefined Bulk Packaging configuration
-  const unitsPerBox = product.unitsPerBox && product.unitsPerBox > 0 ? product.unitsPerBox : 100;
-  const unitRate = Number((product.price / unitsPerBox).toFixed(2));
+  // Requirement 1 & 5: Single source of truth for approved box pricing
+  const pricing = getBoxPricingBreakdown(
+    {
+      price: product.price || 2.0,
+      twoBoxPrice: product.twoBoxPrice,
+      threePlusBoxPrice: product.threePlusBoxPrice,
+    },
+    quantity,
+    isGstVerified
+  );
+  const unitsPerBox = 100;
+  const unitRate = Number((pricing.oneBoxPrice / unitsPerBox).toFixed(2));
 
   // Calculate active unit price accounting for individual product discounts, tier discounts, and bulk slabs
   const getActiveUnitPrice = () => {
-    const effective = getEffectiveUnitPrice(product, quantity);
-    return effective.unitPrice;
+    return pricing.effectivePricePerBox;
   };
 
   const handleAddToCart = () => {
@@ -279,16 +301,18 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
       {
         id: product.id,
         name: product.name,
-        price: product.price,
+        price: product.price || 2.0,
         originalPrice: product.originalPrice,
         image: product.images[0] || "",
         sellerName: product.seller?.companyName || "EarthCentric Verified Supplier",
         sellerId: product.sellerId,
         moq: 1,
         boxes: quantity,
-        unitsPerBox: unitsPerBox,
-        pricePerBox: product.price,
-        totalUnits: quantity * unitsPerBox,
+        unitsPerBox: 100,
+        pricePerBox: pricing.effectivePricePerBox,
+        twoBoxPrice: product.twoBoxPrice,
+        threePlusBoxPrice: product.threePlusBoxPrice,
+        totalUnits: quantity * 100,
         individualDiscount: product.individualDiscount,
         tierDiscounts: product.tierDiscounts,
         buyXGetYOffer: product.buyXGetYOffer,
@@ -538,10 +562,10 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   <div>
                     <div className="flex items-baseline space-x-3 flex-wrap gap-y-1">
                       <span className="text-4xl font-black text-slate-900">
-                        ₹{effective.unitPrice.toLocaleString()}
+                        ₹{pricing.oneBoxPrice}
                       </span>
-                      <span className="text-sm font-bold text-slate-500 uppercase tracking-wide">
-                        / box ({unitsPerBox} units)
+                      <span className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">
+                        / Box
                       </span>
                       {isDiscountActive && (
                         <span className="text-lg text-slate-400 line-through font-semibold">
@@ -557,14 +581,22 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
 
                     <div className="mt-2 flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-bold text-[#0F6E56] bg-[#0F6E56]/10 px-3 py-1 rounded-full border border-[#0F6E56]/20">
-                        📦 1 Box = {unitsPerBox} Units
+                        📦 100 Pieces per Box
                       </span>
                       <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-                        ₹{unitRate.toFixed(2)} per unit
+                        ₹{(pricing.oneBoxPrice / 100).toFixed(2)} per piece
                       </span>
-                      <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-                        Bulk Boxes Only
-                      </span>
+                      {isGstVerified ? (
+                        <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          Bulk Pricing Unlocked
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 flex items-center gap-1">
+                          <Lock className="h-3 w-3 text-amber-600" />
+                          Bulk pricing available after GST verification
+                        </span>
+                      )}
                     </div>
 
                     {isDiscountActive && (
@@ -921,7 +953,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                       className="flex-1 h-12 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 transition-colors cursor-pointer border-none shadow-md"
                     >
                       <ShoppingCart className="h-5 w-5" />
-                      <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
+                      <span>Add to Cart — ₹{pricing.totalPrice.toLocaleString()}</span>
                     </button>
                   )}
                 </div>
@@ -930,14 +962,57 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-emerald-900">
-                      📦 {quantity} {quantity === 1 ? "Box" : "Boxes"} = {(quantity * unitsPerBox).toLocaleString()} Units Total
+                      📦 {quantity} {quantity === 1 ? "Box" : "Boxes"} = {(quantity * 100).toLocaleString()} Units Total
                     </span>
-                    <span className="text-slate-500 font-medium">({unitsPerBox} units/box)</span>
+                    <span className="text-slate-500 font-medium">(100 pieces per box)</span>
                   </div>
                   <div className="text-right font-bold text-slate-900">
-                    Total: <span className="text-[#0c3c26] text-sm font-extrabold">₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
+                    Total: <span className="text-[#0c3c26] text-sm font-extrabold">₹{pricing.totalPrice.toLocaleString()}</span>
                   </div>
                 </div>
+
+                {/* Requirement 2: Notice before/after GST verification */}
+                {!isGstVerified ? (
+                  <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2 text-amber-900">
+                      <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                      <div>
+                        <span className="font-bold block">Bulk pricing available after GST verification.</span>
+                        <span className="text-[11px] text-amber-700">GSTIN and registered mobile number are required to view and unlock pricing for additional boxes.</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openGstModal(() => handleQuantityChange(2))}
+                      className="px-3 py-1.5 bg-[#0F6E56] hover:bg-[#0c5a46] text-white rounded-lg font-bold text-xs shrink-0 cursor-pointer shadow-xs border-none"
+                    >
+                      Verify GST & Unlock
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        GST Verified — Approved Bulk Box Pricing Active
+                      </span>
+                      {pricing.savingsAmount > 0 && (
+                        <span className="bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                          Save ₹{pricing.savingsAmount} ({pricing.savingsPercent}%)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-emerald-800">
+                      {quantity === 2 ? (
+                        <span>Special Approved 2-Box Tier: <strong>₹{pricing.twoBoxPrice} Total</strong> (₹{(pricing.twoBoxPrice / 2).toFixed(2)}/box)</span>
+                      ) : quantity >= 3 ? (
+                        <span>Volume Bulk Tier: <strong>₹{pricing.threePlusBoxPrice} / box</strong> (Total: ₹{pricing.totalPrice})</span>
+                      ) : (
+                        <span>Add 2 or more boxes to apply verified bulk rates.</span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Bulk Quote Request Button */}
                 <button suppressHydrationWarning
@@ -1208,7 +1283,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 className="h-10 bg-[#0c3c26] hover:bg-[#0a3020] text-white font-bold text-sm px-6 rounded-xl flex items-center space-x-2 transition-colors cursor-pointer border-none shadow-sm"
               >
                 <ShoppingCart className="h-4 w-4" />
-                <span>Add to Cart — ₹{(getActiveUnitPrice() * quantity).toLocaleString()}</span>
+                <span>Add to Cart — ₹{pricing.totalPrice.toLocaleString()}</span>
               </button>
             )}
           </div>

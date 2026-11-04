@@ -1,8 +1,10 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { BuyXGetYOffer, IndividualDiscount, TierDiscount } from "@/actions/products";
 import { isBuyXGetYActive, getEffectiveUnitPrice } from "@/lib/offers";
+import { getBoxPricingBreakdown, BoxPricingBreakdown } from "@/lib/box-pricing";
+import { GstVerificationModal } from "@/components/gst/GstVerificationModal";
 import { Button } from "@/components/ui/shared";
 import { X, Sparkles, Gift } from "lucide-react";
 
@@ -17,6 +19,8 @@ export interface CartItem {
   unitsPerBox?: number; // Predefined units per box
   totalUnits?: number;  // boxes * unitsPerBox
   pricePerBox?: number;
+  twoBoxPrice?: number | null; // Approved price for 2 boxes
+  threePlusBoxPrice?: number | null; // Approved price per box for 3+ boxes
   commissionRate?: number;
   sellerName: string;
   sellerId: string;
@@ -39,6 +43,13 @@ interface CartContextType {
   setIsCartOpen: (open: boolean) => void;
   openCart: () => void;
   closeCart: () => void;
+  isGstVerified: boolean;
+  verifiedGstin: string | null;
+  verifiedPhone: string | null;
+  isGstModalOpen: boolean;
+  openGstModal: (onSuccess?: (data: { gstin: string; phone: string }) => void) => void;
+  closeGstModal: () => void;
+  getItemPricing: (item: CartItem) => BoxPricingBreakdown;
 }
 
 import { useAuth } from "./AuthContext";
@@ -53,6 +64,47 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const openCart = () => setIsCartOpen(true);
   const closeCart = () => setIsCartOpen(false);
+
+  // GST Verification state (Requirement 2 & 3: unlocked upon valid GSTIN and Mobile)
+  const [isGstVerified, setIsGstVerified] = useState(false);
+  const [verifiedGstin, setVerifiedGstin] = useState<string | null>(null);
+  const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
+  const [isGstModalOpen, setIsGstModalOpen] = useState(false);
+  const pendingActionRef = useRef<((data: { gstin: string; phone: string }) => void) | null>(null);
+
+  const openGstModal = (onSuccess?: (data: { gstin: string; phone: string }) => void) => {
+    if (onSuccess) {
+      pendingActionRef.current = onSuccess;
+    } else {
+      pendingActionRef.current = null;
+    }
+    setIsGstModalOpen(true);
+  };
+
+  const closeGstModal = () => {
+    setIsGstModalOpen(false);
+    pendingActionRef.current = null;
+  };
+
+  // Restore GST verification session across page refreshes and checkout
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("earthcentric_gst_verification");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.gstin && parsed?.phone) {
+            setIsGstVerified(true);
+            setVerifiedGstin(parsed.gstin);
+            setVerifiedPhone(parsed.phone);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to restore GST verification state:", e);
+      }
+    }
+  }, []);
+
   const [activeOfferPopup, setActiveOfferPopup] = useState<{
     productName: string;
     buyQuantity: number;
@@ -127,8 +179,7 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [cart, isLoaded, user?.id]);
 
-  const addToCart = (product: Omit<CartItem, "quantity">, quantity = 1) => {
-    const boxQty = Math.max(1, Math.round(quantity));
+  const applyAddToCart = (product: Omit<CartItem, "quantity">, boxQty: number) => {
     const unitsPerBox = (product as any).unitsPerBox || (product as any).bulkOrderQuantity || 100;
 
     // Check one-time offer popup per session for active Buy X Get Y offers
@@ -159,6 +210,8 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
                 unitsPerBox,
                 totalUnits: newBoxes * unitsPerBox,
                 pricePerBox: product.price,
+                twoBoxPrice: (product as any).twoBoxPrice ?? item.twoBoxPrice,
+                threePlusBoxPrice: (product as any).threePlusBoxPrice ?? item.threePlusBoxPrice,
                 buyXGetYOffer: product.buyXGetYOffer !== undefined ? product.buyXGetYOffer : item.buyXGetYOffer,
                 individualDiscount: product.individualDiscount !== undefined ? product.individualDiscount : item.individualDiscount,
                 tierDiscounts: product.tierDiscounts !== undefined ? product.tierDiscounts : item.tierDiscounts,
@@ -174,6 +227,8 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         unitsPerBox,
         totalUnits: boxQty * unitsPerBox,
         pricePerBox: product.price,
+        twoBoxPrice: (product as any).twoBoxPrice,
+        threePlusBoxPrice: (product as any).threePlusBoxPrice,
       }];
     });
 
@@ -183,6 +238,27 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         console.error("Failed to sync addToCart to database:", err)
       );
     }
+  };
+
+  const addToCart = (product: Omit<CartItem, "quantity">, quantity = 1) => {
+    const boxQty = Math.max(1, Math.round(quantity));
+    const existing = cart.find((item) => item.id === product.id);
+    const existingQty = existing ? existing.quantity : 0;
+    const targetQty = existingQty + boxQty;
+
+    // Requirement 2: Second Box — Hide Price & Disallow >1 box Until GST Verification
+    if (targetQty > 1 && !isGstVerified) {
+      if (existingQty === 0) {
+        // Add only 1 box to cart first
+        applyAddToCart(product, 1);
+      }
+      openGstModal(() => {
+        applyQuantityUpdate(product.id, targetQty);
+      });
+      return;
+    }
+
+    applyAddToCart(product, boxQty);
   };
 
   const removeFromCart = (id: string) => {
@@ -197,22 +273,17 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const updateQuantity = (id: string, quantity: number) => {
-    let finalQty = quantity;
-    
+  const applyQuantityUpdate = (id: string, finalQty: number) => {
     // Optimistic client state update
     setCart((prevCart) => {
       const item = prevCart.find(i => i.id === id);
       if (!item) return prevCart;
       
-      if (quantity <= 0) {
+      if (finalQty <= 0) {
         return prevCart.filter((i) => i.id !== id);
       }
       
-      // Box-based bulk ordering only: minimum 1 full box
-      finalQty = Math.max(1, Math.round(quantity));
       const unitsPerBox = item.unitsPerBox || 100;
-      
       return prevCart.map((i) => (i.id === id ? {
         ...i,
         quantity: finalQty,
@@ -223,7 +294,7 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Save changes to database in the background if authenticated
     if (user?.id) {
-      if (quantity <= 0) {
+      if (finalQty <= 0) {
         removeFromDbCart(user.id, id).catch((err) =>
           console.error("Failed to sync removeFromCart to database:", err)
         );
@@ -233,6 +304,25 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         );
       }
     }
+  };
+
+  const updateQuantity = (id: string, quantity: number) => {
+    if (quantity <= 0) {
+      applyQuantityUpdate(id, 0);
+      return;
+    }
+
+    const targetQty = Math.max(1, Math.round(quantity));
+
+    // Requirement 2: Increasing quantity from 1 box to 2 or more boxes requires GST verification
+    if (targetQty > 1 && !isGstVerified) {
+      openGstModal(() => {
+        applyQuantityUpdate(id, targetQty);
+      });
+      return;
+    }
+
+    applyQuantityUpdate(id, targetQty);
   };
 
   const clearCart = () => {
@@ -247,10 +337,24 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const getItemPricing = (item: CartItem): BoxPricingBreakdown => {
+    return getBoxPricingBreakdown(
+      {
+        price: item.price,
+        twoBoxPrice: item.twoBoxPrice,
+        threePlusBoxPrice: item.threePlusBoxPrice,
+      },
+      item.quantity,
+      isGstVerified
+    );
+  };
+
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
+
+  // Requirement 3 & 5: Calculate total using approved box pricing rules
   const cartTotal = cart.reduce((total, item) => {
-    const effective = getEffectiveUnitPrice(item, item.quantity);
-    return total + effective.unitPrice * item.quantity;
+    const pricing = getItemPricing(item);
+    return total + pricing.totalPrice;
   }, 0);
 
   return (
@@ -267,9 +371,43 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         setIsCartOpen,
         openCart,
         closeCart,
+        isGstVerified,
+        verifiedGstin,
+        verifiedPhone,
+        isGstModalOpen,
+        openGstModal,
+        closeGstModal,
+        getItemPricing,
       }}
     >
       {children}
+
+      {/* Global GST Verification Modal (Opens when buyer clicks '+' to 2+ boxes without verification) */}
+      <GstVerificationModal
+        isOpen={isGstModalOpen}
+        onClose={closeGstModal}
+        onSuccess={(verifiedData) => {
+          setIsGstVerified(true);
+          setVerifiedGstin(verifiedData.gstin);
+          setVerifiedPhone(verifiedData.phone);
+          if (typeof window !== "undefined") {
+            localStorage.setItem(
+              "earthcentric_gst_verification",
+              JSON.stringify({
+                gstin: verifiedData.gstin,
+                phone: verifiedData.phone,
+                stateName: verifiedData.stateName,
+                pan: verifiedData.pan,
+                verifiedAt: new Date().toISOString(),
+              })
+            );
+          }
+          if (pendingActionRef.current) {
+            pendingActionRef.current(verifiedData);
+            pendingActionRef.current = null;
+          }
+        }}
+      />
 
       {/* One-Time Session Buy X Get Y Offer Modal Popup */}
       {activeOfferPopup && (

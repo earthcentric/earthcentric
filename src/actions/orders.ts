@@ -24,7 +24,7 @@ import {
   startCancellationRefund,
   type RefundState,
 } from "@/lib/order-cancellations";
-import { validateGSTIN } from "@/lib/gstin";
+import { validateGSTIN, validateIndianMobile, validateGstAndPhone } from "@/lib/gstin";
 
 const CANCELLATION_WINDOW_HOURS = 72; // 3 days (72 hours) duration cancellation policy
 
@@ -191,19 +191,30 @@ export async function createOrder(data: {
 }) {
   const orderId = `ord-${Math.random().toString(36).substring(2, 9)}`;
 
-  // Requirement 3: GST-Based Bulk Purchase validation
+  // Requirement 2 & 6: Bulk Box & GST Validation
+  const hasBulkBoxes = data.items.some((it) => Number(it.quantity) >= 2);
   const gstinCheck = validateGSTIN(data.gstin);
   if (!gstinCheck.isValid) {
     return {
       success: false,
-      error: gstinCheck.error || "A valid 15-character GSTIN is required for B2B commercial bulk purchasing (e.g. 29ABCDE1234F1Z5).",
+      error: gstinCheck.error || "GSTIN and registered mobile number are required to unlock bulk pricing. Please verify your details to view the price for additional boxes.",
     };
   }
   const validatedGstin = gstinCheck.normalizedGstin!;
 
+  if (hasBulkBoxes) {
+    const phoneCheck = validateIndianMobile(data.userPhone);
+    if (!phoneCheck.isValid) {
+      return {
+        success: false,
+        error: phoneCheck.error || "GSTIN and registered mobile number are required to unlock bulk pricing. Please verify your details to view the price for additional boxes.",
+      };
+    }
+  }
+
   // Server-side recalculation & validation of box quantities, item prices, and commission snapshots
   let serverCalculatedTotal = 0;
-  const verifiedItems: OrderItemInput[] = [];
+  const verifiedItems: (OrderItemInput & { itemTotal: number })[] = [];
 
   for (const item of data.items) {
     // Requirement 4: Box-Based Bulk Ordering Only - No Retail Purchases
@@ -234,13 +245,30 @@ export async function createOrder(data: {
 
     const unitsPerBox = product.unitsPerBox || (product as any).bulkOrderQuantity || 100;
     const totalUnits = boxQty * unitsPerBox;
-    const pricePerBox = product.price;
+    const oneBoxPrice = Math.max(0, Number(product.price ?? 2.0));
+    const twoBoxPrice = Math.max(0, Number((product as any).twoBoxPrice ?? 3.50));
+    const threePlusBoxPrice = Math.max(0, Number((product as any).threePlusBoxPrice ?? 1.60));
+
+    // Pricing Rules:
+    // 1 box = ₹2
+    // 2 boxes = twoBoxPrice (e.g. ₹3.50; NOT 2 × ₹2 = ₹4)
+    // 3+ boxes = boxQty × threePlusBoxPrice
+    let itemTotal = 0;
+    if (boxQty === 1) {
+      itemTotal = oneBoxPrice;
+    } else if (boxQty === 2) {
+      itemTotal = twoBoxPrice;
+    } else {
+      itemTotal = boxQty * threePlusBoxPrice;
+    }
+    itemTotal = Math.round(itemTotal * 100) / 100;
+
+    const effectivePricePerBox = Math.round((itemTotal / boxQty) * 100) / 100;
     const commissionRate = product.commissionRate !== undefined && product.commissionRate !== null ? Number(product.commissionRate) : 10.0;
 
     // Commission Formula:
     // Commission = Gross Order Amount × Commission Percentage / 100
     // Seller Net Amount = Gross Order Amount − Commission − Applicable seller-side deductions
-    const itemTotal = Math.round(pricePerBox * boxQty * 100) / 100;
     const itemCommission = Math.round(((itemTotal * commissionRate) / 100) * 100) / 100;
     const itemSellerNet = Math.round((itemTotal - itemCommission) * 100) / 100;
 
@@ -248,8 +276,8 @@ export async function createOrder(data: {
 
     verifiedItems.push({
       ...item,
-      price: pricePerBox,
-      pricePerBox: pricePerBox,
+      price: effectivePricePerBox,
+      pricePerBox: effectivePricePerBox,
       quantity: boxQty,
       boxes: boxQty,
       unitsPerBox,
@@ -258,6 +286,7 @@ export async function createOrder(data: {
       commissionAmount: itemCommission,
       sellerNetAmount: itemSellerNet,
       sellerId: item.sellerId || product.sellerId,
+      itemTotal,
     });
   }
 
@@ -295,7 +324,7 @@ export async function createOrder(data: {
 
   try {
     // Group items by sellerId
-    const itemsBySeller: Record<string, OrderItemInput[]> = {};
+    const itemsBySeller: Record<string, (OrderItemInput & { itemTotal: number })[]> = {};
     const mockSellerId = "mock-seller-id";
     for (const item of verifiedItems) {
       const sId = item.sellerId || mockSellerId;
@@ -308,9 +337,9 @@ export async function createOrder(data: {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const newOrders: OrderDetail[] = [];
       Object.entries(itemsBySeller).forEach(([sellerId, items], index) => {
-        const orderGrossAmount = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const orderCommission = items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0);
-        const orderSellerNet = items.reduce((sum, item) => sum + (item.sellerNetAmount || (item.price * item.quantity)), 0);
+        const orderGrossAmount = Math.round(items.reduce((sum, item) => sum + (item.itemTotal ?? (item.price * item.quantity)), 0) * 100) / 100;
+        const orderCommission = Math.round(items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0) * 100) / 100;
+        const orderSellerNet = Math.round((orderGrossAmount - orderCommission) * 100) / 100;
         const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
         const orderCommissionRate = orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 10.0;
         const splitOrderId = `${orderId}-${index}`;
@@ -339,7 +368,7 @@ export async function createOrder(data: {
             pricePerBox: item.price,
             commissionRate: item.commissionRate || 10.0,
             commissionAmount: item.commissionAmount || 0,
-            sellerNetAmount: item.sellerNetAmount || (item.price * item.quantity),
+            sellerNetAmount: item.sellerNetAmount || (item.itemTotal - (item.commissionAmount || 0)),
             image: item.image,
             sellerId: item.sellerId,
           })),
@@ -400,9 +429,9 @@ export async function createOrder(data: {
     const createdOrders = [];
     let index = 0;
     for (const [sellerId, items] of Object.entries(itemsBySeller)) {
-      const orderGrossAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-      const orderCommission = items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0);
-      const orderSellerNet = items.reduce((sum, item) => sum + (item.sellerNetAmount || (item.price * item.quantity)), 0);
+      const orderGrossAmount = Math.round(items.reduce((sum, item) => sum + (item.itemTotal ?? (item.price * item.quantity)), 0) * 100) / 100;
+      const orderCommission = Math.round(items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0) * 100) / 100;
+      const orderSellerNet = Math.round((orderGrossAmount - orderCommission) * 100) / 100;
       const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
       const orderCommissionRate = orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 10.0;
       const splitOrderId = `${orderId}-${index}`;

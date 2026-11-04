@@ -1148,6 +1148,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
 
   // Edit Bulk Box Packaging & Delivery state
   const [editUnitsPerBox, setEditUnitsPerBox] = useState("100");
+  const [editTwoBoxPrice, setEditTwoBoxPrice] = useState("");
+  const [editThreePlusBoxPrice, setEditThreePlusBoxPrice] = useState("");
+  const [editMinBulkBoxes, setEditMinBulkBoxes] = useState("2");
+  const [editMaxBulkBoxes, setEditMaxBulkBoxes] = useState("");
   const [editDeliveryTime, setEditDeliveryTime] = useState("");
   const [editReturnEligibility, setEditReturnEligibility] = useState("");
   const [editMaterialUsed, setEditMaterialUsed] = useState("");
@@ -1159,6 +1163,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditPrice(p.price.toString());
     setEditStock(p.stock.toString());
     setEditUnitsPerBox(p.unitsPerBox ? p.unitsPerBox.toString() : "100");
+    setEditTwoBoxPrice(p.twoBoxPrice !== undefined && p.twoBoxPrice !== null ? p.twoBoxPrice.toString() : "3.5");
+    setEditThreePlusBoxPrice(p.threePlusBoxPrice !== undefined && p.threePlusBoxPrice !== null ? p.threePlusBoxPrice.toString() : "1.6");
+    setEditMinBulkBoxes(p.minBulkBoxes?.toString() || "2");
+    setEditMaxBulkBoxes(p.maxBulkBoxes ? p.maxBulkBoxes.toString() : "");
     setEditDeliveryTime(p.deliveryTime || "Dispatches within 24–48 hours");
     setEditReturnEligibility(p.returnEligibility || "10-day replacement for transit damage");
     setEditMaterialUsed(p.materialUsed || "");
@@ -1510,6 +1518,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       price: Number(editPrice),
       stock: Number(editStock),
       unitsPerBox: Number(editUnitsPerBox) || 100,
+      twoBoxPrice: editTwoBoxPrice ? Number(editTwoBoxPrice) : (Number(editPrice || 2) * 1.75),
+      threePlusBoxPrice: editThreePlusBoxPrice ? Number(editThreePlusBoxPrice) : (Number(editPrice || 2) * 0.8),
+      minBulkBoxes: editMinBulkBoxes ? Number(editMinBulkBoxes) : 2,
+      maxBulkBoxes: editMaxBulkBoxes ? Number(editMaxBulkBoxes) : null,
       deliveryTime: editDeliveryTime,
       returnEligibility: editReturnEligibility,
       materialUsed: editMaterialUsed,
@@ -1766,6 +1778,61 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                 <div className="space-y-1">
                   <Label>Product Date</Label>
                   <Input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-emerald-200 bg-[#f4f8f5] space-y-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">📦</span>
+                  <Label className="font-extrabold text-[#2d4a36]">Commercial Box Bulk Pricing (GST-Locked)</Label>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Tier 1 (1 box) is visible to all buyers. Tier 2 (2 boxes) and Tier 3 (3+ boxes) unlock after GST verification.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Price for 2 Boxes Total (₹)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 3.50 (NOT 2x ₹2)"
+                      value={editTwoBoxPrice}
+                      onChange={(e) => setEditTwoBoxPrice(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Total price when buyer orders 2 boxes</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Bulk Price for 3+ Boxes (₹/box)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 1.60 per box"
+                      value={editThreePlusBoxPrice}
+                      onChange={(e) => setEditThreePlusBoxPrice(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Rate applied per box for 3+ boxes</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Min Bulk Boxes</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="2"
+                      value={editMinBulkBoxes}
+                      onChange={(e) => setEditMinBulkBoxes(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Max Bulk Boxes (Optional)</Label>
+                    <Input
+                      type="number"
+                      placeholder="No limit"
+                      value={editMaxBulkBoxes}
+                      onChange={(e) => setEditMaxBulkBoxes(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -2462,6 +2529,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodPrice, setProdPrice] = useState("");
   const [prodStock, setProdStock] = useState("30");
   const [prodUnitsPerBox, setProdUnitsPerBox] = useState("100");
+  const [prodTwoBoxPrice, setProdTwoBoxPrice] = useState("");
+  const [prodThreePlusBoxPrice, setProdThreePlusBoxPrice] = useState("");
+  const [prodMinBulkBoxes, setProdMinBulkBoxes] = useState("2");
+  const [prodMaxBulkBoxes, setProdMaxBulkBoxes] = useState("");
   const [prodDeliveryTime, setProdDeliveryTime] = useState("Dispatches within 24–48 hours");
   const [prodReturnEligibility, setProdReturnEligibility] = useState("10-day replacement for transit damage");
   const [prodMaterialUsed, setProdMaterialUsed] = useState("");
@@ -2567,6 +2638,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
         price: Number(prodPrice),
         stock: Number(prodStock),
         unitsPerBox: Number(prodUnitsPerBox) || 100,
+        twoBoxPrice: prodTwoBoxPrice ? Number(prodTwoBoxPrice) : (Number(prodPrice || 2) * 1.75),
+        threePlusBoxPrice: prodThreePlusBoxPrice ? Number(prodThreePlusBoxPrice) : (Number(prodPrice || 2) * 0.8),
+        minBulkBoxes: prodMinBulkBoxes ? Number(prodMinBulkBoxes) : 2,
+        maxBulkBoxes: prodMaxBulkBoxes ? Number(prodMaxBulkBoxes) : null,
         deliveryTime: prodDeliveryTime,
         returnEligibility: prodReturnEligibility,
         materialUsed: prodMaterialUsed,
@@ -2648,6 +2723,61 @@ function AddProductForm({ onBack, profile, reload }: any) {
             <div className="space-y-1">
               <Label>Product Date</Label>
               <Input type="date" required value={prodDate} onChange={(e) => setProdDate(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl border border-emerald-100 bg-[#f4f8f5] space-y-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm">📦</span>
+              <Label className="font-extrabold text-[#2d4a36]">Commercial Box Bulk Pricing (GST-Locked)</Label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Configure tiered box pricing. 1 box is visible to all buyers. Additional boxes unlock only after buyer completes 15-character GSTIN & mobile verification.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Price for 2 Boxes Total (₹) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g. 3.50 (NOT 2x ₹2)"
+                  value={prodTwoBoxPrice}
+                  onChange={(e) => setProdTwoBoxPrice(e.target.value)}
+                />
+                <p className="text-[10px] text-muted-foreground">Total price when buyer orders 2 boxes</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Bulk Price for 3+ Boxes (₹/box)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g. 1.60 per box"
+                  value={prodThreePlusBoxPrice}
+                  onChange={(e) => setProdThreePlusBoxPrice(e.target.value)}
+                />
+                <p className="text-[10px] text-muted-foreground">Rate applied per box for 3 or more boxes</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Min Bulk Boxes</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder="2"
+                  value={prodMinBulkBoxes}
+                  onChange={(e) => setProdMinBulkBoxes(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Max Bulk Boxes (Optional)</Label>
+                <Input
+                  type="number"
+                  placeholder="No limit"
+                  value={prodMaxBulkBoxes}
+                  onChange={(e) => setProdMaxBulkBoxes(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 

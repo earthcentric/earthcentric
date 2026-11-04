@@ -15,19 +15,19 @@ import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers"
 import { validateGSTIN } from "@/lib/gstin";
 
 export default function CheckoutPage() {
-  const { cart, cartTotal, clearCart } = useCart();
+  const { cart, cartTotal, clearCart, verifiedGstin, verifiedPhone, isGstVerified, openGstModal } = useCart();
   const { user, updateUser } = useAuth();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   // GSTIN state for mandatory commercial bulk checkout
-  const [gstin, setGstin] = useState("");
+  const [gstin, setGstin] = useState(verifiedGstin || "");
   const [gstinTouched, setGstinTouched] = useState(false);
   const [gstinError, setGstinError] = useState<string | null>(null);
   const [gstinDetails, setGstinDetails] = useState<{ stateName?: string; pan?: string } | null>(null);
 
   // Contact details
-  const [contactPhone, setContactPhone] = useState(user?.phone || "");
+  const [contactPhone, setContactPhone] = useState(verifiedPhone || user?.phone || "");
   const [savePhoneToProfile, setSavePhoneToProfile] = useState(true);
 
   // Saved addresses
@@ -60,6 +60,21 @@ export default function CheckoutPage() {
   const [showMockGateway, setShowMockGateway] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [activeCashfreeOrderId, setActiveCashfreeOrderId] = useState<string | null>(null);
+
+  // Sync GST and phone from session/cart verification
+  useEffect(() => {
+    if (verifiedGstin && !gstin) {
+      setGstin(verifiedGstin);
+      const res = validateGSTIN(verifiedGstin);
+      if (res.isValid) {
+        setGstinError(null);
+        setGstinDetails({ stateName: res.stateName, pan: res.pan });
+      }
+    }
+    if (verifiedPhone && !contactPhone) {
+      setContactPhone(verifiedPhone);
+    }
+  }, [verifiedGstin, verifiedPhone]);
 
   useEffect(() => {
     if (user) {

@@ -1,23 +1,69 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { getProductById } from "@/actions/products";
-import { X, Package, ShieldCheck, Leaf, Tag, AlertCircle } from "lucide-react";
+import { getProductById, updateProductBulkPricingByAdmin } from "@/actions/products";
+import { X, Package, ShieldCheck, Leaf, Tag, AlertCircle, CheckCircle2, Lock } from "lucide-react";
 import { Button, Badge } from "./shared";
 
 export function AdminProductDetailModal({ productId, onClose }: { productId: string; onClose: () => void }) {
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // Bulk Pricing Management State
+  const [adminPrice, setAdminPrice] = useState("");
+  const [adminTwoBoxPrice, setAdminTwoBoxPrice] = useState("");
+  const [adminThreePlusBoxPrice, setAdminThreePlusBoxPrice] = useState("");
+  const [adminMinBulkBoxes, setAdminMinBulkBoxes] = useState("2");
+  const [adminMaxBulkBoxes, setAdminMaxBulkBoxes] = useState("");
+  const [adminBulkApproved, setAdminBulkApproved] = useState(true);
+  const [isSavingBulk, setIsSavingBulk] = useState(false);
+  const [bulkFeedback, setBulkFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
   useEffect(() => {
     async function load() {
       setLoading(true);
       const data = await getProductById(productId);
       setProduct(data);
+      if (data) {
+        setAdminPrice(data.price?.toString() || "2");
+        setAdminTwoBoxPrice(data.twoBoxPrice !== undefined && data.twoBoxPrice !== null ? data.twoBoxPrice.toString() : "3.5");
+        setAdminThreePlusBoxPrice(data.threePlusBoxPrice !== undefined && data.threePlusBoxPrice !== null ? data.threePlusBoxPrice.toString() : "1.6");
+        setAdminMinBulkBoxes(data.minBulkBoxes?.toString() || "2");
+        setAdminMaxBulkBoxes(data.maxBulkBoxes ? data.maxBulkBoxes.toString() : "");
+        setAdminBulkApproved(data.bulkPricingApproved !== false);
+      }
       setLoading(false);
     }
     load();
   }, [productId]);
+
+  const handleSaveBulkPricing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingBulk(true);
+    setBulkFeedback(null);
+    try {
+      const res = await updateProductBulkPricingByAdmin(productId, {
+        price: Number(adminPrice) || 2,
+        twoBoxPrice: Number(adminTwoBoxPrice) || 3.5,
+        threePlusBoxPrice: Number(adminThreePlusBoxPrice) || 1.6,
+        minBulkBoxes: Number(adminMinBulkBoxes) || 2,
+        maxBulkBoxes: adminMaxBulkBoxes ? Number(adminMaxBulkBoxes) : null,
+        bulkPricingApproved: adminBulkApproved,
+      });
+
+      if (res.success) {
+        setBulkFeedback({ type: "success", msg: "Bulk pricing configuration successfully updated & saved!" });
+        const refreshed = await getProductById(productId);
+        setProduct(refreshed);
+      } else {
+        setBulkFeedback({ type: "error", msg: res.error || "Failed to update bulk pricing." });
+      }
+    } catch (err: any) {
+      setBulkFeedback({ type: "error", msg: err?.message || "Failed to update bulk pricing." });
+    } finally {
+      setIsSavingBulk(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 md:p-12">
@@ -75,6 +121,119 @@ export function AdminProductDetailModal({ productId, onClose }: { productId: str
                     <Badge variant={product.isApproved ? "success" : "secondary"} className={product.isApproved ? "bg-emerald-100 text-emerald-800 border-none" : "bg-amber-100 text-amber-800 border-none"}>
                       {product.isApproved ? "Approved" : "Pending Review"}
                     </Badge>
+                  </div>
+
+                  {/* Super Admin Bulk Pricing Control */}
+                  <div className="space-y-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Lock className="h-4 w-4 text-[#0F6E56]" />
+                        <h3 className="text-xs font-bold text-[#1a3321] uppercase tracking-wider">
+                          Super Admin Bulk Pricing Control (GST Tiers)
+                        </h3>
+                      </div>
+                      <Badge className={adminBulkApproved ? "bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]" : "bg-amber-100 text-amber-900 border-amber-300 text-[10px]"}>
+                        {adminBulkApproved ? "✓ Bulk Pricing Approved" : "⏳ Pending Approval"}
+                      </Badge>
+                    </div>
+
+                    <p className="text-[11px] text-muted-foreground">
+                      Before GST verification, buyers only see the 1-box price. Tier 2 and Tier 3 unlock after verified 15-character GSTIN and 10-digit mobile number.
+                    </p>
+
+                    {bulkFeedback && (
+                      <div className={`p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 ${bulkFeedback.type === "success" ? "bg-emerald-100 text-emerald-900 border border-emerald-300" : "bg-rose-100 text-rose-900 border border-rose-300"}`}>
+                        {bulkFeedback.type === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircle className="h-4 w-4 shrink-0 text-rose-700" />}
+                        <span>{bulkFeedback.msg}</span>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleSaveBulkPricing} className="space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-700 uppercase">1 Box Price (₹)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            value={adminPrice}
+                            onChange={(e) => setAdminPrice(e.target.value)}
+                            className="w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white"
+                          />
+                          <p className="text-[9px] text-slate-500">Public (₹2 default)</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-[#0F6E56] uppercase">2 Boxes Price (₹)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            value={adminTwoBoxPrice}
+                            onChange={(e) => setAdminTwoBoxPrice(e.target.value)}
+                            className="w-full text-xs font-bold border border-emerald-300 rounded px-2 py-1.5 bg-white text-emerald-900"
+                          />
+                          <p className="text-[9px] text-emerald-700">GST-locked (NOT 2x ₹2)</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-700 uppercase">3+ Boxes (₹/box)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            value={adminThreePlusBoxPrice}
+                            onChange={(e) => setAdminThreePlusBoxPrice(e.target.value)}
+                            className="w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white"
+                          />
+                          <p className="text-[9px] text-slate-500">Per box for 3+ boxes</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-700 uppercase">Min Bulk Boxes</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={adminMinBulkBoxes}
+                            onChange={(e) => setAdminMinBulkBoxes(e.target.value)}
+                            className="w-full text-xs font-bold border border-slate-300 rounded px-2 py-1 bg-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-700 uppercase">Max Bulk Boxes (Optional)</label>
+                          <input
+                            type="number"
+                            placeholder="No limit"
+                            value={adminMaxBulkBoxes}
+                            onChange={(e) => setAdminMaxBulkBoxes(e.target.value)}
+                            className="w-full text-xs font-bold border border-slate-300 rounded px-2 py-1 bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={adminBulkApproved}
+                            onChange={(e) => setAdminBulkApproved(e.target.checked)}
+                            className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>Approve Bulk Pricing for Marketplace</span>
+                        </label>
+
+                        <Button
+                          type="submit"
+                          size="sm"
+                          disabled={isSavingBulk}
+                          className="bg-[#0F6E56] hover:bg-[#0c5945] text-white text-xs font-bold px-4 py-1.5 rounded-lg"
+                        >
+                          {isSavingBulk ? "Saving..." : "Approve & Override Pricing"}
+                        </Button>
+                      </div>
+                    </form>
                   </div>
 
                   <div className="space-y-2">

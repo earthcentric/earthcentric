@@ -9,7 +9,7 @@ import { Trash2, ShoppingBag, ArrowLeft, ArrowRight, Minus, Plus, Leaf, Shield }
 import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 
 export default function CartPage() {
-  const { cart, removeFromCart, updateQuantity, cartTotal, cartCount } = useCart();
+  const { cart, removeFromCart, updateQuantity, cartTotal, cartCount, isGstVerified, openGstModal, getItemPricing } = useCart();
 
   // Total boxes & total units calculation
   const totalBoxes = cart.reduce((total, item) => total + item.quantity, 0);
@@ -71,10 +71,8 @@ export default function CartPage() {
                 <div className="flex-1 min-w-0 space-y-1.5 text-center sm:text-left">
                   {(() => {
                     const unitsPerBox = item.unitsPerBox && item.unitsPerBox > 0 ? item.unitsPerBox : 100;
-                    const effective = getEffectiveUnitPrice(item, item.quantity);
-                    const itemTotal = Math.round(effective.unitPrice * item.quantity * 100) / 100;
+                    const pricing = getItemPricing(item);
                     const itemUnits = item.quantity * unitsPerBox;
-                    const unitRate = (effective.unitPrice / unitsPerBox).toFixed(2);
 
                     return (
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
@@ -82,21 +80,56 @@ export default function CartPage() {
                           <Link href={`/products/${item.id}`} className="hover:text-primary transition-colors truncate">
                             <h3 className="font-bold text-sm text-foreground truncate cursor-pointer">{item.name}</h3>
                           </Link>
+                          
                           <div className="flex items-baseline space-x-2 mt-0.5 flex-wrap">
-                            <span className="text-xs font-bold text-foreground">₹{effective.unitPrice.toLocaleString()} / box</span>
-                            <span className="text-[11px] text-muted-foreground font-medium">({unitsPerBox} units/box • ₹{unitRate}/unit)</span>
-                            {effective.appliedDiscountType !== "NONE" && (
-                              <span className="text-[11px] text-muted-foreground line-through">₹{effective.originalPrice.toLocaleString()}</span>
-                            )}
-                            {effective.badgeText && (
-                              <Badge className="bg-emerald-100 text-emerald-800 text-[9px] font-bold border-none px-1.5 py-0.5">{effective.badgeText}</Badge>
-                            )}
+                            <span className="text-xs font-bold text-foreground">
+                              ₹{item.price ?? 2} / Box
+                            </span>
+                            <span className="text-[11px] text-muted-foreground font-semibold">
+                              ({unitsPerBox} Pieces per Box)
+                            </span>
                           </div>
-                          <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 w-fit">
-                            <span>📦 {item.quantity} {item.quantity === 1 ? "Box" : "Boxes"} ({itemUnits.toLocaleString()} Units Total)</span>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                              <span>📦 {item.quantity} {item.quantity === 1 ? "Box" : "Boxes"} ({itemUnits.toLocaleString()} Pieces Total)</span>
+                            </div>
+
+                            {pricing.isLocked ? (
+                              <button
+                                onClick={() => openGstModal(() => updateQuantity(item.id, item.quantity))}
+                                className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                              >
+                                🔒 Bulk pricing available after GST verification. Verify now →
+                              </button>
+                            ) : item.quantity === 2 ? (
+                              <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px] font-extrabold px-2 py-0.5">
+                                ✓ Approved 2-Box Bulk Rate (₹{pricing.totalPrice})
+                              </Badge>
+                            ) : item.quantity >= 3 ? (
+                              <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px] font-extrabold px-2 py-0.5">
+                                ✓ Approved 3+ Box Bulk Rate (₹{pricing.unitPrice}/box)
+                              </Badge>
+                            ) : null}
                           </div>
                         </div>
-                        <span className="text-sm font-bold sm:ml-4 text-emerald-700 shrink-0">₹{itemTotal.toLocaleString()}</span>
+
+                        <div className="text-right sm:ml-4 shrink-0">
+                          {pricing.isLocked ? (
+                            <div className="space-y-0.5">
+                              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 block">
+                                Price Locked (GST Required)
+                              </span>
+                              <span className="text-[10px] text-muted-foreground block">
+                                1 Box = ₹{pricing.unitPrice}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm font-extrabold text-emerald-700">
+                              ₹{pricing.totalPrice.toFixed(2).replace(/\.00$/, "")}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })()}
