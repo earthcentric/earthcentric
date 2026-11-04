@@ -10,7 +10,15 @@ export default async function ProductDetailsPage({ params }: PageProps) {
   const { id } = await params;
   const product = await getProductById(id);
 
-  if (!product || !product.isApproved || product.status !== "APPROVED") {
+  if (!product) {
+    notFound();
+  }
+
+  // A product is approved if either isApproved is true or status is APPROVED
+  const isApproved = product.isApproved === true || product.status === "APPROVED";
+
+  // If product is explicitly rejected or blocked, return 404
+  if (!isApproved && (product.status === "REJECTED" || product.status === "BLOCKED")) {
     notFound();
   }
 

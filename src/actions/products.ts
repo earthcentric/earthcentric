@@ -2391,17 +2391,49 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
 }
 
 export async function getProductById(id: string): Promise<ProductItem | null> {
+  const matchMock = (p: ProductItem) =>
+    p.id === id ||
+    p.slug === id ||
+    p.id.replace("-pdf", "") === id ||
+    p.id === id.replace("prod-", "prod-pdf-") ||
+    (id.startsWith("prod-") && p.id === `prod-pdf-${id.replace("prod-", "")}`) ||
+    p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") === id;
+
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const dyn = dynamicProducts.find((p) => p.id === id);
-      if (dyn) return { ...dyn, rating: 0, reviewsCount: 0, reviews: [], status: dyn.status || (dyn.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
-      const mock = MOCK_PRODUCTS.find((p) => p.id === id);
-      if (mock) return { ...mock, rating: 0, reviewsCount: 0, reviews: [], status: mock.status || (mock.isApproved ? "APPROVED" : "PENDING_APPROVAL") };
+      const dyn = dynamicProducts.find(matchMock);
+      if (dyn) {
+        return {
+          ...dyn,
+          rating: dyn.rating ?? 5,
+          reviewsCount: dyn.reviewsCount ?? 0,
+          reviews: dyn.reviews ?? [],
+          status: dyn.status || (dyn.isApproved ? "APPROVED" : "PENDING_APPROVAL"),
+          isApproved: dyn.isApproved ?? (dyn.status === "APPROVED"),
+        };
+      }
+      const mock = MOCK_PRODUCTS.find(matchMock);
+      if (mock) {
+        return {
+          ...mock,
+          rating: mock.rating ?? 5,
+          reviewsCount: mock.reviewsCount ?? 0,
+          reviews: mock.reviews ?? [],
+          status: mock.status || (mock.isApproved ? "APPROVED" : "PENDING_APPROVAL"),
+          isApproved: mock.isApproved ?? (mock.status === "APPROVED"),
+        };
+      }
       return null;
     }
 
-    const p = await db.product.findUnique({
-      where: { id },
+    const p = await db.product.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id },
+          ...(id.startsWith("prod-") ? [{ slug: id.replace("prod-", "") }] : []),
+        ],
+      },
       include: {
         category: true,
         images: true,
@@ -2427,7 +2459,20 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       },
     });
 
-    if (!p) return null;
+    if (!p) {
+      const fallback = [...MOCK_PRODUCTS, ...dynamicProducts].find(matchMock);
+      if (fallback) {
+        return {
+          ...fallback,
+          rating: fallback.rating ?? 5,
+          reviewsCount: fallback.reviewsCount ?? 0,
+          reviews: fallback.reviews ?? [],
+          status: fallback.status || (fallback.isApproved ? "APPROVED" : "PENDING_APPROVAL"),
+          isApproved: fallback.isApproved ?? (fallback.status === "APPROVED"),
+        };
+      }
+      return null;
+    }
 
     const verifiedReviews = keepEarliestReviewPerBuyer(p.reviews);
     const rating =
@@ -2444,12 +2489,12 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       stock: p.stock,
       sustainabilityScore: p.sustainabilityScore ?? 85,
       sustainabilityDetail: p.sustainabilityDetail || "",
-      status: p.status,
+      status: p.status || (p.isApproved ? "APPROVED" : "PENDING_APPROVAL"),
       rejectionReason: p.rejectionReason,
       images: p.images.map((img) => getUrlFromDb(img.url)),
       category: p.category.name,
       categoryId: p.categoryId,
-      isApproved: p.isApproved,
+      isApproved: p.isApproved || p.status === "APPROVED",
       sellerId: p.sellerId,
       seller: {
         id: p.seller.id,
@@ -2490,8 +2535,17 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
     };
   } catch (error) {
     console.warn("Database getProductById failed, using mock:", error);
-    const fallback = [...MOCK_PRODUCTS, ...dynamicProducts].find((p) => p.id === id);
-    return fallback ? { ...fallback, rating: 0, reviewsCount: 0, reviews: [] } : null;
+    const fallback = [...MOCK_PRODUCTS, ...dynamicProducts].find(matchMock);
+    return fallback
+      ? {
+          ...fallback,
+          rating: fallback.rating ?? 5,
+          reviewsCount: fallback.reviewsCount ?? 0,
+          reviews: fallback.reviews ?? [],
+          status: fallback.status || (fallback.isApproved ? "APPROVED" : "PENDING_APPROVAL"),
+          isApproved: fallback.isApproved ?? (fallback.status === "APPROVED"),
+        }
+      : null;
   }
 }
 

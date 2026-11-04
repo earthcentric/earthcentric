@@ -116,7 +116,7 @@ const SUSTAINABILITY_DATA = [
 
 const FEATURED_PRODUCTS = [
   {
-    id: "prod-1",
+    id: "prod-pdf-1",
     name: "Sauce Dip Bowl",
     category: "Bowls",
     price: 1,
@@ -125,7 +125,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-2",
+    id: "prod-pdf-2",
     name: "Snack Plate",
     category: "Plates",
     price: 2,
@@ -134,7 +134,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-3",
+    id: "prod-pdf-3",
     name: "Glass",
     category: "Tableware",
     price: 1,
@@ -143,7 +143,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-4",
+    id: "prod-pdf-4",
     name: "1D Tray",
     category: "Trays",
     price: 2,
@@ -152,7 +152,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-5",
+    id: "prod-pdf-5",
     name: "6\" x 6\" Clamshell Box",
     category: "Clamshells",
     price: 1,
@@ -161,7 +161,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-6",
+    id: "prod-pdf-6",
     name: "9\" x 9\" Clamshell Box",
     category: "Clamshells",
     price: 2,
@@ -170,7 +170,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-7",
+    id: "prod-pdf-7",
     name: "100 ml Round Bowl",
     category: "Bowls",
     price: 1,
@@ -179,7 +179,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-8",
+    id: "prod-pdf-8",
     name: "120 ml Square Bowl",
     category: "Bowls",
     price: 2,
@@ -188,7 +188,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-9",
+    id: "prod-pdf-9",
     name: "150 ml Kiwi Bowl",
     category: "Bowls",
     price: 1,
@@ -197,7 +197,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-10",
+    id: "prod-pdf-10",
     name: "180 ml Deep Round Bowl",
     category: "Bowls",
     price: 2,
@@ -206,7 +206,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-11",
+    id: "prod-pdf-11",
     name: "7\" Round Plate",
     category: "Plates",
     price: 1,
@@ -215,7 +215,7 @@ const FEATURED_PRODUCTS = [
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
-    id: "prod-12",
+    id: "prod-pdf-12",
     name: "5 CP Meal Tray & Lid",
     category: "Meal Trays & Plates",
     price: 2,
