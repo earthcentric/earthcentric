@@ -304,7 +304,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
         price: product.price || 2.0,
         originalPrice: product.originalPrice,
         image: product.images[0] || "",
-        sellerName: product.seller?.companyName || "EarthCentric Verified Supplier",
+        sellerName: "EarthCentric",
         sellerId: product.sellerId,
         moq: 1,
         boxes: quantity,
@@ -491,25 +491,22 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
               {product.name}
             </h1>
 
-            {/* Seller Info Widget */}
-            <div className="flex items-center space-x-2.5 bg-slate-50 border border-slate-100 rounded-2xl p-3 w-fit select-none">
-              <Link
-                href={`/marketplace?search=${encodeURIComponent(product.seller?.companyName || "")}`}
-                className="flex items-center space-x-2 hover:underline group"
-              >
-                <SellerLogo
-                  logoUrl={product.seller?.logoUrl}
-                  companyLogo={product.seller?.companyLogo}
-                  companyName={product.seller?.companyName}
-                  size="sm"
-                />
-                <div>
-                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Sold by</p>
-                  <h4 className="text-xs font-black text-slate-800 group-hover:text-[#0F6E56] transition-colors">
-                    {product.seller?.companyName || "Verified Partner"}
+            {/* Marketplace Provider Widget */}
+            <div className="flex items-center space-x-3 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3 w-fit select-none">
+              <div className="h-8 w-8 rounded-full bg-[#0F6E56] flex items-center justify-center text-white font-black text-xs shadow-xs">
+                EC
+              </div>
+              <div>
+                <p className="text-[10px] text-emerald-800/80 font-bold uppercase tracking-wider">Marketplace Provider</p>
+                <div className="flex items-center space-x-1.5">
+                  <h4 className="text-xs font-black text-slate-900 tracking-tight">
+                    EarthCentric
                   </h4>
+                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-extrabold px-1.5 py-0.2 rounded-md">
+                    Verified
+                  </span>
                 </div>
-              </Link>
+              </div>
             </div>
 
             {/* Rating + Sustainably Sourced */}
@@ -542,12 +539,10 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                 <Leaf className="h-4 w-4 text-[#0F6E56]" />
                 <span className="font-medium">Sustainably Sourced</span>
               </div>
-              {product.seller?.trustScore && product.seller.trustScore > 4 ? (
-                <div className="flex items-center space-x-1 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm">
-                  <Star className="h-3 w-3 fill-amber-500 text-amber-500" />
-                  <span>Trusted Seller</span>
-                </div>
-              ) : null}
+              <div className="flex items-center space-x-1 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm">
+                <Star className="h-3 w-3 fill-emerald-600 text-emerald-600" />
+                <span>EarthCentric Certified</span>
+              </div>
             </div>
 
             {/* Price */}
@@ -1324,7 +1319,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     Custom Quote Sent! 🎉
                   </h3>
                   <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">
-                    Your wholesale bulk quote request for <strong>{numQty} units</strong> (Calculated Total: <strong>₹{calculatedWholesaleAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong>) of <strong>{product.name}</strong> has been transmitted directly to the seller.
+                    Your wholesale bulk quote request for <strong>{numQty} units</strong> (Calculated Total: <strong>₹{calculatedWholesaleAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong>) of <strong>{product.name}</strong> has been transmitted to EarthCentric Super Admin for corporate order fulfillment coordination.
                   </p>
                 </div>
 
@@ -1335,7 +1330,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     <span>Live Buyer Notification Active</span>
                   </div>
                   <p className="text-slate-600 text-[11px] leading-relaxed">
-                    You will receive an instant notification in your top header bell menu as soon as the manufacturer approves your quote, declines, or requests a delivery date extension.
+                    You will receive an instant notification in your top header bell menu as soon as EarthCentric approves your quote or requests details.
                   </p>
                 </div>
 
@@ -1366,7 +1361,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                     Request Custom Quote
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Submit bulk requirements for <strong>{product.name}</strong> to the manufacturer.
+                    Submit bulk requirements for <strong>{product.name}</strong> to EarthCentric.
                   </p>
                 </div>
 
@@ -1376,7 +1371,7 @@ export default function ProductClientView({ product }: ProductClientViewProps) {
                   Wholesale pricing is not configured for this product.
                 </span>
                 <p className="text-xs text-amber-700 leading-relaxed">
-                  The seller has not set default bulk order quantity and bulk pricing yet. Wholesale enquiries are temporarily unavailable for this product.
+                  Default bulk order quantity and bulk pricing are not configured yet. Wholesale enquiries are temporarily unavailable for this product.
                 </p>
               </div>
             ) : (

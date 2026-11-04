@@ -106,30 +106,19 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
         {/* Details Section */}
         <div className="space-y-2 text-left">
           <div className="flex items-center space-x-1.5 flex-wrap">
-            <Link 
-              href={`/marketplace?search=${encodeURIComponent(product.seller.companyName)}`}
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center space-x-1 hover:underline"
-            >
-              <SellerLogo
-                logoUrl={product.seller.logoUrl}
-                companyLogo={product.seller.companyLogo}
-                companyName={product.seller.companyName}
-                size="xs"
-              />
-              <span className="text-[10px] font-extrabold text-[#0F6E56] uppercase tracking-wider">
-                {product.seller.companyName}
+            <div className="flex items-center space-x-1">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                Marketplace Provider:
               </span>
-            </Link>
+              <span className="text-[10px] font-black text-[#0F6E56] uppercase tracking-wider flex items-center gap-0.5">
+                <span>EarthCentric</span>
+                <span className="text-emerald-600 font-bold">✓</span>
+              </span>
+            </div>
             <span className="text-slate-300 text-[10px]">•</span>
             <p className="text-[10px] font-extrabold text-[#0c3c26] uppercase tracking-wider">
               {product.category}
             </p>
-            {product.seller.trustScore && product.seller.trustScore > 4 ? (
-              <span className="bg-amber-100 text-amber-800 text-[8px] px-1 py-0.5 rounded uppercase font-bold flex items-center">
-                <Star className="h-2 w-2 mr-0.5 fill-amber-500 text-amber-500" /> Trusted
-              </span>
-            ) : null}
           </div>
 
           {/* Product Title */}

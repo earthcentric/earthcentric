@@ -272,6 +272,13 @@ model Order {
   paymentGroupId String? // To group orders from different sellers paid together
   status         OrderStatus @default(PLACED)
   deliveredAt    DateTime?
+  isForwardedToSeller          Boolean   @default(false)
+  forwardedAt                  DateTime?
+  forwardedByAdminEmail        String?
+  assignedSellerId             String?
+  adminFulfillmentInstructions String?
+  fulfillmentDeadline          DateTime?
+  adminReviewStatus            String    @default("PENDING_REVIEW")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

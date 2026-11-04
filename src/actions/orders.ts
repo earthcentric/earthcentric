@@ -140,6 +140,14 @@ export interface OrderDetail {
     image?: string | null;
     emailVerified?: Date | null;
   };
+  isForwardedToSeller?: boolean;
+  forwardedAt?: Date | string | null;
+  forwardedByAdminEmail?: string | null;
+  assignedSellerId?: string | null;
+  adminFulfillmentInstructions?: string | null;
+  fulfillmentDeadline?: Date | string | null;
+  adminReviewStatus?: string;
+  orderReceivedFrom?: string;
 }
 
 // In-memory global arrays to mock order records for sandbox testing
@@ -354,6 +362,9 @@ export async function createOrder(data: {
           sellerNetAmount: orderSellerNet,
           totalBoxes: orderTotalBoxes,
           gstin: validatedGstin,
+          isForwardedToSeller: false,
+          adminReviewStatus: "PENDING_REVIEW",
+          assignedSellerId: sellerId === mockSellerId ? undefined : sellerId,
           status: "PLACED",
           createdAt: new Date(),
           address: data.address,
@@ -449,6 +460,9 @@ export async function createOrder(data: {
           sellerNetAmount: orderSellerNet,
           totalBoxes: orderTotalBoxes,
           gstin: validatedGstin,
+          isForwardedToSeller: false,
+          adminReviewStatus: "PENDING_REVIEW",
+          assignedSellerId: sId,
           status: "PLACED",
           sellerId: sId,
           paymentGroupId: paymentOrder.order_id, // Grouping multiple orders under one payment
@@ -506,6 +520,9 @@ export async function createOrder(data: {
       sellerNetAmount: firstOrder.sellerNetAmount ?? firstOrder.totalAmount,
       totalBoxes: firstOrder.totalBoxes ?? 1,
       gstin: validatedGstin,
+      isForwardedToSeller: false,
+      adminReviewStatus: "PENDING_REVIEW",
+      assignedSellerId: (firstOrder as any).assignedSellerId || null,
       status: firstOrder.status as any,
       createdAt: firstOrder.createdAt,
       address: data.address,
@@ -599,7 +616,7 @@ export async function confirmOrderPayment(
               ...o.timeline,
               {
                 status: "CONFIRMED",
-                description: "Payment confirmed. Order sent to supplier fulfillment queue.",
+                description: "Payment confirmed. Order received by EarthCentric Super Admin for mediation and review.",
                 createdAt: new Date(),
               },
             ],
@@ -681,7 +698,7 @@ export async function confirmOrderPayment(
         data: {
           orderId: ord.id,
           status: "CONFIRMED",
-          description: "Payment confirmed. Order sent to supplier fulfillment queue.",
+          description: "Payment confirmed. Order received by EarthCentric Super Admin for mediation and review.",
         },
       });
     }
@@ -718,11 +735,18 @@ export async function confirmOrderPayment(
     if (dbOrder?.userId) {
       await createNotification(
         dbOrder.userId,
-        "Order Booked & Confirmed ✅",
-        `Your order ${orderId} has been confirmed and sent to fulfillment!`,
+        "Order Confirmed ✅",
+        `Your order ${orderId} has been confirmed. EarthCentric is preparing fulfillment.`,
         `/orders/${orderId}`
       ).catch((e) => console.error("Failed to create notification:", e));
     }
+
+    // Alert Super Admin for order mediation & forwarding
+    await createAdminNotification(
+      "New Order Received for Review",
+      `Order ${orderId} has been paid and is waiting for Super Admin review and seller assignment.`,
+      "/admin/dashboard"
+    ).catch((e) => console.error("Failed to notify admin:", e));
 
     const buyerName = dbOrder?.user?.name || undefined;
     const orderAddress = dbOrder?.address;
@@ -735,7 +759,7 @@ export async function confirmOrderPayment(
         quantity: it.quantity,
         price: it.price,
         image: it.product?.images?.[0]?.url || undefined,
-        sellerName: it.product?.seller?.companyName || undefined,
+        sellerName: "EarthCentric",
       })),
       shippingAddress: orderAddress
         ? {
@@ -770,6 +794,133 @@ export async function confirmOrderPayment(
       return o;
     });
     return true;
+  }
+}
+
+export async function forwardOrderToSellerByAdmin(params: {
+  orderId: string;
+  sellerId?: string;
+  fulfillmentInstructions?: string;
+  fulfillmentDeadline?: string | Date;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    let adminEmail = "admin@earthcentric.com";
+
+    if (!isMock) {
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        return { success: false, error: "Super Admin authorization required to forward orders." };
+      }
+      if (adminAuth.email) adminEmail = adminAuth.email;
+    }
+
+    const { orderId, sellerId, fulfillmentInstructions, fulfillmentDeadline } = params;
+    const deadlineDate = fulfillmentDeadline ? new Date(fulfillmentDeadline) : new Date(Date.now() + 48 * 3600 * 1000);
+    const instructions = fulfillmentInstructions?.trim() || "Pack utilizing 100% biodegradable FSC certified packaging. Dispatch via EarthCentric logistics partner within designated deadline.";
+
+    if (isMock) {
+      let found = false;
+      mockOrders = mockOrders.map((o) => {
+        if (o.id === orderId || o.id === `${orderId}-0`) {
+          found = true;
+          return {
+            ...o,
+            isForwardedToSeller: true,
+            forwardedAt: new Date(),
+            forwardedByAdminEmail: adminEmail,
+            assignedSellerId: sellerId || o.assignedSellerId || o.sellerId || "cmvcbbtm80001txgw8dd0r3lk",
+            sellerId: sellerId || o.assignedSellerId || o.sellerId || "cmvcbbtm80001txgw8dd0r3lk",
+            adminFulfillmentInstructions: instructions,
+            fulfillmentDeadline: deadlineDate,
+            adminReviewStatus: "FORWARDED_TO_SELLER",
+            status: "CONFIRMED",
+            timeline: [
+              ...o.timeline,
+              {
+                status: "CONFIRMED",
+                description: `Order reviewed & forwarded by EarthCentric Admin (${adminEmail}) to fulfillment hub. Special instructions: ${instructions}`,
+                createdAt: new Date(),
+              },
+            ],
+          };
+        }
+        return o;
+      });
+
+      if (!found) {
+        return { success: false, error: "Order not found in mock store." };
+      }
+      return { success: true };
+    }
+
+    // DB mode
+    const order = await db.order.findUnique({
+      where: { id: orderId },
+      include: {
+        seller: { select: { id: true, userId: true, companyName: true } },
+        items: { include: { product: { select: { sellerId: true } } } },
+      },
+    });
+
+    if (!order) {
+      return { success: false, error: `Order ${orderId} not found.` };
+    }
+
+    // Resolve target seller ID
+    const targetSellerId = sellerId || order.assignedSellerId || order.sellerId || order.items[0]?.product?.sellerId;
+    if (!targetSellerId) {
+      return { success: false, error: "Please select a valid seller to forward this order to." };
+    }
+
+    // Fetch seller user ID for notification
+    const targetSeller = await db.seller.findUnique({
+      where: { id: targetSellerId },
+      select: { id: true, userId: true, companyName: true },
+    });
+
+    await db.$transaction([
+      db.order.update({
+        where: { id: orderId },
+        data: {
+          isForwardedToSeller: true,
+          forwardedAt: new Date(),
+          forwardedByAdminEmail: adminEmail,
+          assignedSellerId: targetSellerId,
+          sellerId: targetSellerId,
+          adminFulfillmentInstructions: instructions,
+          fulfillmentDeadline: deadlineDate,
+          adminReviewStatus: "FORWARDED_TO_SELLER",
+          status: order.status === "PLACED" ? "CONFIRMED" : order.status,
+        },
+      }),
+      db.orderTimeline.create({
+        data: {
+          orderId,
+          status: "CONFIRMED",
+          description: `Order reviewed and forwarded by EarthCentric to fulfillment partner. Special instructions: ${instructions}`,
+        },
+      }),
+    ]);
+
+    // Notify seller under EarthCentric branding
+    if (targetSeller?.userId) {
+      await createNotification(
+        targetSeller.userId,
+        "New Order Received from EarthCentric 📦",
+        `Order EC-ORD-${orderId.substring(4, 10).toUpperCase()} has been forwarded to you for fulfillment. Please review the instructions and dispatch before the deadline.`,
+        "/seller/dashboard"
+      ).catch((e) => console.error("Failed to notify seller:", e));
+    }
+
+    revalidatePath("/admin/dashboard");
+    revalidatePath("/seller/dashboard");
+    revalidatePath(`/orders/${orderId}`);
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("forwardOrderToSellerByAdmin failed:", error);
+    return { success: false, error: error?.message || "Failed to forward order to seller." };
   }
 }
 
@@ -854,6 +1005,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       auth.authorized &&
       auth.role === "SELLER" &&
       (auth.sellerId === order.sellerId ||
+        auth.sellerId === (order as any).assignedSellerId ||
         order.items.some((item) => item.product.sellerId === auth.sellerId));
     const isOrderBuyer =
       auth.authorized &&
@@ -862,6 +1014,11 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
 
     // If an authenticated user is trying to view someone else's order (and is not admin/seller):
     if (auth.authorized && !isAdmin && !isOrderSeller && !isOrderBuyer) {
+      return null;
+    }
+
+    // Orders must NOT appear in Seller Portal before Super Admin forwards them
+    if (isOrderSeller && !isAdmin && !(order as any).isForwardedToSeller) {
       return null;
     }
 
@@ -874,11 +1031,12 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
     return {
       id: order.id,
       userId: order.userId,
+      orderReceivedFrom: isOrderSeller && !isAdmin ? "EarthCentric" : undefined,
       user: isOrderSeller && !isAdmin ? {
-        name: order.user?.name ? `Commercial Buyer (${order.user.name.split(" ")[0]})` : "Commercial Buyer",
+        name: "EarthCentric",
       } : (order.user ? {
         name: order.user.name || "Customer",
-        email: order.user.email || "",
+        email: isAdmin ? (order.user.email || "") : undefined,
       } : undefined),
       totalAmount: order.totalAmount,
       grossAmount,
@@ -886,11 +1044,18 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       commissionAmount,
       sellerNetAmount,
       totalBoxes,
-      gstin: isAdmin ? (order.gstin || undefined) : (order.gstin ? `${order.gstin.slice(0, 5)}****${order.gstin.slice(-3)}` : undefined),
+      gstin: isAdmin ? (order.gstin || undefined) : isOrderBuyer ? (order.gstin || undefined) : undefined,
       status: order.status as any,
+      isForwardedToSeller: (order as any).isForwardedToSeller ?? false,
+      forwardedAt: (order as any).forwardedAt ?? null,
+      forwardedByAdminEmail: isAdmin ? (order as any).forwardedByAdminEmail : null,
+      assignedSellerId: (order as any).assignedSellerId ?? order.sellerId ?? null,
+      adminFulfillmentInstructions: (order as any).adminFulfillmentInstructions ?? null,
+      fulfillmentDeadline: (order as any).fulfillmentDeadline ?? null,
+      adminReviewStatus: (order as any).adminReviewStatus ?? "PENDING_REVIEW",
       createdAt: order.createdAt,
       address: isOrderSeller && !isAdmin ? {
-        street: "EarthCentric Fulfillment Hub",
+        street: "EarthCentric Central Fulfillment Hub",
         city: order.address.city,
         state: order.address.state,
         postalCode: order.address.postalCode,
@@ -1043,7 +1208,8 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
           image: it.product?.images?.[0]?.url || "",
           sku: it.product?.slug || it.productId?.slice(0, 8).toUpperCase() || "SKU-PROD",
           sellerId: it.product?.sellerId,
-          sellerName: it.product?.seller?.companyName || "EarthCentric Partner",
+          sellerName: "EarthCentric",
+          seller: { id: "earthcentric", companyName: "EarthCentric" },
         })),
         paymentStatus: (order.payment?.status as any) || "PENDING",
         cancellation: mapLatestCancellation(order.cancellations),
@@ -1301,7 +1467,11 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
             totalBoxes: 5,
             status: "CONFIRMED",
             createdAt: new Date(Date.now() - 3600000 * 4),
-            address: { street: "EarthCentric Fulfillment Hub", city: "Bengaluru", state: "Karnataka", postalCode: "560001", country: "India" },
+            address: { street: "EarthCentric Central Fulfillment Hub", city: "Bengaluru", state: "Karnataka", postalCode: "560001", country: "India" },
+            isForwardedToSeller: true,
+            orderReceivedFrom: "EarthCentric",
+            adminReviewStatus: "FORWARDED_TO_SELLER",
+            adminFulfillmentInstructions: "Standard EarthCentric eco-packaging. Prepare for logistics courier pickup.",
             items: [{
               productId: "prod-pdf-1",
               name: "Sauce Dip Bowl (Bulk Pack)",
@@ -1353,7 +1523,7 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
           }
         ];
       }
-      return mockOrders.filter((o) => o.paymentStatus === "COMPLETED");
+      return mockOrders.filter((o) => o.paymentStatus === "COMPLETED" && o.isForwardedToSeller === true);
     }
 
     // Resolve seller ID candidate keys
@@ -1371,8 +1541,10 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
         payment: {
           status: "COMPLETED",
         },
+        isForwardedToSeller: true,
         OR: [
           { sellerId: { in: candidateSellerIds } },
+          { assignedSellerId: { in: candidateSellerIds } },
           {
             items: {
               some: {
@@ -1415,9 +1587,10 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
       return {
         id: order.id,
         userId: order.userId,
-        // Requirement 5: Strict Buyer Privacy - Never expose buyer phone or email to sellers
+        orderReceivedFrom: "EarthCentric",
+        // Requirement 3: Strictly Minimum Necessary Info - Never expose buyer personal details
         user: {
-          name: order.user?.name ? `Commercial Buyer (${order.user.name.split(" ")[0]})` : "Commercial Buyer",
+          name: "EarthCentric",
         },
         totalAmount: order.totalAmount,
         grossAmount,
@@ -1426,8 +1599,13 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
         sellerNetAmount,
         totalBoxes,
         status: order.status as any,
+        isForwardedToSeller: true,
+        forwardedAt: (order as any).forwardedAt,
+        adminFulfillmentInstructions: (order as any).adminFulfillmentInstructions || "Pack utilizing 100% biodegradable FSC certified packaging. Dispatch via EarthCentric logistics partner.",
+        fulfillmentDeadline: (order as any).fulfillmentDeadline,
+        adminReviewStatus: (order as any).adminReviewStatus || "FORWARDED_TO_SELLER",
         createdAt: order.createdAt,
-        // Requirement 5: Strict Buyer Privacy - Mask private address to EarthCentric mediated hub
+        // Requirement 3: Strictly Buyer Privacy - Mask private shipping address to EarthCentric Hub
         address: {
           street: "EarthCentric Central Fulfillment Hub",
           city: order.address.city,
@@ -1494,7 +1672,7 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
       },
       include: {
         address: true,
-        user: { select: { name: true, email: true } },
+        user: { select: { name: true, email: true, phone: true } },
         seller: {
           select: {
             id: true,
@@ -1545,12 +1723,31 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         phone: primaryItemSeller.phone || "Not provided",
       } : undefined);
 
+      const grossAmount = order.grossAmount ?? order.totalAmount;
+      const commissionRate = order.commissionRate ?? 10.0;
+      const commissionAmount = order.commissionAmount ?? Math.round(((grossAmount * commissionRate) / 100) * 100) / 100;
+      const sellerNetAmount = order.sellerNetAmount ?? Math.round((grossAmount - commissionAmount) * 100) / 100;
+      const totalBoxes = order.totalBoxes ?? order.items.reduce((sum, it) => sum + (it.boxes || it.quantity), 0);
+
       return {
         id: order.id,
         userId: order.userId,
-        sellerId: order.sellerId || resolvedSeller?.id || null,
+        sellerId: order.sellerId || (order as any).assignedSellerId || resolvedSeller?.id || null,
+        assignedSellerId: (order as any).assignedSellerId || order.sellerId || resolvedSeller?.id || null,
+        isForwardedToSeller: (order as any).isForwardedToSeller ?? false,
+        forwardedAt: (order as any).forwardedAt ?? null,
+        forwardedByAdminEmail: (order as any).forwardedByAdminEmail ?? null,
+        adminFulfillmentInstructions: (order as any).adminFulfillmentInstructions ?? null,
+        fulfillmentDeadline: (order as any).fulfillmentDeadline ?? null,
+        adminReviewStatus: (order as any).adminReviewStatus ?? "PENDING_REVIEW",
         seller: resolvedSeller,
         totalAmount: order.totalAmount,
+        grossAmount,
+        commissionRate,
+        commissionAmount,
+        sellerNetAmount,
+        totalBoxes,
+        gstin: order.gstin || undefined,
         status: order.status as any,
         createdAt: order.createdAt,
         address: {
@@ -1560,19 +1757,36 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
           postalCode: order.address.postalCode,
           country: order.address.country,
         },
-        items: order.items.map((it) => ({
-          productId: it.productId,
-          name: it.product.name,
-          quantity: it.quantity,
-          price: it.price,
-          image: it.product.images[0]?.url || "",
-          seller: it.product?.seller ? {
-            id: it.product.seller.id,
-            companyName: it.product.seller.companyName,
-            email: it.product.seller.user?.email || "",
-            phone: it.product.seller.phone || "Not provided",
-          } : resolvedSeller,
-        })),
+        items: order.items.map((it) => {
+          const boxes = it.boxes ?? it.quantity;
+          const unitsPerBox = it.unitsPerBox ?? (it.product as any).unitsPerBox ?? 100;
+          const totalUnits = it.totalUnits ?? (boxes * unitsPerBox);
+          const pricePerBox = it.pricePerBox ?? it.price;
+          const itemCommissionRate = it.commissionRate ?? commissionRate;
+          const itemCommission = it.commissionAmount ?? Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100;
+          const itemSellerNet = it.sellerNetAmount ?? Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100;
+
+          return {
+            productId: it.productId,
+            name: it.product.name,
+            quantity: boxes,
+            boxes,
+            unitsPerBox,
+            totalUnits,
+            price: pricePerBox,
+            pricePerBox,
+            commissionRate: itemCommissionRate,
+            commissionAmount: itemCommission,
+            sellerNetAmount: itemSellerNet,
+            image: it.product.images[0]?.url || "",
+            seller: it.product?.seller ? {
+              id: it.product.seller.id,
+              companyName: it.product.seller.companyName,
+              email: it.product.seller.user?.email || "",
+              phone: it.product.seller.phone || "Not provided",
+            } : resolvedSeller,
+          };
+        }),
         paymentStatus: (order.payment?.status as any) || "PENDING",
         ...(order.payment?.cashfreeOrderId ? { cashfreeOrderId: order.payment.cashfreeOrderId } : {}),
         timeline: order.timeline.map((t) => ({
@@ -1583,6 +1797,7 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
         user: {
           name: order.user?.name || "Anonymous User",
           email: order.user?.email || "unknown@email.com",
+          phone: (order.user as any)?.phone || "",
         },
         cancellation: mapLatestCancellation(order.cancellations),
         cancellations: order.cancellations || [],

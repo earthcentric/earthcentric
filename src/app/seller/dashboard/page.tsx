@@ -3527,10 +3527,17 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
                   return (
                     <TableRow key={o.id} className="border-b border-[#e9ece6]/50 hover:bg-slate-50/50">
                       <TableCell className="pl-4 py-4 font-bold text-[11px] text-[#2d4a36]">
-                        EC-ORD-{o.id.substring(4, 10).toUpperCase()}
+                        <div className="space-y-1">
+                          <span className="font-extrabold text-xs text-[#2d4a36] block">
+                            EC-ORD-{o.id.substring(4, 10).toUpperCase()}
+                          </span>
+                          <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-[9px] font-bold px-1.5 py-0.5 rounded inline-block">
+                            Order received from: EarthCentric
+                          </span>
+                        </div>
                       </TableCell>
 
-                      {/* Strict Privacy: Destination Hub Only */}
+                      {/* Strict Privacy: EarthCentric Central Fulfillment Hub Only */}
                       <TableCell className="py-4">
                         <div className="space-y-0.5">
                           <p className="text-xs font-bold text-slate-800">
@@ -3540,8 +3547,18 @@ function OrdersView({ orders, handleUpdateFulfillment, handleRequestCancellation
                             PIN: {o.address?.postalCode || "—"}
                           </p>
                           <span className="text-[9px] text-[#0F6E56] font-semibold bg-[#0F6E56]/10 px-1.5 py-0.5 rounded-full inline-block">
-                            EarthCentric Logistics Hub
+                            EarthCentric Central Fulfillment Hub
                           </span>
+                          {o.adminFulfillmentInstructions && (
+                            <p className="text-[10px] text-emerald-900 bg-emerald-50/80 p-1 rounded border border-emerald-200 mt-1 line-clamp-2" title={o.adminFulfillmentInstructions}>
+                              <strong>Instructions:</strong> {o.adminFulfillmentInstructions}
+                            </p>
+                          )}
+                          {o.fulfillmentDeadline && (
+                            <p className="text-[9px] text-amber-800 font-bold mt-0.5">
+                              Deadline: {new Date(o.fulfillmentDeadline).toLocaleDateString()}
+                            </p>
+                          )}
                         </div>
                       </TableCell>
 

@@ -21,6 +21,7 @@ import {
 import { getAllProductsForAdmin, updateProductCommissionByAdmin, updateProductVisibilityByAdmin } from "@/actions/products";
 import {
   cancelOrderAsAdmin,
+  forwardOrderToSellerByAdmin,
   getAllOrdersForAdmin,
   getOrderCancellationsForAdmin,
   refreshOrderCancellationRefund,
@@ -3536,6 +3537,54 @@ function OrderManagementView({
   const [inspectProductId, setInspectProductId] = useState<string | null>(null);
   const [cancellationRequests, setCancellationRequests] = useState<any[]>([]);
   const [processingCancellationId, setProcessingCancellationId] = useState<string | null>(null);
+  const [forwardSellerId, setForwardSellerId] = useState<string>("");
+  const [forwardInstructions, setForwardInstructions] = useState<string>("");
+  const [forwardDeadline, setForwardDeadline] = useState<string>("");
+  const [isForwardingOrder, setIsForwardingOrder] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedOrder) {
+      setForwardSellerId(selectedOrder.assignedSellerId || selectedOrder.sellerId || getOrderSellerInfo(selectedOrder).id || "");
+      setForwardInstructions(selectedOrder.adminFulfillmentInstructions || "Pack utilizing 100% biodegradable FSC certified packaging. Dispatch via EarthCentric logistics partner within designated deadline.");
+      setForwardDeadline(selectedOrder.fulfillmentDeadline ? new Date(selectedOrder.fulfillmentDeadline).toISOString().split("T")[0] : "");
+    }
+  }, [selectedOrder]);
+
+  const handleForwardOrder = async () => {
+    if (!selectedOrder) return;
+    if (!forwardSellerId) {
+      toast.error("Please select a fulfilling seller.");
+      return;
+    }
+    setIsForwardingOrder(true);
+    try {
+      const res = await forwardOrderToSellerByAdmin({
+        orderId: selectedOrder.id,
+        sellerId: forwardSellerId,
+        fulfillmentInstructions: forwardInstructions,
+        fulfillmentDeadline: forwardDeadline || undefined,
+      });
+      if (res.success) {
+        toast.success("Order approved and forwarded to seller under EarthCentric branding!");
+        await onUpdateStatus();
+        setSelectedOrder((prev: any) => prev ? {
+          ...prev,
+          isForwardedToSeller: true,
+          forwardedAt: new Date(),
+          adminReviewStatus: "FORWARDED_TO_SELLER",
+          assignedSellerId: forwardSellerId,
+          adminFulfillmentInstructions: forwardInstructions,
+          fulfillmentDeadline: forwardDeadline ? new Date(forwardDeadline) : null,
+        } : null);
+      } else {
+        toast.error(res.error || "Failed to forward order to seller.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to forward order to seller.");
+    } finally {
+      setIsForwardingOrder(false);
+    }
+  };
 
   const loadCancellationRequests = async () => {
     try {
@@ -4344,6 +4393,7 @@ function OrderManagementView({
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Date</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Items Count</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Total Amount</TableHead>
+              <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Mediation Status</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Order Status</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Payment</TableHead>
               <TableHead className="text-[10px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Action</TableHead>
@@ -4352,7 +4402,7 @@ function OrderManagementView({
           <TableBody>
             {displayOrders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-16 text-xs text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-16 text-xs text-muted-foreground">
                   {selectedSellerId ? (
                     <div className="flex flex-col items-center justify-center space-y-3">
                       <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
@@ -4422,6 +4472,24 @@ function OrderManagementView({
                       ₹{order.totalAmount?.toLocaleString()}
                     </TableCell>
                     <TableCell className="py-4">
+                      {order.isForwardedToSeller ? (
+                        <div className="space-y-0.5">
+                          <Badge className="bg-emerald-100 text-emerald-800 border-none font-bold text-[9px] px-2 py-0.5 whitespace-nowrap">
+                            ✓ Forwarded
+                          </Badge>
+                          {order.forwardedAt && (
+                            <span className="text-[8px] text-slate-400 block font-medium">
+                              {new Date(order.forwardedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <Badge className="bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[9px] px-2 py-0.5 animate-pulse whitespace-nowrap">
+                          ⚠️ Pending Review
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4">
                       {(() => {
                         const effectiveStatus = (order.orderStatus || order.status || "CONFIRMED").toUpperCase();
                         const cancelReq = cancellationRequests.find((c) => c.orderId === order.id || c.order?.id === order.id) || order.cancellation;
@@ -4484,17 +4552,125 @@ function OrderManagementView({
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setSelectedOrder(null)} />
-          <Card className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-6">
+          <Card className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 bg-card border rounded-2xl shadow-xl z-10 space-y-6">
             <div className="flex justify-between items-center pb-2 border-b">
               <div>
-                <h3 className="font-bold text-base text-[#1a3321]">Order Details: EC-ORD-{selectedOrder.id.substring(4, 10).toUpperCase()}</h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-bold text-base text-[#1a3321]">Order Details: EC-ORD-{selectedOrder.id.substring(4, 10).toUpperCase()}</h3>
+                  {selectedOrder.isForwardedToSeller ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 border-none font-bold text-[9px] px-2 py-0.5">
+                      ✓ Forwarded to Seller
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[9px] px-2 py-0.5 animate-pulse">
+                      ⚠️ Pending Super Admin Review
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Placed on {new Date(selectedOrder.createdAt).toLocaleString()}</p>
               </div>
               <button onClick={() => setSelectedOrder(null)} className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 cursor-pointer"><X className="h-4 w-4" /></button>
             </div>
             
+            {/* Super Admin Order Mediation & Forwarding Controls */}
+            {!selectedOrder.isForwardedToSeller ? (
+              <div className="p-4 bg-amber-50/80 border border-amber-300 rounded-2xl space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 text-amber-950 font-black text-xs uppercase tracking-wide">
+                    <AlertCircle className="h-4 w-4 text-amber-700 shrink-0" />
+                    <span>EarthCentric Mediation: Super Admin Action Required</span>
+                  </div>
+                  <Badge className="bg-amber-200 text-amber-900 border-none font-bold text-[9px]">
+                    PENDING REVIEW
+                  </Badge>
+                </div>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  Commercial orders are never dispatched directly to sellers. Review the order, confirm or reassign the fulfilling seller, enter fulfillment instructions, and forward it to authorize fulfillment under EarthCentric branding.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                      Assigned Fulfilling Seller:
+                    </label>
+                    <select
+                      value={forwardSellerId}
+                      onChange={(e) => setForwardSellerId(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+                    >
+                      <option value="">Select seller...</option>
+                      {baseSellersList.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.companyName} {s.email ? `(${s.email})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                      Fulfillment Deadline:
+                    </label>
+                    <input
+                      type="date"
+                      value={forwardDeadline}
+                      onChange={(e) => setForwardDeadline(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                    EarthCentric Packaging &amp; Fulfillment Instructions for Seller:
+                  </label>
+                  <textarea
+                    value={forwardInstructions}
+                    onChange={(e) => setForwardInstructions(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. Pack utilizing 100% biodegradable FSC certified packaging. Prepare for EarthCentric courier pickup..."
+                    className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1a3321]"
+                  />
+                </div>
+
+                <Button
+                  disabled={isForwardingOrder || !forwardSellerId}
+                  onClick={handleForwardOrder}
+                  className="w-full bg-[#1a3321] hover:bg-[#122417] text-white font-extrabold text-xs py-2.5 rounded-xl flex items-center justify-center space-x-2 shadow-md cursor-pointer transition-all"
+                >
+                  <PackageCheck className="h-4 w-4" />
+                  <span>{isForwardingOrder ? "Forwarding Order..." : "Forward Order to Seller"}</span>
+                </Button>
+              </div>
+            ) : (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-emerald-950 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                    <span>Order Forwarded to Fulfilling Seller</span>
+                  </span>
+                  <Badge className="bg-emerald-100 text-emerald-800 border-none font-bold text-[9px]">
+                    DISPATCHED TO SELLER
+                  </Badge>
+                </div>
+                <p className="text-emerald-800 text-[11px]">
+                  Forwarded on <strong>{new Date(selectedOrder.forwardedAt || selectedOrder.createdAt).toLocaleString()}</strong> by {selectedOrder.forwardedByAdminEmail || "Super Admin"}.
+                </p>
+                {selectedOrder.adminFulfillmentInstructions && (
+                  <p className="text-[11px] text-slate-700 bg-white/80 p-2 rounded-lg border border-emerald-200 mt-1">
+                    <strong>Instructions:</strong> {selectedOrder.adminFulfillmentInstructions}
+                  </p>
+                )}
+                {selectedOrder.fulfillmentDeadline && (
+                  <p className="text-[10px] text-amber-800 font-bold">
+                    Fulfillment Deadline: {new Date(selectedOrder.fulfillmentDeadline).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Seller Account Indicator inside Modal */}
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+            <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
               <div className="flex items-center space-x-2">
                 <Store className="h-4 w-4 text-emerald-700 shrink-0" />
                 <span className="text-emerald-900 font-semibold">
@@ -4516,7 +4692,7 @@ function OrderManagementView({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Left Column: Order Items & Summary */}
+              {/* Left Column: Order Items & Financial Breakdown */}
               <div className="space-y-4">
                 <div>
                   <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Order Items</h4>
@@ -4526,6 +4702,9 @@ function OrderManagementView({
                         it.seller?.id === selectedSellerId || 
                         it.seller?.companyName?.toLowerCase() === activeSeller?.companyName?.toLowerCase()
                       );
+                      const boxes = it.boxes || it.quantity;
+                      const unitsPerBox = it.unitsPerBox || 100;
+                      const totalUnits = it.totalUnits || (boxes * unitsPerBox);
                       return (
                         <div key={idx} className={`flex items-center space-x-3 text-xs p-2.5 rounded-lg border ${isTargetSeller ? "bg-emerald-50/50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
                           <img src={it.image || "https://images.unsplash.com/photo-1544982503-9f984c14501a?w=100"} className="h-10 w-10 object-cover rounded" />
@@ -4536,7 +4715,9 @@ function OrderManagementView({
                                 <Badge className="bg-emerald-600 text-white text-[8px] px-1 py-0 font-bold shrink-0">Selected Seller</Badge>
                               )}
                             </div>
-                            <p className="text-[10px] text-muted-foreground">Qty: {it.quantity} × ₹{it.price}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              📦 {boxes} {boxes === 1 ? "Box" : "Boxes"} ({totalUnits} units) × ₹{it.pricePerBox || it.price}/box
+                            </p>
                             {it.seller?.companyName && (
                               <p className="text-[9px] text-emerald-800 font-semibold truncate">Seller: {it.seller.companyName}</p>
                             )}
@@ -4557,22 +4738,75 @@ function OrderManagementView({
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-lg border text-xs space-y-1">
+                {/* Financial & Commission Snapshot */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border text-xs space-y-1.5">
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                    Financials &amp; Commission Snapshot
+                  </h4>
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Payment Method:</span>
-                    <span className="font-semibold text-slate-700 capitalize">{selectedOrder.paymentMethod || "Prepaid"}</span>
+                    <span>Gross Order Amount:</span>
+                    <span className="font-bold text-slate-900">₹{(selectedOrder.grossAmount || selectedOrder.totalAmount)?.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Total Amount:</span>
-                    <span className="font-bold text-[#1a3321]">₹{selectedOrder.totalAmount?.toLocaleString()}</span>
+                    <span>Super Admin Commission Rate:</span>
+                    <span className="font-semibold text-amber-800">{selectedOrder.commissionRate ?? 10}%</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>EarthCentric Commission Deducted:</span>
+                    <span className="font-bold text-amber-800">
+                      -₹{(selectedOrder.commissionAmount ?? Math.round(((selectedOrder.grossAmount || selectedOrder.totalAmount) * (selectedOrder.commissionRate ?? 10) / 100) * 100) / 100)?.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-emerald-900 font-extrabold pt-1 border-t border-slate-200">
+                    <span>Seller Net Payable:</span>
+                    <span className="text-sm font-black">
+                      ₹{(selectedOrder.sellerNetAmount ?? Math.round(((selectedOrder.grossAmount || selectedOrder.totalAmount) - (selectedOrder.commissionAmount || 0)) * 100) / 100)?.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground pt-1 border-t border-slate-100">
+                    <span>Payment Status:</span>
+                    <span className="font-semibold text-slate-700 capitalize">{selectedOrder.paymentStatus || "COMPLETED"}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Right Column: Tracking Timeline */}
-              <div>
-                <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Tracking Milestones</h4>
-                <div className="border rounded-lg p-3 bg-slate-50 max-h-56 overflow-y-auto space-y-3">
+              {/* Right Column: Buyer Full Details & Tracking Milestones */}
+              <div className="space-y-4">
+                {/* Buyer Full Profile (Super Admin Only) */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                    Buyer Information (Super Admin Access)
+                  </h4>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="text-muted-foreground">Name:</span>
+                    <span className="font-bold text-slate-900">{selectedOrder.user?.name || "Direct Customer"}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="text-muted-foreground">Email:</span>
+                    <span className="font-medium text-slate-800">{selectedOrder.user?.email || "customer@earthcentric.com"}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="text-muted-foreground">Phone:</span>
+                    <span className="font-medium text-slate-800">{selectedOrder.user?.phone || selectedOrder.address?.phone || "Not specified"}</span>
+                  </div>
+                  <div className="text-slate-700 pt-1 border-t border-slate-200">
+                    <span className="text-muted-foreground block text-[10px] font-bold uppercase">Delivery Address:</span>
+                    <span className="text-slate-800 block mt-0.5 leading-relaxed">
+                      {[selectedOrder.address?.street, selectedOrder.address?.city, selectedOrder.address?.state, selectedOrder.address?.postalCode, selectedOrder.address?.country].filter(Boolean).join(", ")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                    <span className="text-muted-foreground font-semibold">Commercial GSTIN:</span>
+                    <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      {selectedOrder.gstin || "Consumer Order (No GSTIN)"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Tracking Timeline */}
+                <div>
+                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Tracking Milestones</h4>
+                  <div className="border rounded-lg p-3 bg-slate-50 max-h-48 overflow-y-auto space-y-3">
                   <div className="space-y-4">
                     {selectedOrder.trackingEvents && selectedOrder.trackingEvents.length > 0 ? (
                       selectedOrder.trackingEvents.map((evt: any, i: number) => (
@@ -4592,6 +4826,7 @@ function OrderManagementView({
                 </div>
               </div>
             </div>
+          </div>
 
             {/* Extra Information: Cancellation & Refund Details */}
             {selectedOrderCancellations.length > 0 && (

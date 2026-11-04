@@ -121,7 +121,7 @@ const FEATURED_PRODUCTS = [
     category: "Bowls",
     price: 1,
     image: "/images/products/product_p1_1.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -130,7 +130,7 @@ const FEATURED_PRODUCTS = [
     category: "Plates",
     price: 2,
     image: "/images/products/product_p1_2.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -139,7 +139,7 @@ const FEATURED_PRODUCTS = [
     category: "Tableware",
     price: 1,
     image: "/images/products/product_p1_3.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -148,7 +148,7 @@ const FEATURED_PRODUCTS = [
     category: "Trays",
     price: 2,
     image: "/images/products/product_p1_4.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -157,7 +157,7 @@ const FEATURED_PRODUCTS = [
     category: "Clamshells",
     price: 1,
     image: "/images/products/product_p1_5.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -166,7 +166,7 @@ const FEATURED_PRODUCTS = [
     category: "Clamshells",
     price: 2,
     image: "/images/products/product_p1_6.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -175,7 +175,7 @@ const FEATURED_PRODUCTS = [
     category: "Bowls",
     price: 1,
     image: "/images/products/product_p1_7.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -184,7 +184,7 @@ const FEATURED_PRODUCTS = [
     category: "Bowls",
     price: 2,
     image: "/images/products/product_p1_8.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -193,7 +193,7 @@ const FEATURED_PRODUCTS = [
     category: "Bowls",
     price: 1,
     image: "/images/products/product_p1_9.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -202,7 +202,7 @@ const FEATURED_PRODUCTS = [
     category: "Bowls",
     price: 2,
     image: "/images/products/product_p1_10.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -211,7 +211,7 @@ const FEATURED_PRODUCTS = [
     category: "Plates",
     price: 1,
     image: "/images/products/product_p2_7.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   },
   {
@@ -220,7 +220,7 @@ const FEATURED_PRODUCTS = [
     category: "Meal Trays & Plates",
     price: 2,
     image: "/images/products/product_p3_10.png",
-    sellerName: "AR ECO INDIA",
+    sellerName: "EarthCentric",
     sellerId: "cmvcbbtm80001txgw8dd0r3lk",
   }
 ];
@@ -960,19 +960,19 @@ export default function Homepage() {
     },
     {
       id: "verified-sellers",
-      badge: "Sellers",
+      badge: "Standards",
       content: (
         <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 md:py-36 space-y-12">
           <div className="text-center space-y-2 max-w-xl mx-auto">
             <div className="inline-flex items-center space-x-1.5 rounded-full bg-accent/20 border border-accent/30 px-3 py-1 text-[10px] font-bold text-primary uppercase tracking-wider">
               <Award className="h-3 w-3 text-emerald-600 animate-pulse" />
-              <span>Direct Verification Badge</span>
+              <span>EarthCentric Direct Verification</span>
             </div>
             <h2 className="text-3xl font-extrabold text-primary tracking-tight sm:text-4xl">
-              Verified Ethical Suppliers
+              Certified Sustainable Hubs
             </h2>
             <p className="text-sm text-muted-foreground">
-              Meet our partner manufacturers and carbon-neutral sellers who have completed our 5-stage certification audits.
+              Every product is audited and fulfilled under EarthCentric quality and carbon-neutral standards.
             </p>
           </div>
 
@@ -985,8 +985,10 @@ export default function Homepage() {
                 <div className="space-y-4 text-left">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <span className="text-sm block">🏢</span>
-                      <h3 className="font-extrabold text-base text-primary tracking-tight truncate max-w-[180px]" title={s.name}>{s.name}</h3>
+                      <span className="text-sm block">🌿</span>
+                      <h3 className="font-extrabold text-base text-primary tracking-tight truncate max-w-[220px]">
+                        EarthCentric Hub #{idx + 1}
+                      </h3>
                     </div>
                   </div>
                   
@@ -996,7 +998,7 @@ export default function Homepage() {
                       <span>{s.location}</span>
                     </span>
                     <span className="inline-flex items-center space-x-1 bg-muted/40 rounded-full px-2.5 py-1 text-[10px] text-muted-foreground font-semibold">
-                      <span>{s.productCount} Products</span>
+                      <span>{s.productCount} Audited Items</span>
                     </span>
                   </div>
 
@@ -1005,7 +1007,7 @@ export default function Homepage() {
                   </p>
                   
                   <div className="text-[10px] font-bold text-accent uppercase tracking-wider truncate">
-                    Category: <span className="text-primary">{s.category}</span>
+                    Domain: <span className="text-primary">{s.category}</span>
                   </div>
                 </div>
 

@@ -268,7 +268,7 @@ export async function sendOrderConfirmationEmail(
         </td>
         <td style="padding: 12px 8px; vertical-align: middle;">
           <p style="margin: 0; font-size: 13px; font-weight: 700; color: #1F3A2E;">${item.name}</p>
-          ${item.sellerName ? `<p style="margin: 2px 0 0 0; font-size: 11px; color: #888;">by ${item.sellerName}</p>` : ""}
+          <p style="margin: 2px 0 0 0; font-size: 11px; color: #888;">Marketplace Provider: EarthCentric</p>
           <p style="margin: 2px 0 0 0; font-size: 11px; color: #888;">Qty: ${item.quantity}</p>
         </td>
         <td style="padding: 12px 8px; vertical-align: middle; text-align: right; font-size: 13px; font-weight: 700; color: #1F3A2E; white-space: nowrap;">

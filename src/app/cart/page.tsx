@@ -133,7 +133,7 @@ export default function CartPage() {
                       </div>
                     );
                   })()}
-                  <p className="text-xs text-muted-foreground">Supplier: {item.sellerName}</p>
+                  <p className="text-xs text-muted-foreground">Marketplace Provider: EarthCentric</p>
                   
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-0.5">
                     <Badge variant="primary" className="text-[10px] bg-primary/10 text-primary border-none">

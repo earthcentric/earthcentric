@@ -968,7 +968,7 @@ export default function Navbar() {
                               </div>
                             );
                           })()}
-                          <p className="text-xs text-muted-foreground truncate">by {item.sellerName}</p>
+                          <p className="text-xs text-muted-foreground truncate">Provider: EarthCentric</p>
                           
                           <div className="flex items-center justify-between mt-2.5">
                             {/* Quantity selector */}
