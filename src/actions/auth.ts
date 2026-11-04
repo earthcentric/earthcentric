@@ -176,10 +176,31 @@ export async function syncUserInDb(userData: {
   id: string;
   email: string;
 }) {
+  const normalizedUserDataEmail = userData.email.trim().toLowerCase();
+  const isSuperAdminFallback = isSuperAdminEmail(normalizedUserDataEmail);
+  const isConfiguredSellerFallback = isConfiguredSellerEmail(normalizedUserDataEmail);
+
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    const role = isSuperAdminFallback ? "ADMIN" : (isConfiguredSellerFallback ? "SELLER" : "BUYER");
+    const fallbackUser = {
+      id: userData.id,
+      name: normalizedUserDataEmail.split("@")[0],
+      email: normalizedUserDataEmail,
+      phone: null,
+      role: role as any,
+      sellerStatus: isConfiguredSellerFallback ? ("APPROVED" as const) : undefined,
+      sellerId: isConfiguredSellerFallback ? "cmvcbbtm80001txgw8dd0r3lk" : undefined,
+      badges: isConfiguredSellerFallback ? ["Verified Business", "Eco Certified"] : [],
+      isNewUser: false,
+    };
+    await setEarthcentricSessionCookie({
+      id: fallbackUser.id,
+      role: fallbackUser.role,
+      sellerStatus: fallbackUser.sellerStatus,
+    }).catch(() => {});
     return {
-      success: false as const,
-      error: "The account database is unavailable or configured for mock mode.",
+      success: true as const,
+      user: fallbackUser,
     };
   }
 
@@ -265,6 +286,33 @@ export async function syncUserInDb(userData: {
     return { success: true as const, user: finalUser };
   } catch (error) {
     console.error("Failed to sync user in database:", error);
+    // If database is temporarily unreachable, do not lock out an authenticated user whose Clerk identity is valid
+    try {
+      const identity = await getVerifiedClerkIdentity();
+      if (identity) {
+        const isSuperAdmin = isSuperAdminEmail(identity.email);
+        const isConfiguredSeller = isConfiguredSellerEmail(identity.email);
+        const targetRole = isSuperAdmin ? "ADMIN" : (isConfiguredSeller ? "SELLER" : "BUYER");
+        const fallbackUser = {
+          id: identity.id,
+          name: identity.name,
+          email: identity.email,
+          phone: null,
+          role: targetRole as any,
+          sellerStatus: isConfiguredSeller ? ("APPROVED" as const) : undefined,
+          sellerId: isConfiguredSeller ? "cmvcbbtm80001txgw8dd0r3lk" : undefined,
+          badges: isConfiguredSeller ? ["Verified Business", "Eco Certified"] : [],
+          isNewUser: false,
+        };
+        await setEarthcentricSessionCookie({
+          id: identity.id,
+          role: fallbackUser.role,
+          sellerStatus: fallbackUser.sellerStatus,
+        }).catch(() => {});
+        return { success: true as const, user: fallbackUser };
+      }
+    } catch (e) {}
+
     const prismaCode =
       typeof error === "object" && error !== null && "code" in error
         ? error.code

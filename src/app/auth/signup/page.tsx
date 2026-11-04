@@ -1,9 +1,5 @@
-import { SignUp } from "@clerk/nextjs";
+import { redirect } from "next/navigation";
 
 export default function SignupPage() {
-  return (
-    <div className="flex-1 flex items-center justify-center py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-accent/5 to-transparent">
-      <SignUp routing="hash" fallbackRedirectUrl="/account?tab=profile&onboarding=true" />
-    </div>
-  );
+  redirect("/sign-up");
 }

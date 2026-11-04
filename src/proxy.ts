@@ -50,7 +50,7 @@ export default clerkMiddleware(async (auth, request) => {
 
   if (!isAuthenticated && (isAdminRoute || isSellerRoute || isBuyerRoute)) {
     // Redirect to login
-    const loginUrl = new URL('/auth/login', request.url);
+    const loginUrl = new URL('/sign-in', request.url);
     loginUrl.searchParams.set('redirect_url', pathname);
     return NextResponse.redirect(loginUrl);
   }
