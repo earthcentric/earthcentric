@@ -939,6 +939,7 @@ function DashboardView({ stats, products, setTab, profile, payoutStats, onboardi
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        {/* Card 1: Net Seller Revenue */}
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
           <div className="flex justify-between items-start mb-4">
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center">
@@ -950,28 +951,46 @@ function DashboardView({ stats, products, setTab, profile, payoutStats, onboardi
           </div>
           <div>
             <h3 className="text-2xl font-bold text-foreground">₹{stats?.revenue?.toLocaleString() || 0}</h3>
-            <p className="text-[10px] text-muted-foreground mt-1">Total Revenue (Net)</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Net Seller Revenue</p>
             <p className="text-[9px] text-[#2d4a36] mt-0.5">
-              {stats?.cancelledRevenue ? `₹${stats.cancelledRevenue.toLocaleString()} returned/cancelled excluded` : "Active sales"}
+              Earnings after commission
             </p>
           </div>
         </Card>
 
+        {/* Card 2: EarthCentric Commission Deducted */}
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
           <div className="flex justify-between items-start mb-4">
-            <div className="h-8 w-8 bg-amber-50 text-amber-500 rounded-md flex items-center justify-center">
-              <Wallet className="h-4 w-4" />
+            <div className="h-8 w-8 bg-purple-50 text-purple-700 rounded-md flex items-center justify-center">
+              <span className="text-xs font-bold">%</span>
             </div>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-amber-500">₹{(payoutStats?.availableBalance ?? 0).toLocaleString()}</h3>
-            <p className="text-[10px] text-muted-foreground mt-1">Pending / Eligible Withdrawal</p>
-            <p className="text-[9px] text-amber-600 mt-0.5">
-              {payoutStats?.pendingAmount ? `₹${payoutStats.pendingAmount.toLocaleString()} pending payout` : "Withdrawable balance"}
+            <h3 className="text-2xl font-bold text-foreground">₹{((stats as any)?.commissionDeducted ?? 0).toLocaleString()}</h3>
+            <p className="text-[10px] text-muted-foreground mt-1">Commission Deducted</p>
+            <p className="text-[9px] text-purple-600 mt-0.5">
+              EarthCentric platform fee
             </p>
           </div>
         </Card>
 
+        {/* Card 3: Total Boxes Sold */}
+        <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
+          <div className="flex justify-between items-start mb-4">
+            <div className="h-8 w-8 bg-blue-50 text-blue-700 rounded-md flex items-center justify-center">
+              <Package className="h-4 w-4" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-2xl font-bold text-foreground">{(stats as any)?.totalBoxesSold ?? 0}</h3>
+            <p className="text-[10px] text-muted-foreground mt-1">Total Boxes Sold</p>
+            <p className="text-[9px] text-blue-600 mt-0.5">
+              Commercial bulk cartons
+            </p>
+          </div>
+        </Card>
+
+        {/* Card 4: Total Orders */}
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
           <div className="flex justify-between items-start mb-4">
             <div className="h-8 w-8 bg-[#e8f3ec] text-[#2d4a36] rounded-md flex items-center justify-center">
@@ -985,41 +1004,26 @@ function DashboardView({ stats, products, setTab, profile, payoutStats, onboardi
             <h3 className="text-2xl font-bold text-foreground">{stats?.ordersCount ?? 0}</h3>
             <p className="text-[10px] text-muted-foreground mt-1">Total Orders</p>
             <p className="text-[9px] text-[#2d4a36] mt-0.5">
-              {stats?.cancelledOrdersCount ? `${stats.cancelledOrdersCount} cancelled/returned excluded` : `${stats?.totalOrdersCount || stats?.ordersCount || 0} active`}
+              {stats?.cancelledOrdersCount ? `${stats.cancelledOrdersCount} cancelled/returned excluded` : "Completed & active orders"}
             </p>
           </div>
         </Card>
 
-        <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="h-8 w-8 bg-[#f4f5f3] text-muted-foreground rounded-md flex items-center justify-center">
-              <Package className="h-4 w-4" />
-            </div>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 border-none text-emerald-700 bg-emerald-50">Active</Badge>
-          </div>
-          <div>
-            <h3 className="text-2xl font-bold text-foreground">{stats?.productsCount || 0}</h3>
-            <p className="text-[10px] text-muted-foreground mt-1">Products Listed</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5">Catalog listings</p>
-          </div>
-        </Card>
-
+        {/* Card 5: Available Payout & Settled */}
         <Card className="p-5 bg-white border-none shadow-sm rounded-2xl flex flex-col justify-between">
           <div className="flex justify-between items-start mb-4">
             <div className="h-8 w-8 bg-amber-50 text-amber-500 rounded-md flex items-center justify-center">
-              <Star className="h-4 w-4" />
+              <Wallet className="h-4 w-4" />
             </div>
-            {profile?.trustScore && profile.trustScore > 4 ? (
-              <Badge variant="success" className="bg-[#e8f3ec] text-[#2d4a36] border-none text-[10px] px-1.5 py-0.5">Trusted</Badge>
-            ) : null}
           </div>
           <div>
-            <div className="flex items-baseline space-x-1">
-              <h3 className="text-2xl font-bold text-foreground">{profile?.trustScore?.toFixed(1) || "0.0"}</h3>
-              <Star className="h-3.5 w-3.5 text-foreground fill-foreground" />
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Trust Score</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5">Admin Assigned</p>
+            <h3 className="text-2xl font-bold text-amber-500">₹{(payoutStats?.availableBalance ?? 0).toLocaleString()}</h3>
+            <p className="text-[10px] text-muted-foreground mt-1">Available for Payout</p>
+            <p className="text-[9px] text-amber-600 mt-0.5">
+              {((stats as any)?.completedPayout ?? payoutStats?.settledAmount ?? 0) > 0 
+                ? `₹${((stats as any)?.completedPayout ?? payoutStats?.settledAmount ?? 0).toLocaleString()} settled` 
+                : "Eligible net earnings"}
+            </p>
           </div>
         </Card>
       </div>
@@ -2708,10 +2712,20 @@ function AddProductForm({ onBack, profile, reload }: any) {
           </div>
           <div className="space-y-1"><Label>Description</Label><Textarea required value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} /></div>
           
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1"><Label>Original Price / MRP (₹)</Label><Input type="number" placeholder="MRP" value={prodOriginalPrice} onChange={(e) => setProdOriginalPrice(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Price per Box (₹) *</Label><Input type="number" required placeholder="e.g. 4500" value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Available Boxes in Stock *</Label><Input type="number" required placeholder="e.g. 50" value={prodStock} onChange={(e) => setProdStock(e.target.value)} /></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <Label>Original Price / MRP (₹)</Label>
+              <Input type="number" placeholder="MRP" value={prodOriginalPrice} onChange={(e) => setProdOriginalPrice(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Seller Base Price / Expected Payout per Box (₹) *</Label>
+              <Input type="number" required placeholder="e.g. 80" value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} />
+              <p className="text-[10px] text-muted-foreground">Amount you receive per box. EarthCentric commission will be configured by Super Admin during approval.</p>
+            </div>
+            <div className="space-y-1">
+              <Label>Available Boxes in Stock *</Label>
+              <Input type="number" required placeholder="e.g. 50" value={prodStock} onChange={(e) => setProdStock(e.target.value)} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

@@ -45,6 +45,7 @@ import { AdminProductDetailModal } from "@/components/ui/admin-product-detail-mo
 import { AdminMessagesView } from "@/components/admin/AdminMessagesView";
 import { CategoryManagementView } from "@/components/admin/CategoryManagementView";
 import { OrderCancellationsAdminView } from "@/components/admin/OrderCancellationsAdminView";
+import { SuperAdminFinancialAuditView } from "@/components/admin/SuperAdminFinancialAuditView";
 import { getUnreadMessageCount } from "@/actions/messages";
 import { isGrandfatheredSeller } from "@/lib/seller-verification-constants";
 import { Logo } from "@/components/Logo";
@@ -336,6 +337,7 @@ export default function AdminDashboard() {
             <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
             <SidebarLink icon={RotateCcw} label="Cancellation Requests" value="cancellations" badge={stats?.cancellationStats?.pending || 0} />
             <SidebarLink icon={Wallet} label="Payments" value="payments" />
+            <SidebarLink icon={Coins} label="Financial Audit" value="financials" />
             <SidebarLink icon={AlertCircle} label="Disputes" value="disputes" />
             <SidebarLink icon={Layers} label="Category Manager" value="categories" />
           </div>
@@ -501,6 +503,7 @@ export default function AdminDashboard() {
             {activeTab === "discounts" && <DiscountApprovalView pendingDiscounts={pendingDiscounts} reload={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "messages" && <AdminMessagesView onViewSellerProfile={(sId) => setSelectedSellerId(sId)} />}
             {activeTab === "payments" && <PaymentsView payoutRequests={payoutRequests} transactions={transactions} onActionComplete={loadAdminData} adminEmail={user?.email} globalSearch={globalSearch} />}
+            {activeTab === "financials" && <SuperAdminFinancialAuditView adminEmail={user?.email} globalSearch={globalSearch} />}
             {activeTab === "disputes" && <DisputesView disputes={disputes} onResolve={loadAdminData} adminEmail={user?.email} />}
             {activeTab === "analytics" && <AdminAnalyticsCharts data={analyticsData!} />}
             {activeTab === "orders" && (
@@ -1585,9 +1588,9 @@ function ProductApprovalView({
     }
     setSavingCommissionId(productId);
     try {
-      const res = await updateProductCommissionByAdmin(productId, rate, adminEmail || "admin@earthcentric.com");
+      const res = await updateProductCommissionByAdmin(productId, rate, undefined, adminEmail || "admin@earthcentric.com");
       if (res.success) {
-        toast.success(`Commission updated to ${rate}%! Future orders for this product will use this snapshot.`);
+        toast.success(`Commission updated to ${rate}%! Marketplace selling price updated to ₹${res.marketplacePrice ?? ""}/box.`);
         await reload();
       } else {
         toast.error(res.error || "Failed to update commission rate.");
@@ -1620,6 +1623,8 @@ function ProductApprovalView({
   const [rejectReason, setRejectReason] = useState("");
   const [approveId, setApproveId] = useState<string | null>(null);
   const [approveProductItem, setApproveProductItem] = useState<any | null>(null);
+  const [approvalCommissionRate, setApprovalCommissionRate] = useState<string>("20");
+  const [approvalMarketplacePrice, setApprovalMarketplacePrice] = useState<string>("");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [categoryActionOption, setCategoryActionOption] = useState<"keep" | "change" | "create">("keep");
   const [categoryFilterSearch, setCategoryFilterSearch] = useState("");
@@ -1654,6 +1659,18 @@ function ProductApprovalView({
     setNewCategoryName("");
     setNewCategorySlug("");
     setNewCategoryDesc("");
+
+    const base = (p.sellerBasePrice !== null && p.sellerBasePrice !== undefined)
+      ? Number(p.sellerBasePrice)
+      : Number(p.price || 80);
+    const rate = (p.commissionRate !== null && p.commissionRate !== undefined && Number(p.commissionRate) > 0)
+      ? Number(p.commissionRate)
+      : 20;
+    const comm = Math.round((base * (rate / 100)) * 100) / 100;
+    const mPrice = Math.round((base + comm) * 100) / 100;
+
+    setApprovalCommissionRate(rate.toString());
+    setApprovalMarketplacePrice(mPrice.toString());
   };
 
   const handleCreateCategoryDuringReview = async () => {
@@ -1691,13 +1708,18 @@ function ProductApprovalView({
     if (!approveId) return;
     setIsApproving(true);
     try {
+      const rateNum = parseFloat(approvalCommissionRate);
+      const priceNum = parseFloat(approvalMarketplacePrice);
+
       const ok = await approveProduct(
         approveId,
         adminEmail || "admin@earthcentric.com",
-        selectedCategoryId || undefined
+        selectedCategoryId || undefined,
+        !isNaN(rateNum) ? rateNum : undefined,
+        !isNaN(priceNum) ? priceNum : undefined
       );
       if (ok) {
-        toast.success("Product approved and is now live on the marketplace!");
+        toast.success(`Product approved at ₹${priceNum || approvalMarketplacePrice}/box (${approvalCommissionRate}% commission)!`);
         setApproveId(null);
         setApproveProductItem(null);
         setSelectedCategoryId("");
@@ -1837,19 +1859,20 @@ function ProductApprovalView({
         <Table>
           <TableHeader>
             <TableRow className="border-[#e9ece6] bg-[#fdfdfc] hover:bg-[#fdfdfc]">
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-4">Product Details</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 pl-4">Product</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller & Packaging</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Delivery & Policies</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Seller Base Payout</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Commission %</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Visibility</TableHead>
-              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Commission (₹)</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Marketplace Price</TableHead>
+              <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4">Status & Visibility</TableHead>
               <TableHead className="text-[9px] font-bold text-[#8ca193] uppercase tracking-wider py-4 text-right pr-6">Decision Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {displayProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-10 text-xs text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-10 text-xs text-muted-foreground">
                   No products found matching the selected filter.
                 </TableCell>
               </TableRow>
@@ -1862,12 +1885,18 @@ function ProductApprovalView({
 
                 const defaultComm = (p.commissionRate !== undefined && p.commissionRate !== null)
                   ? p.commissionRate
-                  : (p.seller?.commissionRate ?? 10);
+                  : (p.seller?.commissionRate ?? 20);
                 const currentCommInput = commissionInputs[p.id] ?? defaultComm.toString();
                 const isSavingComm = savingCommissionId === p.id;
                 const isTogglingVis = togglingVisibilityId === p.id;
 
                 const unitsPerBox = p.unitsPerBox && p.unitsPerBox > 0 ? p.unitsPerBox : 100;
+                const basePrice = (p.sellerBasePrice !== null && p.sellerBasePrice !== undefined)
+                  ? Number(p.sellerBasePrice)
+                  : Number(p.price || 80);
+                const commRate = parseFloat(currentCommInput) || 0;
+                const liveCommAmount = Math.round((basePrice * (commRate / 100)) * 100) / 100;
+                const liveMarketplacePrice = Math.round((basePrice + liveCommAmount) * 100) / 100;
 
                 return (
                   <TableRow key={p.id} className="border-[#e9ece6] hover:bg-[#f4f5f3]/50 transition-colors">
@@ -1893,18 +1922,14 @@ function ProductApprovalView({
                         <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
                           📦 {unitsPerBox} units/box
                         </span>
-                        <span className="text-[10px] font-black text-slate-800">
-                          ₹{p.price} / box
-                        </span>
                       </div>
                       <p className="text-[9px] text-muted-foreground mt-0.5">{p.stock || 0} boxes in stock</p>
                     </TableCell>
 
-                    {/* Delivery & Policies */}
-                    <TableCell className="py-4 text-xs">
-                      <p className="text-[11px] text-slate-700 font-medium">{p.deliveryTime || "Ships within 24-48 hrs"}</p>
-                      <p className="text-[10px] text-muted-foreground">{p.returnEligibility || "10-day replacement"}</p>
-                      {p.materialUsed && <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded">{p.materialUsed}</span>}
+                    {/* Seller Base Payout */}
+                    <TableCell className="py-4">
+                      <p className="text-xs font-bold text-slate-800">₹{basePrice}</p>
+                      <p className="text-[9px] text-slate-400">per box net</p>
                     </TableCell>
 
                     {/* Commission Configuration (%) */}
@@ -1914,7 +1939,7 @@ function ProductApprovalView({
                           <input
                             type="number"
                             min="0"
-                            max="100"
+                            max="1000"
                             step="0.5"
                             value={currentCommInput}
                             onChange={(e) => setCommissionInputs({ ...commissionInputs, [p.id]: e.target.value })}
@@ -1927,51 +1952,59 @@ function ProductApprovalView({
                           variant="outline"
                           disabled={isSavingComm}
                           onClick={() => handleSaveCommission(p.id, defaultComm)}
-                          className="text-[10px] h-7 px-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                          className="text-[10px] h-7 px-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 cursor-pointer"
                         >
                           {isSavingComm ? "..." : "Save"}
                         </Button>
                       </div>
-                      <p className="text-[9px] text-muted-foreground mt-0.5">Rate for new orders</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5">Specific to product</p>
                     </TableCell>
 
-                    {/* Marketplace Visibility */}
+                    {/* Commission Amount in Rupee */}
                     <TableCell className="py-4">
-                      <button
-                        onClick={() => handleToggleVisibility(p.id, p.isActive !== false)}
-                        disabled={isTogglingVis}
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
-                          p.isActive !== false
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                            : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
-                        }`}
-                      >
-                        {p.isActive !== false ? "✓ Visible (Live)" : "✕ Hidden (Inactive)"}
-                      </button>
+                      <p className="text-xs font-bold text-emerald-700">+₹{liveCommAmount.toFixed(2)}</p>
+                      <p className="text-[9px] text-slate-400">per box</p>
                     </TableCell>
 
-                    {/* Status */}
+                    {/* Marketplace Price */}
                     <TableCell className="py-4">
-                      {isApproved ? (
-                        <Badge className="bg-emerald-100 text-emerald-800 border-none text-[9px] font-bold">
-                          <CheckCircle2 className="h-2.5 w-2.5 mr-1" /> APPROVED
-                        </Badge>
-                      ) : isRejected ? (
-                        <div>
+                      <span className="text-xs font-extrabold text-[#1a3321]">
+                        ₹{isApproved ? p.price : liveMarketplacePrice}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium"> / box</span>
+                      <p className="text-[9px] text-emerald-600">Buyer visible price</p>
+                    </TableCell>
+
+                    {/* Status & Visibility */}
+                    <TableCell className="py-4">
+                      <div className="space-y-1">
+                        {isApproved ? (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-none text-[9px] font-bold">
+                            <CheckCircle2 className="h-2.5 w-2.5 mr-1" /> APPROVED
+                          </Badge>
+                        ) : isRejected ? (
                           <Badge className="bg-rose-100 text-rose-800 border-none text-[9px] font-bold">
                             <X className="h-2.5 w-2.5 mr-1" /> REJECTED
                           </Badge>
-                          {p.rejectionReason && (
-                            <p className="text-[9px] text-rose-700 mt-1 max-w-[140px] truncate" title={p.rejectionReason}>
-                              {p.rejectionReason}
-                            </p>
-                          )}
+                        ) : (
+                          <Badge className="bg-amber-100 text-amber-800 border-none text-[9px] font-bold">
+                            <AlertCircle className="h-2.5 w-2.5 mr-1" /> PENDING REVIEW
+                          </Badge>
+                        )}
+                        <div>
+                          <button
+                            onClick={() => handleToggleVisibility(p.id, p.isActive !== false)}
+                            disabled={isTogglingVis}
+                            className={`text-[9px] font-bold px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
+                              p.isActive !== false
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                                : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
+                            }`}
+                          >
+                            {p.isActive !== false ? "✓ Visible" : "✕ Hidden"}
+                          </button>
                         </div>
-                      ) : (
-                        <Badge className="bg-amber-100 text-amber-800 border-none text-[9px] font-bold">
-                          <AlertCircle className="h-2.5 w-2.5 mr-1" /> PENDING REVIEW
-                        </Badge>
-                      )}
+                      </div>
                     </TableCell>
 
                     {/* Decision Actions */}
@@ -2053,12 +2086,105 @@ function ProductApprovalView({
               />
               <div className="min-w-0 flex-1 text-xs">
                 <p className="font-bold text-slate-900 truncate">{approveProductItem.name}</p>
-                <p className="text-[11px] text-slate-500">Seller: <strong className="text-slate-700">{approveProductItem.seller?.companyName}</strong> · Price: <strong className="text-emerald-700">₹{approveProductItem.price}</strong></p>
+                <p className="text-[11px] text-slate-500">Seller: <strong className="text-slate-700">{approveProductItem.seller?.companyName}</strong> · Seller Base Payout: <strong className="text-emerald-700">₹{approveProductItem.sellerBasePrice ?? approveProductItem.price} / Box</strong></p>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Submitted Category:</span>
                   <Badge variant="outline" className="text-[10px] bg-white font-medium">
                     {approveProductItem.category || "Uncategorized"}
                   </Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* Product-Wise Commission Configuration */}
+            <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/90 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <span>⚡</span> Product-Wise Commission Configuration
+                  </h4>
+                  <p className="text-[11px] text-emerald-800 mt-0.5">
+                    Configured individually per product. Calculates commission on top of seller's base price.
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] text-emerald-700 font-semibold uppercase tracking-wider block">Seller Base Price</span>
+                  <span className="text-xs font-black text-emerald-950">₹{approveProductItem.sellerBasePrice ?? approveProductItem.price} / Box</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <Label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    Commission Percentage (%)
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="1000"
+                      value={approvalCommissionRate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setApprovalCommissionRate(val);
+                        const r = parseFloat(val);
+                        const base = approveProductItem.sellerBasePrice ?? approveProductItem.price ?? 80;
+                        if (!isNaN(r) && r >= 0) {
+                          const comm = Math.round((base * (r / 100)) * 100) / 100;
+                          setApprovalMarketplacePrice((Math.round((base + comm) * 100) / 100).toString());
+                        }
+                      }}
+                      className="text-xs h-8 bg-white pr-7 font-bold"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    Target Marketplace Price (₹)
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">₹</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={approvalMarketplacePrice}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setApprovalMarketplacePrice(val);
+                        const p = parseFloat(val);
+                        const base = approveProductItem.sellerBasePrice ?? approveProductItem.price ?? 80;
+                        if (!isNaN(p) && p >= base && base > 0) {
+                          const equivRate = Math.round(((p - base) / base) * 100 * 100) / 100;
+                          setApprovalCommissionRate(equivRate.toString());
+                        }
+                      }}
+                      className="text-xs h-8 bg-white pl-6 font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Preview Card */}
+              <div className="p-2.5 bg-white border border-emerald-200/90 rounded-lg flex items-center justify-between text-xs">
+                <div>
+                  <p className="text-[10px] text-slate-500 font-medium">EarthCentric Commission Amount</p>
+                  <p className="font-bold text-emerald-800">
+                    +₹{(() => {
+                      const base = approveProductItem.sellerBasePrice ?? approveProductItem.price ?? 80;
+                      const r = parseFloat(approvalCommissionRate) || 0;
+                      return (Math.round((base * (r / 100)) * 100) / 100).toFixed(2);
+                    })()} <span className="text-[10px] font-normal text-slate-500">({approvalCommissionRate || 0}%)</span>
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 font-medium">Final Marketplace Selling Price</p>
+                  <p className="font-black text-[#1a3321] text-sm">
+                    ₹{approvalMarketplacePrice || (approveProductItem.sellerBasePrice ?? approveProductItem.price)} <span className="text-[10px] font-bold text-slate-500">/ Box</span>
+                  </p>
                 </div>
               </div>
             </div>

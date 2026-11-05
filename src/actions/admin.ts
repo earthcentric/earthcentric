@@ -1271,12 +1271,39 @@ export async function getPendingProducts(): Promise<any[]> {
   }
 }
 
-export async function approveProduct(productId: string, adminEmail: string, categoryId?: string): Promise<boolean> {
+export async function approveProduct(
+  productId: string,
+  adminEmail: string,
+  categoryId?: string,
+  commissionRate?: number,
+  customMarketplacePrice?: number
+): Promise<boolean> {
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      mockPendingProducts = mockPendingProducts.map(p => {
+      mockPendingProducts = mockPendingProducts.map((p: any) => {
         if (p.id === productId) {
-          return { ...p, isApproved: true, status: "APPROVED", rejectionReason: null, ...(categoryId ? { categoryId } : {}) };
+          const basePrice = (p as any).sellerBasePrice ?? p.price ?? 80;
+          let rate = commissionRate !== undefined && !isNaN(Number(commissionRate)) ? Number(commissionRate) : ((p as any).commissionRate ?? 20.0);
+          let commAmount = Math.round((basePrice * (rate / 100)) * 100) / 100;
+          let mPrice = Math.round((basePrice + commAmount) * 100) / 100;
+
+          if (customMarketplacePrice !== undefined && Number(customMarketplacePrice) > 0) {
+            mPrice = Number(customMarketplacePrice);
+            commAmount = Math.round((mPrice - basePrice) * 100) / 100;
+            rate = basePrice > 0 ? Math.round(((mPrice - basePrice) / basePrice) * 100 * 100) / 100 : 0;
+          }
+
+          return {
+            ...p,
+            isApproved: true,
+            status: "APPROVED",
+            rejectionReason: null,
+            sellerBasePrice: basePrice,
+            commissionRate: rate,
+            commissionAmount: commAmount,
+            price: mPrice,
+            ...(categoryId ? { categoryId } : {})
+          };
         }
         return p;
       });
@@ -1290,11 +1317,41 @@ export async function approveProduct(productId: string, adminEmail: string, cate
       return false;
     }
 
+    const existingProduct = await db.product.findUnique({
+      where: { id: productId },
+    });
+    if (!existingProduct) {
+      console.error(`Product not found for approval: ${productId}`);
+      return false;
+    }
+
+    const sellerBasePrice = (existingProduct as any).sellerBasePrice !== null && (existingProduct as any).sellerBasePrice !== undefined
+      ? Number((existingProduct as any).sellerBasePrice)
+      : Number(existingProduct.price);
+
+    let finalRate = commissionRate !== undefined && !isNaN(Number(commissionRate)) 
+      ? Number(commissionRate) 
+      : ((existingProduct as any).commissionRate ?? 20.0);
+    let finalCommissionAmount = Math.round((sellerBasePrice * (finalRate / 100)) * 100) / 100;
+    let finalMarketplacePrice = Math.round((sellerBasePrice + finalCommissionAmount) * 100) / 100;
+
+    if (customMarketplacePrice !== undefined && Number(customMarketplacePrice) > 0) {
+      finalMarketplacePrice = Number(customMarketplacePrice);
+      finalCommissionAmount = Math.round((finalMarketplacePrice - sellerBasePrice) * 100) / 100;
+      finalRate = sellerBasePrice > 0 
+        ? Math.round(((finalMarketplacePrice - sellerBasePrice) / sellerBasePrice) * 100 * 100) / 100 
+        : 0;
+    }
+
     const updateData: any = { 
       isApproved: true, 
       status: "APPROVED",
       rejectionReason: null,
       isArchived: false,
+      sellerBasePrice,
+      commissionRate: finalRate,
+      commissionAmount: finalCommissionAmount,
+      price: finalMarketplacePrice,
     };
     if (categoryId) updateData.categoryId = categoryId;
 
@@ -1309,7 +1366,7 @@ export async function approveProduct(productId: string, adminEmail: string, cate
         data: {
           action: "APPROVE_PRODUCT",
           adminEmail: adminAuth.email,
-          details: `Approved product "${updatedProduct.name}" (${productId})${categoryId ? ` with category ${categoryId}` : ""}`
+          details: `Approved product "${updatedProduct.name}" (${productId}): base ₹${sellerBasePrice}, commission ${finalRate}% (₹${finalCommissionAmount}), selling price ₹${finalMarketplacePrice}${categoryId ? ` with category ${categoryId}` : ""}`
         }
       });
 
@@ -1318,7 +1375,7 @@ export async function approveProduct(productId: string, adminEmail: string, cate
           data: {
             userId: updatedProduct.seller.userId,
             title: "Product Approved 🎉",
-            message: `Your product "${updatedProduct.name}" has been approved by Super Admin and is now live on the marketplace!`,
+            message: `Your product "${updatedProduct.name}" has been approved by Super Admin and is now live on the marketplace at ₹${finalMarketplacePrice}/box!`,
             actionUrl: "/seller/dashboard",
           },
         });
@@ -2025,9 +2082,14 @@ export async function getAllProductsForAdmin() {
   return fn();
 }
 
-export async function updateProductCommissionByAdmin(productId: string, commissionRate: number) {
+export async function updateProductCommissionByAdmin(
+  productId: string,
+  commissionRate: number,
+  customMarketplacePrice?: number,
+  adminEmail?: string
+) {
   const { updateProductCommissionByAdmin: fn } = await import("./products");
-  return fn(productId, commissionRate);
+  return fn(productId, commissionRate, customMarketplacePrice, adminEmail);
 }
 
 export async function updateSellerCommissionByAdmin(sellerId: string, commissionRate: number) {
@@ -2038,5 +2100,364 @@ export async function updateSellerCommissionByAdmin(sellerId: string, commission
 export async function updateProductVisibilityByAdmin(productId: string, isLive: boolean) {
   const { updateProductVisibilityByAdmin: fn } = await import("./products");
   return fn(productId, isLive);
+}
+
+export interface SuperAdminFinancialAudit {
+  totals: {
+    totalMarketplaceSales: number;
+    totalSellerBaseValue: number;
+    totalCommissionEarned: number;
+    totalBoxesSold: number;
+    completedOrdersCount: number;
+    cancelledOrdersCount: number;
+    totalRefunds: number;
+    pendingPayouts: number;
+    settledPayouts: number;
+  };
+  productWiseBreakdown: {
+    productId: string;
+    productName: string;
+    sellerId: string;
+    sellerName: string;
+    sellerBasePrice: number;
+    commissionRate: number;
+    commissionAmountPerBox: number;
+    marketplacePrice: number;
+    boxesSold: number;
+    grossSales: number;
+    totalCommission: number;
+    netSellerAmount: number;
+  }[];
+  sellerWiseBreakdown: {
+    sellerId: string;
+    sellerName: string;
+    ordersCount: number;
+    totalBoxes: number;
+    grossSales: number;
+    commissionEarned: number;
+    netPayable: number;
+    payoutSettled: number;
+    payoutPending: number;
+  }[];
+  orderWiseBreakdown: {
+    orderId: string;
+    createdAt: string;
+    status: string;
+    paymentStatus: string;
+    totalBoxes: number;
+    grossAmount: number;
+    commissionAmount: number;
+    sellerNetAmount: number;
+    sellerName?: string;
+  }[];
+}
+
+export async function getSuperAdminFinancialAudit(): Promise<SuperAdminFinancialAudit> {
+  try {
+    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    if (isMock) {
+      return {
+        totals: {
+          totalMarketplaceSales: 9600,
+          totalSellerBaseValue: 8000,
+          totalCommissionEarned: 1600,
+          totalBoxesSold: 100,
+          completedOrdersCount: 10,
+          cancelledOrdersCount: 1,
+          totalRefunds: 0,
+          pendingPayouts: 3000,
+          settledPayouts: 5000,
+        },
+        productWiseBreakdown: [
+          {
+            productId: "prod-1",
+            productName: "Organic Compostable Box",
+            sellerId: "seller-1",
+            sellerName: "AR ECO INDIA",
+            sellerBasePrice: 80,
+            commissionRate: 20,
+            commissionAmountPerBox: 16,
+            marketplacePrice: 96,
+            boxesSold: 100,
+            grossSales: 9600,
+            totalCommission: 1600,
+            netSellerAmount: 8000,
+          }
+        ],
+        sellerWiseBreakdown: [
+          {
+            sellerId: "seller-1",
+            sellerName: "AR ECO INDIA",
+            ordersCount: 10,
+            totalBoxes: 100,
+            grossSales: 9600,
+            commissionEarned: 1600,
+            netPayable: 8000,
+            payoutSettled: 5000,
+            payoutPending: 3000,
+          }
+        ],
+        orderWiseBreakdown: [
+          {
+            orderId: "ord-sample-1",
+            createdAt: new Date().toISOString(),
+            status: "DELIVERED",
+            paymentStatus: "COMPLETED",
+            totalBoxes: 10,
+            grossAmount: 960,
+            commissionAmount: 160,
+            sellerNetAmount: 800,
+            sellerName: "AR ECO INDIA",
+          }
+        ],
+      };
+    }
+
+    // Fetch confirmed/paid orders
+    const orders = await db.order.findMany({
+      where: {
+        payment: { is: { status: "COMPLETED" } },
+      },
+      include: {
+        seller: true,
+        payment: true,
+        cancellations: { where: { status: "APPROVED" } },
+        items: {
+          include: {
+            product: {
+              include: { seller: true }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const payouts = await db.payoutRequest.findMany();
+    const pendingPayouts = payouts
+      .filter((p) => ["PENDING", "APPROVED", "PROCESSING", "ON_HOLD", "PARTIALLY_PAID"].includes(p.status))
+      .reduce((sum, p) => sum + (p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount), 0);
+    const settledPayouts = payouts.reduce((sum, p) => {
+      if (p.status === "PAID" || p.status === "SETTLED") return sum + p.amount;
+      if (p.status === "PARTIALLY_PAID") {
+        const remaining = p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount;
+        return sum + Math.max(0, p.amount - remaining);
+      }
+      return sum;
+    }, 0);
+
+    let totalMarketplaceSales = 0;
+    let totalSellerBaseValue = 0;
+    let totalCommissionEarned = 0;
+    let totalBoxesSold = 0;
+    let completedOrdersCount = 0;
+    let cancelledOrdersCount = 0;
+    let totalRefunds = 0;
+
+    const productMap: Record<string, {
+      productId: string;
+      productName: string;
+      sellerId: string;
+      sellerName: string;
+      sellerBasePrice: number;
+      commissionRate: number;
+      commissionAmountPerBox: number;
+      marketplacePrice: number;
+      boxesSold: number;
+      grossSales: number;
+      totalCommission: number;
+      netSellerAmount: number;
+    }> = {};
+
+    const sellerMap: Record<string, {
+      sellerId: string;
+      sellerName: string;
+      ordersCount: number;
+      totalBoxes: number;
+      grossSales: number;
+      commissionEarned: number;
+      netPayable: number;
+    }> = {};
+
+    const orderWiseBreakdown: SuperAdminFinancialAudit["orderWiseBreakdown"] = [];
+
+    for (const order of orders) {
+      const isCancelled = order.status === "CANCELLED" || order.status === "REFUNDED" || order.status === "RETURNED" || (order.cancellations && order.cancellations.length > 0);
+      if (isCancelled) {
+        cancelledOrdersCount++;
+        const refundAmt = order.cancellations?.[0]?.refundAmount ?? order.totalAmount;
+        totalRefunds += refundAmt;
+        continue;
+      }
+
+      completedOrdersCount++;
+      const orderBoxes = (order as any).totalBoxes || order.items.reduce((sum, it) => sum + ((it as any).boxes || it.quantity), 0);
+      totalBoxesSold += orderBoxes;
+
+      let orderGross = 0;
+      let orderBase = 0;
+      let orderComm = 0;
+      let orderNet = 0;
+
+      for (const item of order.items) {
+        const boxes = (item as any).boxes || item.quantity;
+        const itemGross = item.price * (item.quantity || boxes);
+        const itemCommRate = (item as any).commissionRate ?? (item.product as any).commissionRate ?? 10.0;
+        
+        let itemBasePrice = (item as any).sellerBasePrice ?? (item.product as any).sellerBasePrice;
+        if (itemBasePrice === null || itemBasePrice === undefined) {
+          itemBasePrice = Math.round((item.price / (1 + (itemCommRate / 100))) * 100) / 100;
+        }
+
+        let itemComm = (item as any).commissionAmount;
+        if (itemComm === null || itemComm === undefined) {
+          itemComm = Math.round((itemBasePrice * (itemCommRate / 100) * boxes) * 100) / 100;
+        }
+
+        let itemNet = (item as any).sellerNetAmount;
+        if (itemNet === null || itemNet === undefined) {
+          itemNet = Math.round((itemGross - itemComm) * 100) / 100;
+        }
+
+        const itemBaseTotal = Math.round((itemBasePrice * boxes) * 100) / 100;
+
+        orderGross += itemGross;
+        orderBase += itemBaseTotal;
+        orderComm += itemComm;
+        orderNet += itemNet;
+
+        // Product aggregation
+        const pId = item.productId;
+        const pName = item.product?.name || "Product";
+        const sId = item.product?.sellerId || "unknown";
+        const sName = item.product?.seller?.companyName || "EarthCentric Seller";
+
+        if (!productMap[pId]) {
+          productMap[pId] = {
+            productId: pId,
+            productName: pName,
+            sellerId: sId,
+            sellerName: sName,
+            sellerBasePrice: itemBasePrice,
+            commissionRate: itemCommRate,
+            commissionAmountPerBox: boxes > 0 ? Math.round((itemComm / boxes) * 100) / 100 : 0,
+            marketplacePrice: item.price,
+            boxesSold: 0,
+            grossSales: 0,
+            totalCommission: 0,
+            netSellerAmount: 0,
+          };
+        }
+        productMap[pId].boxesSold += boxes;
+        productMap[pId].grossSales += itemGross;
+        productMap[pId].totalCommission += itemComm;
+        productMap[pId].netSellerAmount += itemNet;
+
+        // Seller aggregation
+        if (!sellerMap[sId]) {
+          sellerMap[sId] = {
+            sellerId: sId,
+            sellerName: sName,
+            ordersCount: 0,
+            totalBoxes: 0,
+            grossSales: 0,
+            commissionEarned: 0,
+            netPayable: 0,
+          };
+        }
+        sellerMap[sId].totalBoxes += boxes;
+        sellerMap[sId].grossSales += itemGross;
+        sellerMap[sId].commissionEarned += itemComm;
+        sellerMap[sId].netPayable += itemNet;
+      }
+
+      totalMarketplaceSales += orderGross;
+      totalSellerBaseValue += orderBase;
+      totalCommissionEarned += orderComm;
+
+      const primarySellerId = order.sellerId || (order.items[0]?.product?.sellerId);
+      if (primarySellerId && sellerMap[primarySellerId]) {
+        sellerMap[primarySellerId].ordersCount += 1;
+      }
+
+      orderWiseBreakdown.push({
+        orderId: order.id,
+        createdAt: order.createdAt.toISOString(),
+        status: order.status,
+        paymentStatus: order.payment?.status || "COMPLETED",
+        totalBoxes: orderBoxes,
+        grossAmount: Math.round(orderGross * 100) / 100,
+        commissionAmount: Math.round(orderComm * 100) / 100,
+        sellerNetAmount: Math.round(orderNet * 100) / 100,
+        sellerName: order.seller?.companyName || order.items[0]?.product?.seller?.companyName || "EarthCentric",
+      });
+    }
+
+    const sellerWiseBreakdown = Object.values(sellerMap).map((s) => {
+      const sellerPayouts = payouts.filter(p => p.sellerId === s.sellerId);
+      const payoutSettled = sellerPayouts.reduce((sum, p) => {
+        if (p.status === "PAID" || p.status === "SETTLED") return sum + p.amount;
+        if (p.status === "PARTIALLY_PAID") {
+          const rem = p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount;
+          return sum + Math.max(0, p.amount - rem);
+        }
+        return sum;
+      }, 0);
+      const payoutPending = sellerPayouts
+        .filter(p => ["PENDING", "APPROVED", "PROCESSING", "ON_HOLD", "PARTIALLY_PAID"].includes(p.status))
+        .reduce((sum, p) => sum + (p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount), 0);
+
+      return {
+        ...s,
+        grossSales: Math.round(s.grossSales * 100) / 100,
+        commissionEarned: Math.round(s.commissionEarned * 100) / 100,
+        netPayable: Math.round(s.netPayable * 100) / 100,
+        payoutSettled: Math.round(payoutSettled * 100) / 100,
+        payoutPending: Math.round(payoutPending * 100) / 100,
+      };
+    });
+
+    const productWiseBreakdown = Object.values(productMap).map((p) => ({
+      ...p,
+      grossSales: Math.round(p.grossSales * 100) / 100,
+      totalCommission: Math.round(p.totalCommission * 100) / 100,
+      netSellerAmount: Math.round(p.netSellerAmount * 100) / 100,
+    }));
+
+    return {
+      totals: {
+        totalMarketplaceSales: Math.round(totalMarketplaceSales * 100) / 100,
+        totalSellerBaseValue: Math.round(totalSellerBaseValue * 100) / 100,
+        totalCommissionEarned: Math.round(totalCommissionEarned * 100) / 100,
+        totalBoxesSold,
+        completedOrdersCount,
+        cancelledOrdersCount,
+        totalRefunds: Math.round(totalRefunds * 100) / 100,
+        pendingPayouts: Math.round(pendingPayouts * 100) / 100,
+        settledPayouts: Math.round(settledPayouts * 100) / 100,
+      },
+      productWiseBreakdown,
+      sellerWiseBreakdown,
+      orderWiseBreakdown,
+    };
+  } catch (error) {
+    console.error("getSuperAdminFinancialAudit failed:", error);
+    return {
+      totals: {
+        totalMarketplaceSales: 0,
+        totalSellerBaseValue: 0,
+        totalCommissionEarned: 0,
+        totalBoxesSold: 0,
+        completedOrdersCount: 0,
+        cancelledOrdersCount: 0,
+        totalRefunds: 0,
+        pendingPayouts: 0,
+        settledPayouts: 0,
+      },
+      productWiseBreakdown: [],
+      sellerWiseBreakdown: [],
+      orderWiseBreakdown: [],
+    };
+  }
 }
 

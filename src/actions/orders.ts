@@ -39,6 +39,7 @@ export interface OrderItemInput {
   unitsPerBox?: number;
   totalUnits?: number;
   pricePerBox?: number;
+  sellerBasePrice?: number;
   commissionRate?: number;
   commissionAmount?: number;
   sellerNetAmount?: number;
@@ -64,6 +65,7 @@ export interface OrderDetail {
   };
   totalAmount: number;
   grossAmount?: number;
+  totalSellerBaseAmount?: number;
   commissionRate?: number;
   commissionAmount?: number;
   sellerNetAmount?: number;
@@ -83,6 +85,7 @@ export interface OrderDetail {
     totalUnits?: number;
     price: number;
     pricePerBox?: number;
+    sellerBasePrice?: number;
     commissionRate?: number;
     commissionAmount?: number;
     sellerNetAmount?: number;
@@ -272,12 +275,17 @@ export async function createOrder(data: {
     itemTotal = Math.round(itemTotal * 100) / 100;
 
     const effectivePricePerBox = Math.round((itemTotal / boxQty) * 100) / 100;
-    const commissionRate = product.commissionRate !== undefined && product.commissionRate !== null ? Number(product.commissionRate) : 10.0;
+    const commissionRate = product.commissionRate !== undefined && product.commissionRate !== null ? Number(product.commissionRate) : 20.0;
 
-    // Commission Formula:
-    // Commission = Gross Order Amount × Commission Percentage / 100
-    // Seller Net Amount = Gross Order Amount − Commission − Applicable seller-side deductions
-    const itemCommission = Math.round(((itemTotal * commissionRate) / 100) * 100) / 100;
+    // Resolve seller base price per box (expected seller payout per box)
+    const sellerBasePrice = (product as any).sellerBasePrice !== null && (product as any).sellerBasePrice !== undefined
+      ? Number((product as any).sellerBasePrice)
+      : (product.price ? Math.round((Number(product.price) / (1 + (commissionRate / 100))) * 100) / 100 : 80);
+
+    // Commission Formula from Specification:
+    // EarthCentric Commission = Seller Base Price × Commission Percentage / 100 × Number of Boxes
+    // Seller Net Revenue = Gross Marketplace Order Amount − EarthCentric Commission
+    const itemCommission = Math.round((sellerBasePrice * (commissionRate / 100) * boxQty) * 100) / 100;
     const itemSellerNet = Math.round((itemTotal - itemCommission) * 100) / 100;
 
     serverCalculatedTotal += itemTotal;
@@ -290,6 +298,7 @@ export async function createOrder(data: {
       boxes: boxQty,
       unitsPerBox,
       totalUnits,
+      sellerBasePrice,
       commissionRate,
       commissionAmount: itemCommission,
       sellerNetAmount: itemSellerNet,
@@ -346,10 +355,13 @@ export async function createOrder(data: {
       const newOrders: OrderDetail[] = [];
       Object.entries(itemsBySeller).forEach(([sellerId, items], index) => {
         const orderGrossAmount = Math.round(items.reduce((sum, item) => sum + (item.itemTotal ?? (item.price * item.quantity)), 0) * 100) / 100;
+        const orderSellerBaseAmount = Math.round(items.reduce((sum, item) => sum + ((item.sellerBasePrice ?? 0) * item.quantity), 0) * 100) / 100;
         const orderCommission = Math.round(items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0) * 100) / 100;
         const orderSellerNet = Math.round((orderGrossAmount - orderCommission) * 100) / 100;
         const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
-        const orderCommissionRate = orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 10.0;
+        const orderCommissionRate = orderSellerBaseAmount > 0 
+          ? Math.round((orderCommission / orderSellerBaseAmount) * 100 * 10) / 10 
+          : (orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 20.0);
         const splitOrderId = `${orderId}-${index}`;
 
         const newOrder: OrderDetail = {
@@ -357,6 +369,7 @@ export async function createOrder(data: {
           userId: data.userId,
           totalAmount: orderGrossAmount,
           grossAmount: orderGrossAmount,
+          totalSellerBaseAmount: orderSellerBaseAmount,
           commissionRate: orderCommissionRate,
           commissionAmount: orderCommission,
           sellerNetAmount: orderSellerNet,
@@ -377,7 +390,8 @@ export async function createOrder(data: {
             totalUnits: item.totalUnits || (item.quantity * 100),
             price: item.price,
             pricePerBox: item.price,
-            commissionRate: item.commissionRate || 10.0,
+            sellerBasePrice: item.sellerBasePrice,
+            commissionRate: item.commissionRate || 20.0,
             commissionAmount: item.commissionAmount || 0,
             sellerNetAmount: item.sellerNetAmount || (item.itemTotal - (item.commissionAmount || 0)),
             image: item.image,
@@ -441,10 +455,13 @@ export async function createOrder(data: {
     let index = 0;
     for (const [sellerId, items] of Object.entries(itemsBySeller)) {
       const orderGrossAmount = Math.round(items.reduce((sum, item) => sum + (item.itemTotal ?? (item.price * item.quantity)), 0) * 100) / 100;
+      const orderSellerBaseAmount = Math.round(items.reduce((sum, item) => sum + ((item.sellerBasePrice ?? 0) * item.quantity), 0) * 100) / 100;
       const orderCommission = Math.round(items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0) * 100) / 100;
       const orderSellerNet = Math.round((orderGrossAmount - orderCommission) * 100) / 100;
       const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
-      const orderCommissionRate = orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 10.0;
+      const orderCommissionRate = orderSellerBaseAmount > 0 
+        ? Math.round((orderCommission / orderSellerBaseAmount) * 100 * 10) / 10 
+        : (orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 20.0);
       const splitOrderId = `${orderId}-${index}`;
       const sId = sellerId === mockSellerId ? undefined : sellerId;
 
@@ -455,6 +472,7 @@ export async function createOrder(data: {
           addressId: address.id,
           totalAmount: orderGrossAmount,
           grossAmount: orderGrossAmount,
+          totalSellerBaseAmount: orderSellerBaseAmount,
           commissionRate: orderCommissionRate,
           commissionAmount: orderCommission,
           sellerNetAmount: orderSellerNet,
@@ -475,7 +493,8 @@ export async function createOrder(data: {
               totalUnits: item.totalUnits || (item.quantity * 100),
               pricePerBox: item.price,
               price: item.price,
-              commissionRate: item.commissionRate || 10.0,
+              sellerBasePrice: item.sellerBasePrice,
+              commissionRate: item.commissionRate || 20.0,
               commissionAmount: item.commissionAmount || 0,
               sellerNetAmount: item.sellerNetAmount || (item.price * item.quantity),
             })),
@@ -1619,8 +1638,9 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
           const totalUnits = it.totalUnits ?? (boxes * unitsPerBox);
           const pricePerBox = it.pricePerBox ?? it.price;
           const itemCommissionRate = it.commissionRate ?? commissionRate;
-          const itemCommission = it.commissionAmount ?? Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100;
-          const itemSellerNet = it.sellerNetAmount ?? Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100;
+          const basePrice = (it as any).sellerBasePrice ?? (it.product as any).sellerBasePrice;
+          const itemCommission = it.commissionAmount ?? (basePrice ? Math.round((basePrice * (itemCommissionRate / 100) * boxes) * 100) / 100 : Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100);
+          const itemSellerNet = it.sellerNetAmount ?? (basePrice ? Math.round((basePrice * boxes) * 100) / 100 : Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100);
 
           return {
             productId: it.productId,
@@ -1763,8 +1783,9 @@ export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
           const totalUnits = it.totalUnits ?? (boxes * unitsPerBox);
           const pricePerBox = it.pricePerBox ?? it.price;
           const itemCommissionRate = it.commissionRate ?? commissionRate;
-          const itemCommission = it.commissionAmount ?? Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100;
-          const itemSellerNet = it.sellerNetAmount ?? Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100;
+          const basePrice = (it as any).sellerBasePrice ?? (it.product as any).sellerBasePrice;
+          const itemCommission = it.commissionAmount ?? (basePrice ? Math.round((basePrice * (itemCommissionRate / 100) * boxes) * 100) / 100 : Math.round(((pricePerBox * boxes * itemCommissionRate) / 100) * 100) / 100);
+          const itemSellerNet = it.sellerNetAmount ?? (basePrice ? Math.round((basePrice * boxes) * 100) / 100 : Math.round(((pricePerBox * boxes) - itemCommission) * 100) / 100);
 
           return {
             productId: it.productId,

@@ -104,11 +104,14 @@ export async function getPlatformFinancialStats(params?: {
     include: {
       payment: true,
       cancellations: true,
+      items: true,
     },
   });
 
   let grossOrderValue = 0;
   let netSales = 0;
+  let totalCommissionEarned = 0;
+  let totalSellerPayable = 0;
   let totalActiveOrders = 0;
   let totalCancelledOrders = 0;
   let totalRefundedOrders = 0;
@@ -128,11 +131,20 @@ export async function getPlatformFinancialStats(params?: {
       const refundAmt = approvedCancellation.refundAmount ?? amount;
       const remainingNet = Math.max(0, amount - refundAmt);
       netSales += remainingNet;
-      if (remainingNet > 0) totalActiveOrders++;
+      if (remainingNet > 0) {
+        totalActiveOrders++;
+        const comm = (o as any).commissionAmount ?? Math.round((remainingNet * 0.1) * 100) / 100;
+        totalCommissionEarned += comm;
+        totalSellerPayable += Math.max(0, remainingNet - comm);
+      }
     } else {
       // Active order
       totalActiveOrders++;
       netSales += amount;
+      const comm = (o as any).commissionAmount ?? (o.items && o.items.length > 0 ? o.items.reduce((s, it) => s + ((it as any).commissionAmount ?? 0), 0) : Math.round((amount * 0.1) * 100) / 100);
+      const net = (o as any).sellerNetAmount ?? (o.items && o.items.length > 0 ? o.items.reduce((s, it) => s + ((it as any).sellerNetAmount ?? (it.price * it.quantity)), 0) : Math.max(0, amount - comm));
+      totalCommissionEarned += comm;
+      totalSellerPayable += net;
     }
   }
 
@@ -174,8 +186,12 @@ export async function getPlatformFinancialStats(params?: {
       .reduce((sum, o) => sum + o.totalAmount, 0);
   }
 
-  const marketplaceCommission = Math.round(netSales * MARKETPLACE_COMMISSION_RATE * 100) / 100;
-  const sellerPayableBalance = Math.round((netSales - marketplaceCommission) * 100) / 100;
+  const marketplaceCommission = totalCommissionEarned > 0
+    ? Math.round(totalCommissionEarned * 100) / 100
+    : Math.round(netSales * MARKETPLACE_COMMISSION_RATE * 100) / 100;
+  const sellerPayableBalance = totalSellerPayable > 0
+    ? Math.round(totalSellerPayable * 100) / 100
+    : Math.round((netSales - marketplaceCommission) * 100) / 100;
 
   return {
     grossOrderValue: Math.round(grossOrderValue * 100) / 100,
@@ -288,6 +304,8 @@ export async function getSellerFinancialStats(
   let sellerGrossRevenue = 0;
   let sellerCancelledRevenue = 0;
   let sellerNetSales = 0;
+  let totalCommission = 0;
+  let totalNetEarnings = 0;
   const activeOrderIds = new Set<string>();
   const cancelledOrderIds = new Set<string>();
 
@@ -313,12 +331,35 @@ export async function getSellerFinancialStats(
     } else {
       sellerNetSales += itemTotal;
       activeOrderIds.add(it.order.id);
+
+      const commRate = (it as any).commissionRate ?? 10.0;
+      const basePrice = (it as any).sellerBasePrice;
+      const boxes = (it as any).boxes || it.quantity;
+      let comm = (it as any).commissionAmount;
+      let net = (it as any).sellerNetAmount;
+
+      if (comm === null || comm === undefined) {
+        if (basePrice) {
+          comm = Math.round((basePrice * (commRate / 100) * boxes) * 100) / 100;
+        } else {
+          comm = Math.round((itemTotal * (commRate / 100)) * 100) / 100;
+        }
+      }
+      if (net === null || net === undefined) {
+        net = Math.round((itemTotal - comm) * 100) / 100;
+      }
+      totalCommission += comm;
+      totalNetEarnings += net;
     }
   }
 
-  // Calculate marketplace commission & seller payable balance
-  const marketplaceCommission = Math.round(sellerNetSales * MARKETPLACE_COMMISSION_RATE * 100) / 100;
-  const sellerNetEarnings = Math.round((sellerNetSales - marketplaceCommission) * 100) / 100;
+  // Calculate marketplace commission & seller payable balance from exact snapshots
+  const marketplaceCommission = totalCommission > 0
+    ? Math.round(totalCommission * 100) / 100
+    : Math.round(sellerNetSales * MARKETPLACE_COMMISSION_RATE * 100) / 100;
+  const sellerNetEarnings = totalNetEarnings > 0
+    ? Math.round(totalNetEarnings * 100) / 100
+    : Math.round((sellerNetSales - marketplaceCommission) * 100) / 100;
 
   // Payout requests
   const payouts = await db.payoutRequest.findMany({

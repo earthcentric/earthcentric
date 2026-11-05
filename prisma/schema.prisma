@@ -196,6 +196,8 @@ model Product {
   wholesalePrice       Float?
   originalPrice        Float?
   unitsPerBox          Int           @default(100) // Bulk pieces / units per box
+  sellerBasePrice      Float?        // Seller base price / expected payout per box
+  commissionAmount     Float?        // EarthCentric commission amount per box
   twoBoxPrice          Float?        // Specific approved price for exactly 2 boxes (e.g. ₹3.50)
   threePlusBoxPrice    Float?        // Specific approved price per box for 3+ boxes (e.g. ₹1.60)
   bulkPricingApproved  Boolean       @default(true) // Super Admin bulk pricing approval
@@ -264,6 +266,7 @@ model Order {
   address        Address     @relation(fields: [addressId], references: [id])
   totalAmount    Float
   grossAmount    Float?
+  totalSellerBaseAmount Float?      // Total seller base revenue across order items
   commissionRate Float?        @default(10.0)
   commissionAmount Float?
   sellerNetAmount Float?
@@ -366,6 +369,7 @@ model OrderItem {
   unitsPerBox Int?  @default(100)
   totalUnits  Int?  @default(100)
   pricePerBox Float?
+  sellerBasePrice Float? // Snapshot of seller base price per box
   commissionRate Float? @default(10.0)
   commissionAmount Float?
   sellerNetAmount Float?

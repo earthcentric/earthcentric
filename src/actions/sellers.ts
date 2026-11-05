@@ -748,12 +748,20 @@ export async function getSellerDashboardStats(
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const scale = filterType === "daily" ? 0.05 : filterType === "monthly" ? 0.45 : filterType === "yearly" ? 0.9 : 1;
-      const baseRev = Math.round(156900 * scale);
-      const baseOrders = Math.max(1, Math.round(38 * scale));
+      const baseGrossRev = Math.round(96000 * scale);
+      const baseComm = Math.round(16000 * scale);
+      const baseNetRev = Math.round(80000 * scale);
+      const baseBoxes = Math.round(100 * scale);
+      const baseOrders = Math.max(1, Math.round(10 * scale));
       const baseProducts = Math.max(1, Math.round(6 * scale));
       return {
-        revenue: baseRev,
-        grossRevenue: baseRev,
+        revenue: baseNetRev, // Net revenue after EarthCentric commission
+        netRevenue: baseNetRev,
+        grossRevenue: baseGrossRev,
+        commissionDeducted: baseComm,
+        totalBoxesSold: baseBoxes,
+        pendingPayout: Math.round(25000 * scale),
+        completedPayout: Math.round(55000 * scale),
         cancelledRevenue: 0,
         ordersCount: baseOrders,
         totalOrdersCount: baseOrders,
@@ -762,12 +770,12 @@ export async function getSellerDashboardStats(
         rating: 4.8,
         mostSoldProduct: "Bamboo Fiber Sheets",
         salesConversion: 3.4,
-        averageOrderValue: Math.round(baseRev / baseOrders),
+        averageOrderValue: Math.round(baseNetRev / baseOrders),
         totalStoreVisits: Math.round(baseOrders / 0.034),
         environmentalImpact: {
-          carbonOffset: Math.floor(baseRev * 0.005) + 20,
-          plasticAvoided: Math.floor(baseRev * 0.001) + 5,
-          ecoTreePoints: Math.floor(baseRev * 0.0002) + 1,
+          carbonOffset: Math.floor(baseNetRev * 0.005) + 20,
+          plasticAvoided: Math.floor(baseNetRev * 0.001) + 5,
+          ecoTreePoints: Math.floor(baseNetRev * 0.0002) + 1,
         },
         categoryBreakdown: [
           { name: "Disposables", percentage: 45 },
@@ -852,7 +860,10 @@ export async function getSellerDashboardStats(
       },
     });
 
-    let activeRevenue = 0;
+    let activeRevenue = 0; // Net Seller Revenue after EarthCentric commission
+    let activeGrossRevenue = 0; // Gross Marketplace Sales
+    let totalCommissionDeducted = 0; // EarthCentric Commission Deducted
+    let totalBoxesSold = 0;
     let cancelledRevenue = 0;
     let grossRevenue = 0;
     const activeOrderIds = new Set<string>();
@@ -861,6 +872,7 @@ export async function getSellerDashboardStats(
     const catMap: Record<string, number> = {};
 
     for (const item of orderItems) {
+      const boxes = (item as any).boxes || item.quantity;
       const itemTotal = item.price * item.quantity;
       grossRevenue += itemTotal;
       allOrderIds.add(item.orderId);
@@ -889,10 +901,33 @@ export async function getSellerDashboardStats(
       }
 
       const activeQty = Math.max(0, item.quantity - returnedQty);
-      const activeItemRevenue = item.price * activeQty;
+      const activeBoxes = item.quantity > 0 ? Math.round((activeQty / item.quantity) * boxes) : activeQty;
+      const activeItemGross = item.price * activeQty;
       const cancelledItemRevenue = item.price * returnedQty;
 
-      activeRevenue += activeItemRevenue;
+      // Product-wise Commission Calculation:
+      const itemCommRate = (item as any).commissionRate ?? (item.product as any).commissionRate ?? 10.0;
+      const basePrice = (item as any).sellerBasePrice ?? (item.product as any).sellerBasePrice;
+
+      let itemCommission = 0;
+      let itemNet = 0;
+
+      if ((item as any).commissionAmount !== null && (item as any).commissionAmount !== undefined && (item as any).sellerNetAmount !== null && (item as any).sellerNetAmount !== undefined) {
+        const ratio = item.quantity > 0 ? (activeQty / item.quantity) : 1;
+        itemCommission = Math.round(((item as any).commissionAmount * ratio) * 100) / 100;
+        itemNet = Math.round(((item as any).sellerNetAmount * ratio) * 100) / 100;
+      } else if (basePrice) {
+        itemCommission = Math.round((basePrice * (itemCommRate / 100) * activeBoxes) * 100) / 100;
+        itemNet = Math.round((activeItemGross - itemCommission) * 100) / 100;
+      } else {
+        itemCommission = Math.round((activeItemGross * (itemCommRate / 100)) * 100) / 100;
+        itemNet = Math.round((activeItemGross - itemCommission) * 100) / 100;
+      }
+
+      activeRevenue += itemNet;
+      activeGrossRevenue += activeItemGross;
+      totalCommissionDeducted += itemCommission;
+      totalBoxesSold += activeBoxes;
       cancelledRevenue += cancelledItemRevenue;
 
       if (activeQty > 0) {
@@ -911,6 +946,21 @@ export async function getSellerDashboardStats(
         catMap[cat] = (catMap[cat] || 0) + activeQty;
       }
     }
+
+    const payouts = await db.payoutRequest.findMany({
+      where: { sellerId: { in: candidateSellerIds } },
+    });
+    const pendingPayout = payouts
+      .filter((p) => ["PENDING", "APPROVED", "PROCESSING", "ON_HOLD", "PARTIALLY_PAID"].includes(p.status))
+      .reduce((sum, p) => sum + (p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount), 0);
+    const completedPayout = payouts.reduce((sum, p) => {
+      if (p.status === "PAID" || p.status === "SETTLED") return sum + p.amount;
+      if (p.status === "PARTIALLY_PAID") {
+        const remaining = p.remainingAmount !== null && p.remainingAmount !== undefined ? p.remainingAmount : p.amount;
+        return sum + Math.max(0, p.amount - remaining);
+      }
+      return sum;
+    }, 0);
 
     const revenue = Math.round(activeRevenue * 100) / 100;
     const ordersCount = activeOrderIds.size;
@@ -947,8 +997,14 @@ export async function getSellerDashboardStats(
     }
 
     return {
-      revenue,
-      grossRevenue: Math.round(grossRevenue * 100) / 100,
+      revenue, // Net seller revenue after EarthCentric commission
+      netRevenue: revenue,
+      grossRevenue: Math.round(activeGrossRevenue * 100) / 100,
+      grossMarketplaceSales: Math.round(activeGrossRevenue * 100) / 100,
+      commissionDeducted: Math.round(totalCommissionDeducted * 100) / 100,
+      totalBoxesSold,
+      pendingPayout: Math.round(pendingPayout * 100) / 100,
+      completedPayout: Math.round(completedPayout * 100) / 100,
       cancelledRevenue: Math.round(cancelledRevenue * 100) / 100,
       ordersCount,
       totalOrdersCount,
@@ -966,7 +1022,13 @@ export async function getSellerDashboardStats(
   } catch (e) {
     return {
       revenue: 0,
+      netRevenue: 0,
       grossRevenue: 0,
+      grossMarketplaceSales: 0,
+      commissionDeducted: 0,
+      totalBoxesSold: 0,
+      pendingPayout: 0,
+      completedPayout: 0,
       cancelledRevenue: 0,
       ordersCount: 0,
       totalOrdersCount: 0,

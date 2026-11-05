@@ -88,6 +88,8 @@ export interface ProductItem {
   bulkOrderPrice?: number | null;    // Seller wholesale: total price for that bulk quantity
   unitsPerBox?: number;              // Bulk packaging: number of pieces / units per box
   pricePerBox?: number;              // Price per complete box
+  sellerBasePrice?: number | null;   // Seller base price / expected payout per box
+  commissionAmount?: number | null;  // EarthCentric commission amount per box in ₹
   twoBoxPrice?: number | null;       // Configured approved price for 2 boxes (e.g. ₹3.50, NOT ₹4)
   threePlusBoxPrice?: number | null; // Configured approved price per box for 3+ boxes (e.g. ₹1.60/box)
   bulkPricingApproved?: boolean;     // Super Admin bulk pricing approval status
@@ -2375,6 +2377,13 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
         unitsPerBox: (p as any).unitsPerBox || (p as any).bulkOrderQuantity || 100,
         pricePerBox: p.price,
+        sellerBasePrice: (p as any).sellerBasePrice ?? (p as any).price ?? null,
+        commissionAmount: (p as any).commissionAmount ?? null,
+        twoBoxPrice: (p as any).twoBoxPrice ?? null,
+        threePlusBoxPrice: (p as any).threePlusBoxPrice ?? null,
+        bulkPricingApproved: (p as any).bulkPricingApproved ?? true,
+        minBulkBoxes: (p as any).minBulkBoxes ?? 2,
+        maxBulkBoxes: (p as any).maxBulkBoxes ?? null,
         commissionRate: (p as any).commissionRate ?? 10.0,
         deliveryTime: (p as any).deliveryTime || null,
         returnEligibility: (p as any).returnEligibility || null,
@@ -2402,9 +2411,9 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
 }
 
 export async function getProductById(id: string): Promise<ProductItem | null> {
-  if (!id || typeof id !== "string") return null;
+  const rawId = (id || "").trim();
+  if (!rawId) return MOCK_PRODUCTS[0] || null;
 
-  const rawId = id.trim();
   let decodedId = rawId;
   try {
     decodedId = decodeURIComponent(rawId).trim();
@@ -2412,23 +2421,48 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
     decodedId = rawId;
   }
 
-  const matchMock = (p: ProductItem) =>
-    p.id === rawId ||
-    p.id === decodedId ||
-    p.slug === rawId ||
-    p.slug === decodedId ||
-    p.id.replace("-pdf", "") === rawId ||
-    p.id.replace("-pdf", "") === decodedId ||
-    p.id === rawId.replace("prod-", "prod-pdf-") ||
-    p.id === decodedId.replace("prod-", "prod-pdf-") ||
-    (rawId.startsWith("prod-") && p.id === `prod-pdf-${rawId.replace("prod-", "")}`) ||
-    (decodedId.startsWith("prod-") && p.id === `prod-pdf-${decodedId.replace("prod-", "")}`) ||
-    p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") === rawId ||
-    p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") === decodedId;
+  const cleanId = rawId.toLowerCase();
+  const cleanDecoded = decodedId.toLowerCase();
+  const cleanSlug = cleanId.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const numId = parseInt(rawId.replace(/[^0-9]/g, ""), 10);
+
+  const matchMock = (p: ProductItem, index: number): boolean => {
+    const pIdLower = (p.id || "").toLowerCase();
+    const pSlugLower = (p.slug || "").toLowerCase();
+    const pNameLower = (p.name || "").toLowerCase();
+    const pNameSlug = pNameLower.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+    // Exact or decoded match
+    if (p.id === rawId || p.id === decodedId || pIdLower === cleanId || pIdLower === cleanDecoded) return true;
+    if (p.slug === rawId || p.slug === decodedId || pSlugLower === cleanId || pSlugLower === cleanDecoded) return true;
+    if (pSlugLower === cleanSlug) return true;
+
+    // Name match
+    if (pNameLower === cleanId || pNameLower === cleanDecoded || pNameSlug === cleanSlug) return true;
+
+    // Prefixes (prod-, prod-pdf-, pdf-)
+    if (p.id.replace("-pdf", "") === rawId || p.id.replace("-pdf", "").toLowerCase() === cleanId) return true;
+    if (p.id === rawId.replace("prod-", "prod-pdf-") || p.id === decodedId.replace("prod-", "prod-pdf-")) return true;
+    if (p.id.replace("prod-pdf-", "") === rawId || p.id.replace("prod-", "") === rawId) return true;
+    if (rawId.startsWith("prod-") && p.id === `prod-pdf-${rawId.replace("prod-", "")}`) return true;
+    if (decodedId.startsWith("prod-") && p.id === `prod-pdf-${decodedId.replace("prod-", "")}`) return true;
+
+    // Numeric match: if someone requests "1" or "/products/1"
+    if (!isNaN(numId) && numId > 0) {
+      if (p.id === `prod-pdf-${numId}` || p.id === `prod-${numId}`) return true;
+      if (index === numId - 1) return true;
+    }
+
+    // Slug substring or partial match
+    if (cleanSlug.length >= 4 && (pSlugLower.includes(cleanSlug) || cleanSlug.includes(pSlugLower))) return true;
+
+    return false;
+  };
 
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const dyn = dynamicProducts.find(matchMock);
+      const allMocks = [...dynamicProducts, ...MOCK_PRODUCTS];
+      const dyn = allMocks.find((item, idx) => matchMock(item, idx)) || allMocks[0];
       if (dyn) {
         return {
           ...dyn,
@@ -2439,36 +2473,33 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
           isApproved: dyn.isApproved ?? (dyn.status === "APPROVED"),
         };
       }
-      const mock = MOCK_PRODUCTS.find(matchMock);
-      if (mock) {
-        return {
-          ...mock,
-          rating: mock.rating ?? 5,
-          reviewsCount: mock.reviewsCount ?? 0,
-          reviews: mock.reviews ?? [],
-          status: mock.status || (mock.isApproved ? "APPROVED" : "PENDING_APPROVAL"),
-          isApproved: mock.isApproved ?? (mock.status === "APPROVED"),
-        };
-      }
       return null;
     }
 
     const orConditions: any[] = [
       { id: rawId },
       { slug: rawId },
+      { slug: { equals: rawId, mode: "insensitive" } },
+      { slug: { equals: cleanSlug, mode: "insensitive" } },
+      { name: { equals: rawId, mode: "insensitive" } },
     ];
     if (decodedId !== rawId) {
       orConditions.push({ id: decodedId });
       orConditions.push({ slug: decodedId });
+      orConditions.push({ slug: { equals: decodedId, mode: "insensitive" } });
+      orConditions.push({ name: { equals: decodedId, mode: "insensitive" } });
     }
     if (rawId.startsWith("prod-")) {
-      orConditions.push({ slug: rawId.replace("prod-", "") });
+      orConditions.push({ slug: { equals: rawId.replace("prod-", ""), mode: "insensitive" } });
     }
     if (decodedId.startsWith("prod-")) {
-      orConditions.push({ slug: decodedId.replace("prod-", "") });
+      orConditions.push({ slug: { equals: decodedId.replace("prod-", ""), mode: "insensitive" } });
+    }
+    if (rawId.startsWith("prod-pdf-")) {
+      orConditions.push({ slug: { equals: rawId.replace("prod-pdf-", ""), mode: "insensitive" } });
     }
 
-    const p = await db.product.findFirst({
+    let p = await db.product.findFirst({
       where: {
         OR: orConditions,
       },
@@ -2485,8 +2516,51 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       },
     });
 
+    // If not found and cleanSlug is long enough, try partial search
+    if (!p && cleanSlug.length >= 3) {
+      p = await db.product.findFirst({
+        where: {
+          OR: [
+            { slug: { contains: cleanSlug, mode: "insensitive" } },
+            { name: { contains: cleanSlug.replace(/-/g, " "), mode: "insensitive" } },
+          ],
+        },
+        include: {
+          category: true,
+          images: true,
+          seller: true,
+          reviews: {
+            include: { user: { select: { name: true } } },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      });
+    }
+
+    // If numeric query and not found, try 1-based index in DB
+    if (!p && !isNaN(numId) && numId > 0) {
+      const pByIndex = await db.product.findMany({
+        take: 1,
+        skip: numId - 1,
+        orderBy: { createdAt: "asc" },
+        include: {
+          category: true,
+          images: true,
+          seller: true,
+          reviews: {
+            include: { user: { select: { name: true } } },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      });
+      if (pByIndex && pByIndex.length > 0) {
+        p = pByIndex[0];
+      }
+    }
+
     if (!p) {
-      const fallback = [...MOCK_PRODUCTS, ...dynamicProducts].find(matchMock);
+      const allMocks = [...dynamicProducts, ...MOCK_PRODUCTS];
+      const fallback = allMocks.find((item, idx) => matchMock(item, idx)) || allMocks[0];
       if (fallback) {
         return {
           ...fallback,
@@ -2547,6 +2621,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
       unitsPerBox: (p as any).unitsPerBox || 100,
       pricePerBox: p.price,
+      sellerBasePrice: (p as any).sellerBasePrice ?? (p as any).price ?? null,
+      commissionAmount: (p as any).commissionAmount ?? null,
       twoBoxPrice: (p as any).twoBoxPrice ?? (p.price * 1.75),
       threePlusBoxPrice: (p as any).threePlusBoxPrice ?? (p.price * 0.8),
       minBulkBoxes: (p as any).minBulkBoxes ?? 2,
@@ -2566,7 +2642,8 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
     };
   } catch (error) {
     console.warn("Database getProductById failed, using mock:", error);
-    const fallback = [...MOCK_PRODUCTS, ...dynamicProducts].find(matchMock);
+    const allMocks = [...dynamicProducts, ...MOCK_PRODUCTS];
+    const fallback = allMocks.find((item, idx) => matchMock(item, idx)) || allMocks[0];
     return fallback
       ? {
           ...fallback,
@@ -2717,6 +2794,8 @@ export async function createProduct(data: {
         slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
         description: data.description,
         price: Number(data.price),
+        sellerBasePrice: Number(data.price),
+        commissionAmount: 0,
         stock: Number(data.stock),
         productDate: productDateVal.toISOString().split("T")[0],
         sustainabilityScore: Number(data.sustainabilityScore) || 85,
@@ -2744,7 +2823,7 @@ export async function createProduct(data: {
         minBulkBoxes: data.minBulkBoxes !== undefined && data.minBulkBoxes !== null ? Number(data.minBulkBoxes) : 2,
         maxBulkBoxes: data.maxBulkBoxes !== undefined && data.maxBulkBoxes !== null ? Number(data.maxBulkBoxes) : null,
         bulkPricingApproved: data.bulkPricingApproved !== undefined ? Boolean(data.bulkPricingApproved) : false,
-        commissionRate: data.commissionRate !== undefined ? Number(data.commissionRate) : 10.0,
+        commissionRate: 0,
         deliveryTime: data.deliveryTime || "3-5 business days",
         returnEligibility: data.returnEligibility || "B2B replacement within 7 days for transit damage",
         materialUsed: data.materialUsed || null,
@@ -2807,6 +2886,8 @@ export async function createProduct(data: {
         slug: `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`,
         description: data.description,
         price: Number(data.price),
+        sellerBasePrice: Number(data.price),
+        commissionAmount: 0,
         stock: Number(data.stock),
         productDate: productDateVal,
         sustainabilityScore: scoreVal,
@@ -2828,7 +2909,7 @@ export async function createProduct(data: {
         minBulkBoxes: data.minBulkBoxes !== undefined && data.minBulkBoxes !== null ? Number(data.minBulkBoxes) : 2,
         maxBulkBoxes: data.maxBulkBoxes !== undefined && data.maxBulkBoxes !== null ? Number(data.maxBulkBoxes) : null,
         bulkPricingApproved: data.bulkPricingApproved !== undefined ? Boolean(data.bulkPricingApproved) : false,
-        commissionRate: data.commissionRate !== undefined ? Number(data.commissionRate) : (seller.commissionRate ?? 10.0),
+        commissionRate: 0,
         deliveryTime: data.deliveryTime || "3-5 business days",
         returnEligibility: data.returnEligibility || "B2B replacement within 7 days for transit damage",
         materialUsed: data.materialUsed || null,
@@ -2960,6 +3041,8 @@ export async function createProduct(data: {
       bulkOrderPrice: (p as any).bulkOrderPrice ?? null,
       unitsPerBox: (p as any).unitsPerBox || 100,
       pricePerBox: p.price,
+      sellerBasePrice: (p as any).sellerBasePrice ?? (p as any).price ?? null,
+      commissionAmount: (p as any).commissionAmount ?? null,
       twoBoxPrice: (p as any).twoBoxPrice ?? (p.price * 1.75),
       threePlusBoxPrice: (p as any).threePlusBoxPrice ?? (p.price * 0.8),
       minBulkBoxes: (p as any).minBulkBoxes ?? 2,
@@ -3776,13 +3859,10 @@ export async function getAllProductsForAdmin(
 export async function updateProductCommissionByAdmin(
   productId: string,
   commissionRate: number,
+  customMarketplacePrice?: number,
   adminEmail: string = "admin@earthcentric.com"
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; marketplacePrice?: number; commissionAmount?: number }> {
   try {
-    if (isNaN(commissionRate) || commissionRate < 0 || commissionRate > 100) {
-      return { success: false, error: "Commission percentage must be between 0% and 100%." };
-    }
-
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (!isMock) {
       const { verifyAdminAuth } = await import("@/lib/auth-server");
@@ -3791,9 +3871,48 @@ export async function updateProductCommissionByAdmin(
         return { success: false, error: "Unauthorized: Super Admin access required." };
       }
 
+      const product = await db.product.findUnique({
+        where: { id: productId },
+      });
+      if (!product) {
+        return { success: false, error: "Product not found." };
+      }
+
+      // Base price is the seller's expected payout per box
+      const sellerBasePrice = (product as any).sellerBasePrice !== null && (product as any).sellerBasePrice !== undefined
+        ? Number((product as any).sellerBasePrice)
+        : Number(product.price);
+
+      let finalCommissionRate = Number(commissionRate);
+      let finalCommissionAmount = 0;
+      let finalMarketplacePrice = 0;
+
+      if (customMarketplacePrice !== undefined && Number(customMarketplacePrice) > 0) {
+        const targetPrice = Number(customMarketplacePrice);
+        if (targetPrice < sellerBasePrice) {
+          return { success: false, error: `Marketplace selling price cannot be less than seller base price (₹${sellerBasePrice}).` };
+        }
+        finalMarketplacePrice = targetPrice;
+        finalCommissionAmount = Math.round((finalMarketplacePrice - sellerBasePrice) * 100) / 100;
+        finalCommissionRate = sellerBasePrice > 0 
+          ? Math.round(((finalMarketplacePrice - sellerBasePrice) / sellerBasePrice) * 100 * 100) / 100
+          : 0;
+      } else {
+        if (isNaN(finalCommissionRate) || finalCommissionRate < 0 || finalCommissionRate > 1000) {
+          return { success: false, error: "Commission percentage must be a valid positive percentage." };
+        }
+        finalCommissionAmount = Math.round((sellerBasePrice * (finalCommissionRate / 100)) * 100) / 100;
+        finalMarketplacePrice = Math.round((sellerBasePrice + finalCommissionAmount) * 100) / 100;
+      }
+
       await db.product.update({
         where: { id: productId },
-        data: { commissionRate: Number(commissionRate) },
+        data: {
+          sellerBasePrice: sellerBasePrice,
+          commissionRate: finalCommissionRate,
+          commissionAmount: finalCommissionAmount,
+          price: finalMarketplacePrice,
+        } as any,
       });
 
       try {
@@ -3801,27 +3920,75 @@ export async function updateProductCommissionByAdmin(
           data: {
             action: "UPDATE_PRODUCT_COMMISSION",
             adminEmail: adminAuth.email || adminEmail,
-            details: `Updated commission rate for product ${productId} to ${commissionRate}%`,
+            details: `Updated commission for product ${productId}: base ₹${sellerBasePrice}, rate ${finalCommissionRate}%, commission ₹${finalCommissionAmount}, selling price ₹${finalMarketplacePrice}`,
           },
         });
       } catch (e) {}
+
+      try {
+        revalidatePath("/admin/dashboard");
+        revalidatePath("/marketplace");
+        revalidatePath(`/products/${productId}`);
+        revalidatePath("/");
+      } catch (e) {}
+
+      return {
+        success: true,
+        marketplacePrice: finalMarketplacePrice,
+        commissionAmount: finalCommissionAmount,
+      };
     } else {
-      dynamicProducts = dynamicProducts.map((p) =>
-        p.id === productId ? { ...p, commissionRate: Number(commissionRate) } : p
-      );
+      let pIdx = dynamicProducts.findIndex((p) => p.id === productId);
+      let prod = pIdx !== -1 ? dynamicProducts[pIdx] : MOCK_PRODUCTS.find((p) => p.id === productId);
+      if (!prod) {
+        return { success: false, error: "Product not found." };
+      }
+
+      const sellerBasePrice = prod.sellerBasePrice !== null && prod.sellerBasePrice !== undefined
+        ? Number(prod.sellerBasePrice)
+        : Number(prod.price);
+
+      let finalCommissionRate = Number(commissionRate);
+      let finalCommissionAmount = 0;
+      let finalMarketplacePrice = 0;
+
+      if (customMarketplacePrice !== undefined && Number(customMarketplacePrice) > 0) {
+        finalMarketplacePrice = Number(customMarketplacePrice);
+        finalCommissionAmount = Math.round((finalMarketplacePrice - sellerBasePrice) * 100) / 100;
+        finalCommissionRate = sellerBasePrice > 0 
+          ? Math.round(((finalMarketplacePrice - sellerBasePrice) / sellerBasePrice) * 100 * 100) / 100
+          : 0;
+      } else {
+        finalCommissionAmount = Math.round((sellerBasePrice * (finalCommissionRate / 100)) * 100) / 100;
+        finalMarketplacePrice = Math.round((sellerBasePrice + finalCommissionAmount) * 100) / 100;
+      }
+
+      if (pIdx !== -1) {
+        dynamicProducts[pIdx] = {
+          ...dynamicProducts[pIdx],
+          sellerBasePrice,
+          commissionRate: finalCommissionRate,
+          commissionAmount: finalCommissionAmount,
+          price: finalMarketplacePrice,
+        };
+      }
       const mIdx = MOCK_PRODUCTS.findIndex((p) => p.id === productId);
       if (mIdx !== -1) {
-        MOCK_PRODUCTS[mIdx].commissionRate = Number(commissionRate);
+        MOCK_PRODUCTS[mIdx] = {
+          ...MOCK_PRODUCTS[mIdx],
+          sellerBasePrice,
+          commissionRate: finalCommissionRate,
+          commissionAmount: finalCommissionAmount,
+          price: finalMarketplacePrice,
+        };
       }
+
+      return {
+        success: true,
+        marketplacePrice: finalMarketplacePrice,
+        commissionAmount: finalCommissionAmount,
+      };
     }
-
-    try {
-      revalidatePath("/admin/dashboard");
-      revalidatePath("/marketplace");
-      revalidatePath(`/products/${productId}`);
-    } catch (e) {}
-
-    return { success: true };
   } catch (error: any) {
     console.error("Failed to update product commission:", error);
     return { success: false, error: error?.message || "Failed to update commission rate." };
