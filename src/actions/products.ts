@@ -2697,7 +2697,23 @@ export async function createProduct(data: {
     const { checkSellerActivation } = await import("@/lib/auth-server");
     const act = await checkSellerActivation(data.sellerId);
     if (!act.active) {
-      throw new Error(act.error || "Seller account activation required. Please complete registration fee payment.");
+      // Allow newly registering or pending sellers to upload their initial products for Super Admin review
+      const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+      let isPendingSeller = false;
+      if (!isMock) {
+        try {
+          const s = await db.seller.findFirst({
+            where: { OR: [{ id: data.sellerId }, { userId: data.sellerId }] },
+            select: { verificationStatus: true },
+          });
+          if (s && (s.verificationStatus === "PENDING" || s.verificationStatus === "UNDER_REVIEW")) {
+            isPendingSeller = true;
+          }
+        } catch {}
+      }
+      if (!isPendingSeller) {
+        throw new Error(act.error || "Seller account activation required. Please complete registration fee payment.");
+      }
     }
   }
 

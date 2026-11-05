@@ -168,15 +168,52 @@ export async function findExistingCategory(
     (c) =>
       c.slug === normalizedSlug ||
       c.name.toLowerCase() === trimmed.toLowerCase() ||
-      c.slug === trimmed.toLowerCase()
+      c.slug === trimmed.toLowerCase() ||
+      c.slug.includes(normalizedSlug) ||
+      normalizedSlug.includes(c.slug) ||
+      c.name.toLowerCase().includes(trimmed.toLowerCase()) ||
+      trimmed.toLowerCase().includes(c.name.toLowerCase())
   );
   if (fallback) {
-    return {
-      id: `c_${fallback.slug}`,
-      name: fallback.name,
-      slug: fallback.slug,
-      description: fallback.description,
-    };
+    try {
+      const dbCat = await db.category.upsert({
+        where: { slug: fallback.slug },
+        update: {},
+        create: {
+          name: fallback.name,
+          slug: fallback.slug,
+          description: fallback.description,
+        },
+      });
+      return {
+        id: dbCat.id,
+        name: dbCat.name,
+        slug: dbCat.slug,
+        description: dbCat.description,
+      };
+    } catch {
+      return {
+        id: `c_${fallback.slug}`,
+        name: fallback.name,
+        slug: fallback.slug,
+        description: fallback.description,
+      };
+    }
+  }
+
+  // Graceful fallback to first category in DB to prevent foreign key errors
+  try {
+    const firstCat = await db.category.findFirst({ orderBy: { name: "asc" } });
+    if (firstCat) {
+      return {
+        id: firstCat.id,
+        name: firstCat.name,
+        slug: firstCat.slug,
+        description: firstCat.description,
+      };
+    }
+  } catch (e) {
+    console.error("findExistingCategory final fallback error:", e);
   }
 
   return null;

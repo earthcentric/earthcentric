@@ -658,7 +658,11 @@ export function SellerRegistrationWizard({ userId, onSuccess }: SellerRegistrati
       if (onSuccess) onSuccess();
     } catch (err: any) {
       console.error("Submission failed:", err);
-      toast.error(err.message || "Failed to submit application. Please check your fields.", {
+      let displayMsg = err?.message || "Failed to submit application. Please check your fields.";
+      if (displayMsg.includes("Server Components render") || displayMsg.includes("digest")) {
+        displayMsg = "Application submission encountered a temporary server error. Please retry shortly.";
+      }
+      toast.error(displayMsg, {
         id: toastId,
       });
     } finally {

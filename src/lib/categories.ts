@@ -28,6 +28,7 @@ export const SUSTAINABLE_CATEGORIES = [
   { name: "Fertilizers & Soil",         slug: "fertilizers",         description: "Organic and natural fertilizers for sustainable farming" },
   { name: "Bamboo Products",            slug: "bamboo",              description: "Eco-friendly bamboo-based everyday items" },
   { name: "Reusable Bags & Packaging",  slug: "reusable-packaging",  description: "Sustainable alternatives to single-use plastics" },
+  { name: "Eco Packaging",              slug: "eco-packaging",       description: "Sustainable and biodegradable packaging solutions" },
   { name: "Biodegradable Cutlery",      slug: "cutlery",             description: "Plant-based, compostable cutlery and utensils" },
   { name: "Organic Personal Care",      slug: "personal-care",       description: "Chemical-free, cruelty-free personal hygiene products" },
   { name: "Eco Stationery",             slug: "stationery",          description: "Recycled paper notebooks, pens, and office supplies" },
