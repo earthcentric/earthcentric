@@ -1,7 +1,8 @@
 "use server";
 
 import db from "@/lib/db";
-import { createAdminNotification } from "@/actions/notifications";
+import { createAdminNotification } from "@/lib/notification-service";
+import { verifyAdminAuth, verifyAuthenticatedUser, verifySellerAuth } from "@/lib/auth-server";
 
 export interface ComplaintData {
   id: string;
@@ -28,6 +29,16 @@ export async function createComplaint(data: {
   proofUrl?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId || auth.userId !== data.userId) {
+      return { success: false, error: "Sign in with the account that placed this order." };
+    }
+    const order = await db.order.findFirst({
+      where: { id: data.orderId, userId: auth.userId },
+      select: { id: true },
+    });
+    if (!order) return { success: false, error: "The order was not found for this account." };
+
     await db.complaint.create({
       data: {
         orderId: data.orderId,
@@ -64,6 +75,8 @@ export async function createComplaint(data: {
 
 export async function getBuyerComplaints(userId: string): Promise<ComplaintData[]> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId || auth.userId !== userId) return [];
     const complaints = await db.complaint.findMany({
       where: { userId },
       include: {
@@ -95,13 +108,15 @@ export async function getBuyerComplaints(userId: string): Promise<ComplaintData[
 
 export async function getSellerComplaints(sellerId: string): Promise<ComplaintData[]> {
   try {
+    const auth = await verifySellerAuth(sellerId);
+    if (!auth.authorized || !auth.sellerId) return [];
     // Find orders containing seller's products
     const complaints = await db.complaint.findMany({
       where: {
         order: {
           items: {
             some: {
-              product: { sellerId },
+              product: { sellerId: auth.sellerId },
             },
           },
         },
@@ -135,6 +150,8 @@ export async function getSellerComplaints(sellerId: string): Promise<ComplaintDa
 
 export async function getAdminComplaints(): Promise<ComplaintData[]> {
   try {
+    const auth = await verifyAdminAuth();
+    if (!auth.authorized) return [];
     const complaints = await db.complaint.findMany({
       include: {
         user: { select: { name: true } },
@@ -173,18 +190,44 @@ export async function updateComplaintStatus(
   }
 ): Promise<boolean> {
   try {
+    const adminAuth = await verifyAdminAuth();
+    let updateData: {
+      status?: string;
+      adminNotes?: string;
+      sellerResponse?: string;
+      sellerProofUrl?: string;
+    };
+    if (adminAuth.authorized) {
+      updateData = data;
+    } else {
+      const sellerAuth = await verifySellerAuth();
+      if (!sellerAuth.authorized || !sellerAuth.sellerId) return false;
+      const complaint = await db.complaint.findUnique({
+        where: { id: complaintId },
+        include: {
+          order: {
+            include: { items: { include: { product: { select: { sellerId: true } } } } },
+          },
+        },
+      });
+      if (!complaint || !complaint.order.items.some((item) => item.product.sellerId === sellerAuth.sellerId)) {
+        return false;
+      }
+      if (data.adminNotes !== undefined || data.status !== "UNDER_REVIEW") return false;
+      updateData = {
+        status: "UNDER_REVIEW",
+        sellerResponse: data.sellerResponse,
+        sellerProofUrl: data.sellerProofUrl,
+      };
+    }
+
     await db.complaint.update({
       where: { id: complaintId },
-      data: {
-        status: data.status,
-        adminNotes: data.adminNotes !== undefined ? data.adminNotes : undefined,
-        sellerResponse: data.sellerResponse !== undefined ? data.sellerResponse : undefined,
-        sellerProofUrl: data.sellerProofUrl !== undefined ? data.sellerProofUrl : undefined,
-      },
+      data: updateData,
     });
 
     // If resolved with refund, update the order status
-    if (data.status === "RESOLVED") {
+    if (adminAuth.authorized && data.status === "RESOLVED") {
       const complaint = await db.complaint.findUnique({
         where: { id: complaintId },
         select: { orderId: true },

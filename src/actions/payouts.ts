@@ -3,7 +3,7 @@
 import db from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { sendPayoutSettledEmail } from "@/lib/email";
-import { createNotification, createAdminNotification } from "@/actions/notifications";
+import { createNotification, createAdminNotification } from "@/lib/notification-service";
 import { Prisma } from "@prisma/client";
 import { getSellerFinancialStats } from "@/lib/financials";
 import {
@@ -26,6 +26,7 @@ import {
   resolveRegistrationPaymentStatus,
   type RegistrationPaymentStatus,
 } from "@/lib/seller-verification-constants";
+import { getMockSellersInternal } from "./sellers";
 
 export type PayoutStatus =
   | "PENDING"
@@ -119,7 +120,27 @@ let mockPayoutRequests: PayoutRequestInfo[] = [];
 
 export async function getSellerPayoutStats(sellerId: string): Promise<SellerPayoutStats> {
   try {
-    const fin = await getSellerFinancialStats(sellerId);
+    const adminAuth = await verifyAdminAuth();
+    let targetSellerId: string | undefined;
+    if (adminAuth.authorized) {
+      const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+      const targetSeller = isMock
+        ? (await getMockSellersInternal()).find((seller) => seller.id === sellerId || seller.userId === sellerId)
+        : await db.seller.findFirst({
+            where: { OR: [{ id: sellerId }, { userId: sellerId }] },
+            select: { id: true },
+          });
+      if (!targetSeller) throw new Error("The selected seller was not found.");
+      targetSellerId = targetSeller.id;
+    } else {
+      const sellerAuth = await verifySellerAuth(sellerId);
+      if (!sellerAuth.authorized || !sellerAuth.sellerId) {
+        throw new Error("Unauthorized access to seller payout statistics.");
+      }
+      targetSellerId = sellerAuth.sellerId;
+    }
+    if (!targetSellerId) throw new Error("The seller profile could not be verified.");
+    const fin = await getSellerFinancialStats(targetSellerId);
     return {
       totalSalesRevenue: fin.sellerNetSales,
       grossSalesRevenue: fin.sellerGrossRevenue,
@@ -146,6 +167,10 @@ export async function getSellerPayoutStats(sellerId: string): Promise<SellerPayo
 export async function getSellerPayoutOnboardingStatus(
   sellerIdOrUserId: string
 ): Promise<SellerPayoutOnboardingStatus> {
+  const auth = await verifySellerAuth(sellerIdOrUserId);
+  if (!auth.authorized || !auth.sellerId) {
+    throw new Error("Unauthorized access to seller payout profile.");
+  }
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   const feeEnabled = await isSellerRegistrationFeeEnabled();
   const feeAmount = await getSellerRegistrationFeeAmount();
@@ -170,7 +195,7 @@ export async function getSellerPayoutOnboardingStatus(
 
   const seller = await db.seller.findFirst({
     where: {
-      OR: [{ id: sellerIdOrUserId }, { userId: sellerIdOrUserId }],
+      id: auth.sellerId,
     },
     include: {
       user: { select: { email: true, name: true } },
@@ -263,6 +288,10 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
   environment?: string;
   error?: string;
 }> {
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    return { success: false, error: "Registration fee payments are unavailable in demo mode." };
+  }
+
   try {
     const auth = await verifyAuthenticatedUser();
     if (!auth.authorized || !auth.userId) {
@@ -275,6 +304,9 @@ export async function createRegistrationFeeOrder(sellerIdOrUserId: string): Prom
     });
 
     if (!seller) return { success: false, error: "Seller profile not found." };
+    if (auth.role !== "ADMIN" && auth.userId !== seller.userId) {
+      return { success: false, error: "Unauthorized access to this seller profile." };
+    }
 
     // Grandfathered sellers (AR ECO INDIA, SMT, SIH) never need to pay
     const isGrandfathered = isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId) || (seller as any).registrationPaymentStatus === "NOT_REQUIRED";
@@ -369,10 +401,21 @@ export async function verifyRegistrationFeePayment(
       where: { OR: [{ id: sellerIdOrUserId }, { userId: sellerIdOrUserId }] },
     });
     if (!seller) return { success: false, error: "Seller profile not found." };
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId || (auth.role !== "ADMIN" && auth.userId !== seller.userId)) {
+      return { success: false, error: "Unauthorized access to this seller payment." };
+    }
 
     const isGrandfathered = isGrandfatheredSeller(seller.id) || isGrandfatheredSeller(seller.userId) || (seller as any).registrationPaymentStatus === "NOT_REQUIRED";
     if (isGrandfathered || seller.registrationFeePaid || (seller as any).registrationPaymentStatus === "PAID") {
       return { success: true, paid: true };
+    }
+
+    const feePayment = await db.sellerRegistrationPayment.findFirst({
+      where: { cashfreeOrderId: orderId, sellerId: seller.id },
+    });
+    if (!feePayment) {
+      return { success: false, error: "Registration payment order does not belong to this seller." };
     }
 
     const payments = await fetchCashfreeOrderPayments(orderId);
@@ -615,6 +658,7 @@ export async function adminReviewPayoutProfile(
   if (!auth.authorized) {
     return { success: false, error: "Super Admin authorization required." };
   }
+  adminEmail = auth.email;
 
   try {
     const seller = await db.seller.findUnique({
@@ -854,13 +898,17 @@ function safeSerializableJson<T>(val: T): T | undefined {
 
 export async function getSellerPayoutRequests(sellerIdOrUserId: string): Promise<PayoutRequestInfo[]> {
   try {
+    const auth = await verifySellerAuth(sellerIdOrUserId);
+    if (!auth.authorized || !auth.sellerId) return [];
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMock) {
-      return mockPayoutRequests.sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
+      return mockPayoutRequests
+        .filter((request) => request.sellerId === auth.sellerId)
+        .sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
     }
 
     const seller = await db.seller.findFirst({
-      where: { OR: [{ id: sellerIdOrUserId }, { userId: sellerIdOrUserId }] },
+      where: { id: auth.sellerId },
     });
 
     if (!seller) return [];
@@ -925,6 +973,8 @@ export async function getSellerPayoutRequests(sellerIdOrUserId: string): Promise
 
 export async function getAdminPayoutRequests(): Promise<PayoutRequestInfo[]> {
   try {
+    const auth = await verifyAdminAuth();
+    if (!auth.authorized) return [];
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMock) {
       return mockPayoutRequests.sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
@@ -1011,6 +1061,7 @@ export async function approvePayoutRequest(
 ): Promise<{ success: boolean; error?: string }> {
   const auth = await verifyAdminAuth();
   if (!auth.authorized) return { success: false, error: "Super Admin authorization required." };
+  adminEmail = auth.email;
 
   try {
     const existing = await db.payoutRequest.findUnique({
@@ -1066,6 +1117,7 @@ export async function rejectPayoutRequest(
 ): Promise<{ success: boolean; error?: string }> {
   const auth = await verifyAdminAuth();
   if (!auth.authorized) return { success: false, error: "Super Admin authorization required." };
+  adminEmail = auth.email;
 
   if (!reason || reason.trim().length < 5) {
     return { success: false, error: "A rejection reason of at least 5 characters is required." };
@@ -1133,6 +1185,7 @@ export async function executeCashfreePayout(
 }> {
   const auth = await verifyAdminAuth();
   if (!auth.authorized) return { success: false, error: "Super Admin authorization required." };
+  adminEmail = auth.email;
 
   try {
     const request = await db.payoutRequest.findUnique({
@@ -1342,6 +1395,7 @@ export async function retryFailedPayout(
 ): Promise<{ success: boolean; message?: string; error?: string }> {
   const auth = await verifyAdminAuth();
   if (!auth.authorized) return { success: false, error: "Super Admin authorization required." };
+  adminEmail = auth.email;
 
   try {
     const request = await db.payoutRequest.findUnique({ where: { id: requestId } });
@@ -1383,6 +1437,7 @@ export async function reconcileCashfreePayout(
 ): Promise<{ success: boolean; status?: string; message?: string; error?: string }> {
   const auth = await verifyAdminAuth();
   if (!auth.authorized) return { success: false, message: "Super Admin authorization required.", error: "Super Admin authorization required." };
+  adminEmail = auth.email;
 
   try {
     const request = await db.payoutRequest.findUnique({
@@ -1462,6 +1517,9 @@ export async function settlePayoutRequest(
   rejectedReason?: string,
   amountToSettle?: number
 ): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     if (status === "REJECTED") {
       const res = await rejectPayoutRequest(requestId, adminEmail, rejectedReason || "Administrative rejection.");
@@ -1654,10 +1712,11 @@ export async function updateAdminRegistrationFeeConfig(enabled: boolean, amount 
 }
 
 export async function getAdminRegistrationFeeConfig() {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access required.");
   const [enabled, amount] = await Promise.all([
     isSellerRegistrationFeeEnabled(),
     getSellerRegistrationFeeAmount(),
   ]);
   return { enabled, amount };
 }
-

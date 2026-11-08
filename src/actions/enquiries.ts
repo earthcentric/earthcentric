@@ -1,7 +1,8 @@
 "use server";
 
 import db from "@/lib/db";
-import { createNotification, createAdminNotification } from "@/actions/notifications";
+import { createNotification, createAdminNotification } from "@/lib/notification-service";
+import { verifyAuthenticatedUser, verifySellerAuth } from "@/lib/auth-server";
 
 export interface EnquiryData {
   id: string;
@@ -42,6 +43,8 @@ export async function createEnquiry(data: {
   message?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    const buyerId = auth.authorized ? auth.userId || null : null;
     let productName = "Bulk Product";
     let productSlug = data.productId;
     let sellerUserId: string | undefined;
@@ -63,7 +66,7 @@ export async function createEnquiry(data: {
       await db.enquiry.create({
         data: {
           productId: data.productId,
-          buyerId: data.buyerId || null,
+          buyerId,
           quantity: Number(data.quantity),
           targetPrice: data.targetPrice ? Number(data.targetPrice) : (data.calculatedWholesaleAmount ? Number(data.calculatedWholesaleAmount) : null),
           calculatedWholesaleAmount: data.calculatedWholesaleAmount ? Number(data.calculatedWholesaleAmount) : null,
@@ -96,16 +99,16 @@ export async function createEnquiry(data: {
         message: data.message || null,
         status: "PENDING",
         createdAt: new Date(),
-        buyerId: data.buyerId || null,
+        buyerId,
       };
       mockEnquiries.unshift(newEnq);
       productName = newEnq.productName;
     }
 
     // 1. Buyer Notification
-    if (data.buyerId) {
+    if (buyerId) {
       await createNotification(
-        data.buyerId,
+        buyerId,
         "Bulk Order Quote Request Sent 📦",
         `Your bulk order quote request for "${productName}" (${data.quantity} units) has been submitted successfully to the manufacturer. Status: PENDING.`,
         `/products/${data.productId}`
@@ -113,7 +116,7 @@ export async function createEnquiry(data: {
     }
 
     // 2. Seller Notification (only send to seller if seller is a distinct user from the buyer)
-    if (sellerUserId && sellerUserId !== data.buyerId) {
+    if (sellerUserId && sellerUserId !== buyerId) {
       await createNotification(
         sellerUserId,
         "New Bulk Quote Enquiry 💼",
@@ -138,14 +141,16 @@ export async function createEnquiry(data: {
 
 export async function getSellerEnquiries(sellerId: string): Promise<EnquiryData[]> {
   try {
+    const auth = await verifySellerAuth(sellerId);
+    if (!auth.authorized || !auth.sellerId) return [];
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     if (isMock) {
-      return mockEnquiries;
+      return [];
     }
 
     const products = await db.product.findMany({
-      where: { sellerId },
+      where: { sellerId: auth.sellerId },
       select: { id: true },
     });
 
@@ -187,7 +192,7 @@ export async function getSellerEnquiries(sellerId: string): Promise<EnquiryData[
     }));
   } catch (error) {
     console.error("Failed to get seller enquiries:", error);
-    return mockEnquiries;
+    return [];
   }
 }
 
@@ -199,6 +204,8 @@ export async function updateEnquiryStatus(
 ): Promise<boolean> {
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    const auth = await verifySellerAuth();
+    if (!auth.authorized || !auth.sellerId) return false;
 
     let buyerId: string | null | undefined;
     let productName = "Product";
@@ -207,27 +214,20 @@ export async function updateEnquiryStatus(
     if (!isMock) {
       const enq = await db.enquiry.findUnique({
         where: { id: enquiryId },
-        include: { product: { select: { name: true, id: true } } },
+        include: { product: { select: { name: true, id: true, sellerId: true } } },
       });
 
-      if (enq) {
-        buyerId = enq.buyerId;
-        productName = enq.product.name;
-        productId = enq.productId;
-      }
+      if (!enq || enq.product.sellerId !== auth.sellerId) return false;
+      buyerId = enq.buyerId;
+      productName = enq.product.name;
+      productId = enq.productId;
 
       await db.enquiry.update({
         where: { id: enquiryId },
         data: { status },
       });
     } else {
-      const mockEnq = mockEnquiries.find((e) => e.id === enquiryId);
-      if (mockEnq) {
-        mockEnq.status = status;
-        buyerId = mockEnq.buyerId;
-        productName = mockEnq.productName;
-        productId = mockEnq.productId;
-      }
+      return false;
     }
 
     // Send status update notification to buyer based on seller option selected

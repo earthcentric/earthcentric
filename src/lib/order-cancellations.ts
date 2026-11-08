@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import db from "@/lib/db";
 import { createCashfreeRefund, fetchCashfreeRefund, CashfreeRefundResult } from "@/lib/cashfree";
-import { createNotification, createAdminNotification } from "@/actions/notifications";
+import { createNotification, createAdminNotification } from "@/lib/notification-service";
 import { sendRefundCompletedEmail, sendRefundFailedEmail } from "@/lib/email";
 
 export type RefundState = "NOT_REQUIRED" | "PENDING_PAYMENT" | "PENDING" | "SUCCESS" | "FAILED";
@@ -94,7 +94,8 @@ async function saveProviderRefund(
       });
       const thisRefundAmount = result.refund_amount ?? cancellation.refundAmount ?? 0;
       const totalRefundedSoFar = (priorSuccessfulRefunds._sum.refundAmount || 0) + thisRefundAmount;
-      const isFullRefund = totalRefundedSoFar >= (cancellation.order.totalAmount - 0.01);
+      const fullOrderAmount = cancellation.order.totalAmount + (cancellation.order.shippingFee || 0);
+      const isFullRefund = totalRefundedSoFar >= (fullOrderAmount - 0.01);
 
       let orderRefunded = false;
       if (isFullRefund) {
@@ -139,7 +140,8 @@ async function saveProviderRefund(
     include: { user: { select: { id: true, name: true, email: true } } },
   });
 
-  const finalRefundAmount = result.refund_amount ?? cancellation.refundAmount ?? cancellation.order.totalAmount ?? 0;
+  const finalRefundAmount = result.refund_amount ?? cancellation.refundAmount ??
+    cancellation.order.totalAmount + cancellation.order.shippingFee;
   const customerEmail = orderWithUser?.user?.email || cancellation.requestedByEmail;
   const customerName = orderWithUser?.user?.name || undefined;
 
@@ -230,7 +232,9 @@ export async function startCancellationRefund(cancellationId: string): Promise<{
     return { status: "FAILED", error: "Missing Cashfree order ID." };
   }
 
-  const amount = Math.round((cancellation.refundAmount ?? cancellation.order.totalAmount) * 100) / 100;
+  const amount = Math.round(
+    (cancellation.refundAmount ?? (cancellation.order.totalAmount + (cancellation.order.shippingFee || 0))) * 100
+  ) / 100;
 
   // Calculate existing refunds on this order to ensure total cannot exceed captured payment
   const priorRefunds = await db.orderCancellation.aggregate({

@@ -1,18 +1,27 @@
 "use server";
 
 import db from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import crypto from "crypto";
 import { sendEmail } from "@/lib/email";
+import { verifyAuthenticatedUser } from "@/lib/auth-server";
+import { reverseGeocode } from "@/lib/location-services";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AddressData {
   id?: string;
+  label?: "Home" | "Office" | "Other";
   street: string;
+  landmark?: string | null;
   city: string;
   state: string;
   postalCode: string;
   country: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  geocodingProvider?: string | null;
+  providerLocationId?: string | null;
   isDefault?: boolean;
 }
 
@@ -42,20 +51,53 @@ function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+async function validateAddressPayload(
+  address: Omit<AddressData, "id">,
+  verifyCoordinates = true
+): Promise<string | null> {
+  if (!address || !["Home", "Office", "Other"].includes(address.label || "Home")) {
+    return "Choose a valid address label.";
+  }
+  const requiredText = [address.street, address.city, address.state, address.postalCode, address.country];
+  if (requiredText.some((value) => typeof value !== "string" || !value.trim() || value.length > 300)) {
+    return "Complete the address, city, state, country, and PIN code.";
+  }
+  if (!/^\d{6}$/.test(address.postalCode.trim())) {
+    return "Enter a valid 6-digit PIN code.";
+  }
+  if (address.landmark != null && (typeof address.landmark !== "string" || address.landmark.length > 200)) {
+    return "Landmark must be 200 characters or fewer.";
+  }
+  const hasLatitude = address.latitude !== null && address.latitude !== undefined;
+  const hasLongitude = address.longitude !== null && address.longitude !== undefined;
+  if (hasLatitude !== hasLongitude ||
+      (hasLatitude && (!Number.isFinite(address.latitude) || address.latitude! < -90 || address.latitude! > 90)) ||
+      (hasLongitude && (!Number.isFinite(address.longitude) || address.longitude! < -180 || address.longitude! > 180))) {
+    return "The selected map coordinates are invalid.";
+  }
+  if (hasLatitude && verifyCoordinates) {
+    if (address.geocodingProvider !== "Nominatim") {
+      return "Map coordinates must come from the configured geocoding provider. You can still save the address manually without coordinates.";
+    }
+    const verifiedLocation = await reverseGeocode(address.latitude!, address.longitude!);
+    if (!verifiedLocation || verifiedLocation.postalCode !== address.postalCode.trim()) {
+      return "The selected map location could not be verified against this PIN code. Correct the PIN or save the address without map coordinates.";
+    }
+  }
+  return null;
+}
+
 // ─── Profile Actions ──────────────────────────────────────────────────────────
 
 export async function getBuyerProfile(userId: string, email?: string): Promise<BuyerProfileData | null> {
   try {
-    let user = await db.user.findUnique({
-      where: { id: userId },
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId || auth.userId !== userId) return null;
+    void email;
+    const user = await db.user.findUnique({
+      where: { id: auth.userId },
       select: { id: true, name: true, email: true, phone: true, image: true },
     });
-    if (!user && email) {
-      user = await db.user.findUnique({
-        where: { email: email.toLowerCase() },
-        select: { id: true, name: true, email: true, phone: true, image: true },
-      });
-    }
     if (!user) return null;
     return {
       id: user.id,
@@ -75,54 +117,27 @@ export async function updateBuyerProfile(
   data: { name: string; phone?: string; email?: string }
 ): Promise<{ success: boolean; phone?: string | null; error?: string }> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Unauthorized." };
+    }
     const rawDigits = data.phone ? data.phone.replace(/\D/g, "") : "";
     const cleanPhone = rawDigits.length >= 10 ? rawDigits.slice(-10) : (rawDigits.length > 0 ? rawDigits : null);
 
-    let updated = false;
-
-    // 1. First attempt direct update by userId (Primary Key)
-    try {
-      await db.user.update({
-        where: { id: userId },
-        data: {
-          name: data.name.trim(),
-          phone: cleanPhone,
-        },
-      });
-      updated = true;
-    } catch (updateErr) {
-      console.warn("Direct update by userId failed, falling back to email upsert:", updateErr);
-    }
-
-    // 2. If not updated by userId, upsert by email
-    if (!updated && data.email) {
-      await db.user.upsert({
-        where: { email: data.email.toLowerCase() },
-        update: {
-          name: data.name.trim(),
-          phone: cleanPhone,
-        },
-        create: {
-          id: userId,
-          name: data.name.trim(),
-          email: data.email.toLowerCase(),
-          phone: cleanPhone,
-          role: "BUYER",
-        },
-      });
-    }
+    await db.user.update({
+      where: { id: auth.userId },
+      data: { name: data.name.trim(), phone: cleanPhone },
+    });
 
     // 3. Keep seller record synced if this user is a seller
-    try {
-      await db.seller.updateMany({
-        where: { userId },
-        data: {
-          ownerName: data.name.trim(),
-          founderName: data.name.trim(),
-          ...(cleanPhone ? { phone: cleanPhone } : {}),
-        }
-      });
-    } catch {}
+    await db.seller.updateMany({
+      where: { userId: auth.userId },
+      data: {
+        ownerName: data.name.trim(),
+        founderName: data.name.trim(),
+        ...(cleanPhone ? { phone: cleanPhone } : {}),
+      }
+    });
 
     return { success: true, phone: cleanPhone };
   } catch (e) {
@@ -135,9 +150,11 @@ export async function updateBuyerProfile(
 
 export async function getUserAddresses(userId: string): Promise<AddressData[]> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId || auth.userId !== userId) return [];
     const addresses = await db.address.findMany({
       where: {
-        userId,
+        userId: auth.userId,
         // Exclude archived clones created to preserve order FK references after address deletion
         NOT: { street: { startsWith: "[Deleted]" } },
       },
@@ -145,11 +162,17 @@ export async function getUserAddresses(userId: string): Promise<AddressData[]> {
     });
     return addresses.map((a: any) => ({
       id: a.id,
+      label: a.label as AddressData["label"],
       street: a.street,
+      landmark: a.landmark,
       city: a.city,
       state: a.state,
       postalCode: a.postalCode,
       country: a.country,
+      latitude: a.latitude,
+      longitude: a.longitude,
+      geocodingProvider: a.geocodingProvider,
+      providerLocationId: a.providerLocationId,
       isDefault: a.isDefault,
     }));
   } catch (e) {
@@ -163,41 +186,63 @@ export async function addUserAddress(
   address: Omit<AddressData, "id">
 ): Promise<{ success: boolean; address?: AddressData; error?: string }> {
   try {
-    // If this is the first address, make it default automatically
-    const count = await db.address.count({ where: { userId } });
-    const isDefault = count === 0 ? true : (address.isDefault ?? false);
-
-    if (isDefault) {
-      // Clear existing default
-      await db.address.updateMany({ where: { userId }, data: { isDefault: false } });
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Unauthorized." };
     }
-
-    const created = await db.address.create({
-      data: {
-        userId,
-        street: address.street.trim(),
-        city: address.city.trim(),
-        state: address.state.trim(),
-        postalCode: address.postalCode.trim(),
-        country: address.country.trim(),
-        isDefault,
-      },
-    });
+    if (auth.userId !== userId) return { success: false, error: "Unauthorized." };
+    const validationError = await validateAddressPayload(address);
+    if (validationError) return { success: false, error: validationError };
+    const created = await db.$transaction(async (tx) => {
+      const count = await tx.address.count({ where: { userId: auth.userId } });
+      const isDefault = count === 0 || Boolean(address.isDefault);
+      if (isDefault) {
+        await tx.address.updateMany({ where: { userId: auth.userId }, data: { isDefault: false } });
+      }
+      return tx.address.create({
+        data: {
+          userId: auth.userId!,
+          label: address.label || "Home",
+          street: address.street.trim(),
+          landmark: address.landmark?.trim() || null,
+          city: address.city.trim(),
+          state: address.state.trim(),
+          postalCode: address.postalCode.trim(),
+          country: address.country.trim(),
+          latitude: address.latitude ?? null,
+          longitude: address.longitude ?? null,
+          geocodingProvider: address.geocodingProvider || null,
+          providerLocationId: address.providerLocationId?.slice(0, 100) || null,
+          isDefault,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return {
       success: true,
       address: {
         id: created.id,
+        label: created.label as AddressData["label"],
         street: created.street,
+        landmark: created.landmark,
         city: created.city,
         state: created.state,
         postalCode: created.postalCode,
         country: created.country,
+        latitude: created.latitude,
+        longitude: created.longitude,
+        geocodingProvider: created.geocodingProvider,
+        providerLocationId: created.providerLocationId,
         isDefault: created.isDefault,
       },
     };
   } catch (e) {
     console.error("addUserAddress failed:", e);
-    return { success: false, error: "Failed to save address. Please try again." };
+    return {
+      success: false,
+      error: address?.latitude != null
+        ? "Selected map coordinates could not be verified. Clear the map pin and save the address manually."
+        : "Failed to save address. Please try again.",
+    };
   }
 }
 
@@ -207,24 +252,48 @@ export async function updateUserAddress(
   address: Omit<AddressData, "id">
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Unauthorized." };
+    }
+    if (auth.userId !== userId) return { success: false, error: "Unauthorized." };
     // Verify ownership
-    const existing = await db.address.findFirst({ where: { id: addressId, userId } });
+    const existing = await db.address.findFirst({ where: { id: addressId, userId: auth.userId } });
     if (!existing) return { success: false, error: "Address not found." };
+    const unchangedLocation =
+      existing.latitude === (address.latitude ?? null) &&
+      existing.longitude === (address.longitude ?? null) &&
+      existing.postalCode === address.postalCode.trim() &&
+      existing.geocodingProvider === address.geocodingProvider &&
+      existing.providerLocationId === (address.providerLocationId || null);
+    const validationError = await validateAddressPayload(address, !unchangedLocation);
+    if (validationError) return { success: false, error: validationError };
 
-    await db.address.update({
-      where: { id: addressId },
+    await db.address.updateMany({
+      where: { id: addressId, userId: auth.userId },
       data: {
+        label: address.label || "Home",
         street: address.street.trim(),
+        landmark: address.landmark?.trim() || null,
         city: address.city.trim(),
         state: address.state.trim(),
         postalCode: address.postalCode.trim(),
         country: address.country.trim(),
+        latitude: address.latitude ?? null,
+        longitude: address.longitude ?? null,
+        geocodingProvider: address.geocodingProvider || null,
+        providerLocationId: address.providerLocationId?.slice(0, 100) || null,
       },
     });
     return { success: true };
   } catch (e) {
     console.error("updateUserAddress failed:", e);
-    return { success: false, error: "Failed to update address." };
+    return {
+      success: false,
+      error: address?.latitude != null
+        ? "Selected map coordinates could not be verified. Clear the map pin and save the address manually."
+        : "Failed to update address.",
+    };
   }
 }
 
@@ -233,45 +302,50 @@ export async function deleteUserAddress(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const existing = await db.address.findFirst({ where: { id: addressId, userId } });
-    if (!existing) return { success: false, error: "Address not found." };
-
-    // Check if any orders reference this address
-    const linkedOrderCount = await db.order.count({ where: { addressId } });
-
-    if (linkedOrderCount > 0) {
-      // Create an archived clone of this address to absorb the FK references from orders
-      // so historical order data is preserved while the user can freely delete their address
-      const archivedClone = await db.address.create({
-        data: {
-          userId,
-          street: `[Deleted] ${existing.street}`,
-          city: existing.city,
-          state: existing.state,
-          postalCode: existing.postalCode,
-          country: existing.country,
-          isDefault: false,
-        },
-      });
-
-      // Re-point all linked orders to the archived clone
-      await db.order.updateMany({
-        where: { addressId },
-        data: { addressId: archivedClone.id },
-      });
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Unauthorized." };
     }
-
-    // Now safe to delete the original address
-    await db.address.delete({ where: { id: addressId } });
-
-    // If we deleted the default, promote the next address
-    if (existing.isDefault) {
-      const next = await db.address.findFirst({
-        where: { userId, street: { not: { startsWith: "[Deleted]" } } },
-        orderBy: { id: "asc" },
-      });
-      if (next) await db.address.update({ where: { id: next.id }, data: { isDefault: true } });
-    }
+    if (auth.userId !== userId) return { success: false, error: "Unauthorized." };
+    await db.$transaction(async (tx) => {
+      const existing = await tx.address.findFirst({ where: { id: addressId, userId: auth.userId } });
+      if (!existing) throw new Error("Address not found.");
+      const linkedOrderCount = await tx.order.count({ where: { addressId, userId: auth.userId } });
+      if (linkedOrderCount > 0) {
+        const archivedClone = await tx.address.create({
+          data: {
+            userId: auth.userId!,
+            street: `[Deleted] ${existing.street}`,
+            city: existing.city,
+            state: existing.state,
+            postalCode: existing.postalCode,
+            country: existing.country,
+            label: existing.label,
+            landmark: existing.landmark,
+            latitude: existing.latitude,
+            longitude: existing.longitude,
+            geocodingProvider: existing.geocodingProvider,
+            providerLocationId: existing.providerLocationId,
+            isDefault: false,
+          },
+        });
+        await tx.order.updateMany({
+          where: { addressId, userId: auth.userId },
+          data: { addressId: archivedClone.id },
+        });
+      }
+      await tx.address.deleteMany({ where: { id: addressId, userId: auth.userId } });
+      if (existing.isDefault) {
+        const next = await tx.address.findFirst({
+          where: { userId: auth.userId, street: { not: { startsWith: "[Deleted]" } } },
+          orderBy: { id: "asc" },
+        });
+        if (next) await tx.address.updateMany({
+          where: { id: next.id, userId: auth.userId },
+          data: { isDefault: true },
+        });
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     return { success: true };
   } catch (e) {
@@ -285,8 +359,28 @@ export async function setDefaultAddress(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await db.address.updateMany({ where: { userId }, data: { isDefault: false } });
-    await db.address.update({ where: { id: addressId }, data: { isDefault: true } });
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Unauthorized." };
+    }
+    if (auth.userId !== userId) return { success: false, error: "Unauthorized." };
+    await db.$transaction(async (tx) => {
+      const target = await tx.address.findFirst({
+        where: {
+          id: addressId,
+          userId: auth.userId,
+          NOT: { street: { startsWith: "[Deleted]" } },
+        },
+        select: { id: true },
+      });
+      if (!target) throw new Error("Address not found.");
+      await tx.address.updateMany({ where: { userId: auth.userId }, data: { isDefault: false } });
+      const updated = await tx.address.updateMany({
+        where: { id: target.id, userId: auth.userId },
+        data: { isDefault: true },
+      });
+      if (updated.count !== 1) throw new Error("Address ownership changed while updating the default.");
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return { success: true };
   } catch (e) {
     console.error("setDefaultAddress failed:", e);

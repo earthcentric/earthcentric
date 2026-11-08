@@ -18,6 +18,7 @@ import {
 import { updateUserProfilePicture } from "@/actions/auth";
 import { submit3StepSellerVerification, getSellerProfile, SellerProfile } from "@/actions/sellers";
 import { SellerRegistrationWizard } from "@/components/seller/SellerRegistrationWizard";
+import { LocationPicker, type SelectedLocation } from "@/components/LocationPicker";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,18 +42,48 @@ function AddressForm({
   isSaving: boolean;
 }) {
   const [street, setStreet] = useState(initial?.street ?? "");
+  const [label, setLabel] = useState<AddressData["label"]>(initial?.label ?? "Home");
+  const [landmark, setLandmark] = useState(initial?.landmark ?? "");
   const [city, setCity] = useState(initial?.city ?? "");
   const [state, setState] = useState(initial?.state ?? "");
   const [postalCode, setPostalCode] = useState(initial?.postalCode ?? "");
   const [country, setCountry] = useState(initial?.country ?? "India");
+  const [latitude, setLatitude] = useState<number | null>(initial?.latitude ?? null);
+  const [longitude, setLongitude] = useState<number | null>(initial?.longitude ?? null);
+  const [geocodingProvider, setGeocodingProvider] = useState<string | null>(initial?.geocodingProvider ?? null);
+  const [providerLocationId, setProviderLocationId] = useState<string | null>(initial?.providerLocationId ?? null);
+
+  const applyLocation = (location: SelectedLocation) => {
+    setStreet(location.street || location.displayName || street);
+    setCity(location.city || city);
+    setState(location.state || state);
+    setPostalCode(location.postalCode || postalCode);
+    setCountry(location.country || country);
+    setLatitude(location.latitude);
+    setLongitude(location.longitude);
+    setGeocodingProvider(location.provider);
+    setProviderLocationId(location.providerLocationId);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!street || !city || !state || !postalCode || !country) {
+    if (!street.trim() || !city.trim() || !state.trim() || !postalCode.trim() || !country.trim()) {
       toast.error("Please fill in all address fields.");
       return;
     }
-    onSave({ street, city, state, postalCode, country });
+    onSave({
+      label,
+      street: street.trim(),
+      landmark: landmark.trim() || null,
+      city: city.trim(),
+      state: state.trim(),
+      postalCode: postalCode.trim(),
+      country: country.trim(),
+      latitude,
+      longitude,
+      geocodingProvider,
+      providerLocationId,
+    });
   };
 
   const inputClass =
@@ -62,8 +93,31 @@ function AddressForm({
     <form onSubmit={handleSubmit} className="space-y-3 mt-4 p-4 bg-[#F0F7F0] rounded-2xl border border-[#C8D8C0]">
       <div className="grid grid-cols-1 gap-3">
         <div>
-          <label className="block text-xs font-semibold text-[#2D5A40] mb-1">Street / House No.</label>
+          <label className="block text-xs font-semibold text-[#2D5A40] mb-1">Address label</label>
+          <select className={inputClass} value={label} onChange={(e) => setLabel(e.target.value as AddressData["label"])}>
+            <option value="Home">Home</option>
+            <option value="Office">Office</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <LocationPicker latitude={latitude} longitude={longitude} onSelect={applyLocation} />
+        {(latitude !== null || longitude !== null) && (
+          <button type="button" className="text-xs text-[#2D5A40] underline" onClick={() => {
+            setLatitude(null);
+            setLongitude(null);
+            setGeocodingProvider(null);
+            setProviderLocationId(null);
+          }}>
+            Save manually without map coordinates
+          </button>
+        )}
+        <div>
+          <label className="block text-xs font-semibold text-[#2D5A40] mb-1">Full address / Street / House No.</label>
           <input className={inputClass} placeholder="e.g. 14 Green Ridge Lane, Apt 2" value={street} onChange={(e) => setStreet(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[#2D5A40] mb-1">Landmark (optional)</label>
+          <input className={inputClass} placeholder="Nearby landmark" value={landmark} onChange={(e) => setLandmark(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -911,4 +965,3 @@ export default function AccountPage() {
     </React.Suspense>
   );
 }
-

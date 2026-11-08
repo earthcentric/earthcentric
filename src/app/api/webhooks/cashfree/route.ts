@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCashfreeWebhookSignature } from "@/lib/cashfree";
 import db from "@/lib/db";
-import { createNotification } from "@/actions/notifications";
+import { createNotification } from "@/lib/notification-service";
 import { sendOrderConfirmationEmail } from "@/lib/email";
 import { applyCashfreeRefundWebhook } from "@/lib/order-cancellations";
 

@@ -29,6 +29,7 @@ import { Button, Card, Badge, Input, Textarea, Label, Table, TableHeader, TableB
 import { FadeIn } from "@/components/FramerComponents";
 import ProductPreviewCard from "@/components/seller/ProductPreviewCard";
 import { SellerMessagesView } from "@/components/seller/SellerMessagesView";
+import { SellerWarehouseView } from "@/components/shipping/ShippingSettings";
 import { SellerCancellationsView } from "@/components/seller/SellerCancellationsView";
 import CategoryTypeahead from "@/components/ui/CategoryTypeahead";
 import { Logo } from "@/components/Logo";
@@ -84,6 +85,18 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+
+function normalizedWeightKg(value: string, unit: "kg" | "g"): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return parsed * (unit === "g" ? 0.001 : 1);
+}
+
+function normalizedDimensionCm(value: string, unit: "cm" | "m" | "in"): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return parsed * (unit === "m" ? 100 : unit === "in" ? 2.54 : 1);
+}
 
 // ── Image Upload Preview Item ──
 interface ImagePreview {
@@ -348,6 +361,7 @@ export default function SellerDashboard() {
     { id: "analytics", label: "Analytics", icon: BarChart2 },
     { id: "messages", label: "Messages", icon: Mail },
     { id: "verification", label: "Verification", icon: ShieldCheck },
+    { id: "warehouse", label: "Warehouse", icon: MapPin },
     { id: "payments", label: "Payments", icon: Wallet },
     { id: "settings", label: "Settings", icon: Settings },
   ];
@@ -634,6 +648,7 @@ export default function SellerDashboard() {
               />
             )}
             {activeTab === "verification" && <VerificationView profile={profile} />}
+            {activeTab === "warehouse" && <SellerWarehouseView />}
             {activeTab === "settings" && <SettingsView profile={profile} reload={loadDashboardData} />}
           </FadeIn>
         </div>
@@ -1107,6 +1122,12 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
   const [editDesc, setEditDesc] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [editStock, setEditStock] = useState("");
+  const [editWeight, setEditWeight] = useState("");
+  const [editWeightUnit, setEditWeightUnit] = useState<"kg" | "g">("kg");
+  const [editLength, setEditLength] = useState("");
+  const [editWidth, setEditWidth] = useState("");
+  const [editHeight, setEditHeight] = useState("");
+  const [editDimensionUnit, setEditDimensionUnit] = useState<"cm" | "m" | "in">("cm");
   const [editCat, setEditCat] = useState("");
   const [editScore, setEditScore] = useState("");
   const [editDetails, setEditDetails] = useState("");
@@ -1166,6 +1187,12 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
     setEditDesc(p.description);
     setEditPrice(p.price.toString());
     setEditStock(p.stock.toString());
+    setEditWeight(p.weightKg != null ? String(p.weightKg) : "");
+    setEditWeightUnit("kg");
+    setEditLength(p.lengthCm != null ? String(p.lengthCm) : "");
+    setEditWidth(p.widthCm != null ? String(p.widthCm) : "");
+    setEditHeight(p.heightCm != null ? String(p.heightCm) : "");
+    setEditDimensionUnit("cm");
     setEditUnitsPerBox(p.unitsPerBox ? p.unitsPerBox.toString() : "100");
     setEditTwoBoxPrice(p.twoBoxPrice !== undefined && p.twoBoxPrice !== null ? p.twoBoxPrice.toString() : "3.5");
     setEditThreePlusBoxPrice(p.threePlusBoxPrice !== undefined && p.threePlusBoxPrice !== null ? p.threePlusBoxPrice.toString() : "1.6");
@@ -1521,6 +1548,10 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
       description: editDesc,
       price: Number(editPrice),
       stock: Number(editStock),
+      weightKg: normalizedWeightKg(editWeight, editWeightUnit),
+      lengthCm: normalizedDimensionCm(editLength, editDimensionUnit),
+      widthCm: normalizedDimensionCm(editWidth, editDimensionUnit),
+      heightCm: normalizedDimensionCm(editHeight, editDimensionUnit),
       unitsPerBox: Number(editUnitsPerBox) || 100,
       twoBoxPrice: editTwoBoxPrice ? Number(editTwoBoxPrice) : (Number(editPrice || 2) * 1.75),
       threePlusBoxPrice: editThreePlusBoxPrice ? Number(editThreePlusBoxPrice) : (Number(editPrice || 2) * 0.8),
@@ -1782,6 +1813,32 @@ function ProductsView({ products, stats, handleArchive, handleUpdateStock, reloa
                 <div className="space-y-1">
                   <Label>Product Date</Label>
                   <Input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+                <div>
+                  <Label className="font-bold text-[#2d4a36]">Shipping package measurements</Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Store weight in kg and dimensions in cm. Weight is required before this product can be checked out; dimensions are required when volumetric shipping is enabled. Existing listings can be saved now, but remain unavailable for shipping until completed.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Package weight</Label>
+                    <div className="flex gap-2">
+                      <Input type="number" min="0.001" step="any" value={editWeight} onChange={(event) => setEditWeight(event.target.value)} placeholder="e.g. 0.5" />
+                      <select className="rounded-lg border bg-background px-2 text-sm" value={editWeightUnit} onChange={(event) => setEditWeightUnit(event.target.value as "kg" | "g")}><option value="kg">kg</option><option value="g">g</option></select>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Dimension unit</Label>
+                    <select className="w-full rounded-lg border bg-background px-3 py-2 text-sm" value={editDimensionUnit} onChange={(event) => setEditDimensionUnit(event.target.value as "cm" | "m" | "in")}><option value="cm">centimetres</option><option value="m">metres</option><option value="in">inches</option></select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <label className="space-y-1 text-xs">Length<Input type="number" min="0.001" step="any" value={editLength} onChange={(event) => setEditLength(event.target.value)} /></label>
+                  <label className="space-y-1 text-xs">Width<Input type="number" min="0.001" step="any" value={editWidth} onChange={(event) => setEditWidth(event.target.value)} /></label>
+                  <label className="space-y-1 text-xs">Height<Input type="number" min="0.001" step="any" value={editHeight} onChange={(event) => setEditHeight(event.target.value)} /></label>
                 </div>
               </div>
 
@@ -2532,6 +2589,12 @@ function AddProductForm({ onBack, profile, reload }: any) {
   const [prodDesc, setProdDesc] = useState("");
   const [prodPrice, setProdPrice] = useState("");
   const [prodStock, setProdStock] = useState("30");
+  const [prodWeight, setProdWeight] = useState("");
+  const [prodWeightUnit, setProdWeightUnit] = useState<"kg" | "g">("kg");
+  const [prodLength, setProdLength] = useState("");
+  const [prodWidth, setProdWidth] = useState("");
+  const [prodHeight, setProdHeight] = useState("");
+  const [prodDimensionUnit, setProdDimensionUnit] = useState<"cm" | "m" | "in">("cm");
   const [prodUnitsPerBox, setProdUnitsPerBox] = useState("100");
   const [prodTwoBoxPrice, setProdTwoBoxPrice] = useState("");
   const [prodThreePlusBoxPrice, setProdThreePlusBoxPrice] = useState("");
@@ -2641,6 +2704,10 @@ function AddProductForm({ onBack, profile, reload }: any) {
         description: prodDesc,
         price: Number(prodPrice),
         stock: Number(prodStock),
+        weightKg: normalizedWeightKg(prodWeight, prodWeightUnit),
+        lengthCm: normalizedDimensionCm(prodLength, prodDimensionUnit),
+        widthCm: normalizedDimensionCm(prodWidth, prodDimensionUnit),
+        heightCm: normalizedDimensionCm(prodHeight, prodDimensionUnit),
         unitsPerBox: Number(prodUnitsPerBox) || 100,
         twoBoxPrice: prodTwoBoxPrice ? Number(prodTwoBoxPrice) : (Number(prodPrice || 2) * 1.75),
         threePlusBoxPrice: prodThreePlusBoxPrice ? Number(prodThreePlusBoxPrice) : (Number(prodPrice || 2) * 0.8),
@@ -2737,6 +2804,32 @@ function AddProductForm({ onBack, profile, reload }: any) {
             <div className="space-y-1">
               <Label>Product Date</Label>
               <Input type="date" required value={prodDate} onChange={(e) => setProdDate(e.target.value)} />
+            </div>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+            <div>
+              <Label className="font-bold text-[#2d4a36]">Shipping package measurements</Label>
+              <p className="text-[10px] text-muted-foreground">
+                Weight is required before this product can be checked out; dimensions are required when volumetric shipping is enabled. Values are saved in kg and cm. Do not estimate or invent a weight.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Package weight</Label>
+                <div className="flex gap-2">
+                  <Input type="number" min="0.001" step="any" value={prodWeight} onChange={(event) => setProdWeight(event.target.value)} placeholder="e.g. 0.5" />
+                  <select className="rounded-lg border bg-background px-2 text-sm" value={prodWeightUnit} onChange={(event) => setProdWeightUnit(event.target.value as "kg" | "g")}><option value="kg">kg</option><option value="g">g</option></select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Dimension unit</Label>
+                <select className="w-full rounded-lg border bg-background px-3 py-2 text-sm" value={prodDimensionUnit} onChange={(event) => setProdDimensionUnit(event.target.value as "cm" | "m" | "in")}><option value="cm">centimetres</option><option value="m">metres</option><option value="in">inches</option></select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="space-y-1 text-xs">Length<Input type="number" min="0.001" step="any" value={prodLength} onChange={(event) => setProdLength(event.target.value)} /></label>
+              <label className="space-y-1 text-xs">Width<Input type="number" min="0.001" step="any" value={prodWidth} onChange={(event) => setProdWidth(event.target.value)} /></label>
+              <label className="space-y-1 text-xs">Height<Input type="number" min="0.001" step="any" value={prodHeight} onChange={(event) => setProdHeight(event.target.value)} /></label>
             </div>
           </div>
 

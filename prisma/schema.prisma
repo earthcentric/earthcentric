@@ -147,6 +147,8 @@ model Seller {
   registrationPayments SellerRegistrationPayment[]
   orders               Order[]
   discountRequests     DiscountApprovalRequest[]
+  warehouse            WarehouseLocation?
+  shipmentSnapshots    OrderShipmentSnapshot[]
 }
 
 model SellerDocument {
@@ -212,6 +214,10 @@ model Product {
   buyXGetYOffer        Json? // {enabled: true, buyQuantity: 2, getQuantity: 1, maxFreeQuantity: 5, startDate: "2026-07-01", endDate: "2026-12-31"}
   bulkOrderQuantity    Int? // Seller-defined default bulk order quantity (e.g. 100 units)
   bulkOrderPrice       Float? // Seller-defined total price for the default bulk quantity (e.g. ₹100 for 100 units)
+  weightKg             Float?
+  lengthCm             Float?
+  widthCm              Float?
+  heightCm             Float?
   highlights           String[] // Key product selling points set by seller
   technicalSpecs       String[] // Technical specifications set by seller
   materialUsed         String?
@@ -265,6 +271,7 @@ model Order {
   addressId      String
   address        Address     @relation(fields: [addressId], references: [id])
   totalAmount    Float
+  shippingFee    Float       @default(0)
   grossAmount    Float?
   totalSellerBaseAmount Float?      // Total seller base revenue across order items
   commissionRate Float?        @default(10.0)
@@ -273,6 +280,7 @@ model Order {
   totalBoxes     Int?          @default(1)
   gstin          String?
   paymentGroupId String? // To group orders from different sellers paid together
+  checkoutRequestId String?
   status         OrderStatus @default(PLACED)
   deliveredAt    DateTime?
   isForwardedToSeller          Boolean   @default(false)
@@ -291,6 +299,9 @@ model Order {
   complaints        Complaint[]
   cancellations     OrderCancellation[]
   returnCollections ReturnCollection[]
+  shipmentSnapshot  OrderShipmentSnapshot?
+
+  @@unique([userId, checkoutRequestId, sellerId])
 }
 
 model OrderTimeline {
@@ -426,9 +437,74 @@ model Address {
   city       String
   state      String
   postalCode String
-  country    String
-  isDefault  Boolean @default(false)
+  country             String
+  label               String  @default("Home")
+  landmark            String?
+  latitude            Float?
+  longitude           Float?
+  geocodingProvider   String?
+  providerLocationId String?
+  isDefault           Boolean @default(false)
+  updatedAt           DateTime @updatedAt
   orders     Order[]
+}
+
+model WarehouseLocation {
+  id                 String   @id @default(cuid())
+  sellerId           String   @unique
+  seller             Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  address            String
+  street             String
+  landmark           String?
+  postalCode         String
+  city               String
+  state              String
+  country            String   @default("India")
+  latitude           Float?
+  longitude          Float?
+  geocodingProvider  String?
+  providerLocationId String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ShippingConfiguration {
+  id        String   @id @default(cuid())
+  version   Int      @unique
+  enabled   Boolean  @default(false)
+  config    Json
+  createdBy String
+  createdAt DateTime @default(now())
+  isActive  Boolean  @default(false)
+
+  @@index([isActive, version])
+}
+
+model OrderShipmentSnapshot {
+  id                   String   @id @default(cuid())
+  orderId              String   @unique
+  order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId             String
+  seller               Seller   @relation(fields: [sellerId], references: [id])
+  warehouseAddress     Json
+  buyerAddress         Json
+  warehousePin         String
+  buyerPin             String
+  shippingZone         String
+  routeDistanceKm      Float?
+  routeDurationMinutes Float?
+  routeProvider        String?
+  estimateStatus       String
+  actualCourierCost    Float?
+  courierName          String?
+  configurationVersion Int
+  feeBreakdown         Json
+  estimatedMinDays     Int
+  estimatedMaxDays     Int
+  createdAt            DateTime @default(now())
+
+  @@index([sellerId, createdAt])
 }
 
 model Review {

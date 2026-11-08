@@ -1,8 +1,30 @@
 import db from "@/lib/db";
 import { cookies } from "next/headers";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { isSuperAdminEmail } from "@/lib/account-roles";
+import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
+import { isConfiguredSellerEmail, isSuperAdminEmail } from "@/lib/account-roles";
 import { verifyEarthcentricSession } from "@/lib/session-token";
+
+const MOCK_SELLER_ID = "cmvcbbtm80001txgw8dd0r3lk";
+const MOCK_SELLER_EMAIL = "ar.eco.india2026@gmail.com";
+
+async function getMockAuthenticatedUser() {
+  const identity = await getVerifiedClerkIdentity();
+  if (!identity) return null;
+
+  const role = isSuperAdminEmail(identity.email)
+    ? "ADMIN"
+    : isConfiguredSellerEmail(identity.email) || identity.email === MOCK_SELLER_EMAIL
+      ? "SELLER"
+      : "BUYER";
+
+  return {
+    id: identity.id,
+    email: identity.email,
+    role,
+    sellerId: role === "SELLER" ? MOCK_SELLER_ID : undefined,
+  };
+}
 
 export interface AdminAuthResult {
   authorized: boolean;
@@ -21,6 +43,19 @@ export interface AuthenticatedUserResult {
 
 export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult> {
   try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const user = await getMockAuthenticatedUser();
+      return user
+        ? {
+            authorized: true,
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            sellerId: user.sellerId,
+          }
+        : { authorized: false };
+    }
+
     const clerkAuth = await auth();
     if (clerkAuth?.userId) {
       let user = await db.user.findUnique({
@@ -31,9 +66,13 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
       if (!user) {
         try {
           const clerkUser = await currentUser();
-          const primaryEmail = clerkUser?.emailAddresses?.find(
+          const primaryAddress = clerkUser?.emailAddresses?.find(
             (e) => e.id === clerkUser.primaryEmailAddressId
-          )?.emailAddress?.trim().toLowerCase();
+          );
+          const primaryEmail =
+            primaryAddress?.verification?.status === "verified"
+              ? primaryAddress.emailAddress.trim().toLowerCase()
+              : undefined;
 
           if (primaryEmail) {
             user = await db.user.findUnique({
@@ -56,23 +95,7 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
         };
       }
 
-      // Fallback: If not yet synced in DB, user is still validly authenticated in Clerk
-      try {
-        const clerkUser = await currentUser();
-        const primaryEmail = clerkUser?.emailAddresses?.find(
-          (e) => e.id === clerkUser.primaryEmailAddressId
-        )?.emailAddress?.trim().toLowerCase();
-        if (primaryEmail) {
-          return {
-            authorized: true,
-            userId: clerkAuth.userId,
-            email: primaryEmail,
-            role: "BUYER",
-          };
-        }
-      } catch (e) {
-        // ignore
-      }
+      return { authorized: false };
     }
 
     const cookieStore = await cookies();
@@ -110,6 +133,18 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
  */
 export async function verifyAdminAuth(): Promise<AdminAuthResult> {
   try {
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const user = await getMockAuthenticatedUser();
+      if (user && (user.role === "ADMIN" || isSuperAdminEmail(user.email))) {
+        return { authorized: true, email: user.email, userId: user.id };
+      }
+      return {
+        authorized: false,
+        email: user?.email || "",
+        error: "Unauthorized: Super Admin credentials required.",
+      };
+    }
+
     // 1. Check custom session cookie
     const cookieStore = await cookies();
     const sessionCookie = cookieStore.get("earthcentric_session")?.value;
@@ -269,6 +304,44 @@ export async function verifySellerAuth(
 }> {
   try {
     const shouldRequireActive = options?.requireActive !== false;
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const user = await getMockAuthenticatedUser();
+      if (!user || (user.role !== "SELLER" && user.role !== "ADMIN")) {
+        return { authorized: false, error: "Seller or Admin role required." };
+      }
+
+      if (
+        user.role === "SELLER" &&
+        sellerId &&
+        sellerId !== user.id &&
+        sellerId !== user.sellerId
+      ) {
+        return { authorized: false, error: "Unauthorized access to another seller profile." };
+      }
+
+      if (user.role === "SELLER" && shouldRequireActive && user.sellerId) {
+        const activation = await checkSellerActivation(user.sellerId);
+        if (!activation.active) {
+          return {
+            authorized: false,
+            userId: user.id,
+            sellerId: user.sellerId,
+            isActive: false,
+            activationStatus: activation.status,
+            error: activation.error || "Seller account activation required.",
+          };
+        }
+      }
+
+      return {
+        authorized: true,
+        userId: user.id,
+        sellerId: user.sellerId,
+        isActive: true,
+        activationStatus: "ACTIVE",
+      };
+    }
+
     let foundUser: any = null;
 
     const cookieStore = await cookies();
@@ -287,10 +360,20 @@ export async function verifySellerAuth(
     if (!foundUser) {
       const clerkAuth = await auth();
       if (clerkAuth?.userId) {
-        foundUser = await db.user.findUnique({
-          where: { id: clerkAuth.userId },
-          include: { seller: true },
-        });
+        const clerkUser = await currentUser();
+        const primaryAddress = clerkUser?.emailAddresses?.find(
+          (e) => e.id === clerkUser.primaryEmailAddressId
+        );
+        const primaryEmail =
+          primaryAddress?.verification?.status === "verified"
+            ? primaryAddress.emailAddress.trim().toLowerCase()
+            : undefined;
+        if (primaryEmail) {
+          foundUser = await db.user.findUnique({
+            where: { email: primaryEmail },
+            include: { seller: true },
+          });
+        }
       }
     }
 

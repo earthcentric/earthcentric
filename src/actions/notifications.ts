@@ -2,80 +2,33 @@
 
 import db from "@/lib/db";
 import { getMockSellersInternal } from "@/actions/sellers";
-
-let mockAdminNotifications: any[] = [
-  {
-    id: "mock-n1",
-    title: "System Update",
-    message: "Welcome to EarthCentric Dashboard. Notifications are active.",
-    redirectSection: "dashboard",
-    actionUrl: "dashboard",
-    isRead: false,
-    createdAt: new Date(Date.now() - 3600000)
-  }
-];
-
-let mockUserNotifications: Record<string, any[]> = {};
+import { verifyAdminAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
+import {
+  createAdminNotificationRecord,
+  createNotificationRecord,
+  mockAdminNotifications,
+  mockUserNotifications,
+} from "@/lib/notification-service";
 
 export async function createNotification(userId: string, title: string, message: string, sectionOrUrl: string) {
-  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  if (isMock) {
-    if (!mockUserNotifications[userId]) {
-      mockUserNotifications[userId] = [];
-    }
-    mockUserNotifications[userId].push({
-      id: `notif-${Date.now()}`,
-      title,
-      message,
-      actionUrl: sectionOrUrl,
-      isRead: false,
-      createdAt: new Date()
-    });
-    return;
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) throw new Error("Sign in before creating a notification.");
+  const admin = await verifyAdminAuth();
+  if (userId !== auth.userId && !admin.authorized) {
+    throw new Error("You can only create notifications for your own account.");
   }
-
-  try {
-    await db.notification.create({
-      data: {
-        userId,
-        title,
-        message,
-        actionUrl: sectionOrUrl,
-      }
-    });
-  } catch (e) {
-    console.error("createNotification failed:", e);
-  }
+  await createNotificationRecord(userId, title, message, sectionOrUrl);
 }
 
 export async function createAdminNotification(title: string, message: string, sectionOrUrl: string) {
-  const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  if (isMock) {
-    mockAdminNotifications.push({
-      id: `notif-${Date.now()}`,
-      title,
-      message,
-      redirectSection: sectionOrUrl,
-      actionUrl: sectionOrUrl,
-      isRead: false,
-      createdAt: new Date()
-    });
-    return;
-  }
-
-  try {
-    const admin = await db.user.findFirst({
-      where: { role: "ADMIN" }
-    });
-    if (admin) {
-      await createNotification(admin.id, title, message, sectionOrUrl);
-    }
-  } catch (e) {
-    console.error("createAdminNotification failed:", e);
-  }
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Super Admin access is required.");
+  await createAdminNotificationRecord(title, message, sectionOrUrl);
 }
 
 export async function getAdminNotifications() {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   if (isMock) {
@@ -266,40 +219,41 @@ export async function getAdminNotifications() {
 }
 
 export async function markNotificationAsRead(id: string) {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) return false;
+  const admin = await verifyAdminAuth();
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   if (isMock) {
-    let found = false;
-    mockAdminNotifications.forEach(n => {
-      if (n.id === id) {
-        n.isRead = true;
-        found = true;
-      }
-    });
-    if (!found) {
-      Object.keys(mockUserNotifications).forEach(uid => {
-        mockUserNotifications[uid].forEach(n => {
-          if (n.id === id) {
-            n.isRead = true;
-          }
-        });
-      });
+    const adminNotification = mockAdminNotifications.find((notification) => notification.id === id);
+    if (adminNotification) {
+      if (!admin.authorized) return false;
+      adminNotification.isRead = true;
+      return true;
     }
+    const userNotification = mockUserNotifications[auth.userId]?.find((notification) => notification.id === id);
+    if (!userNotification) return false;
+    userNotification.isRead = true;
     return true;
   }
 
   try {
-    await db.notification.update({
-      where: { id },
+    const result = await db.notification.updateMany({
+      where: { id, userId: auth.userId },
       data: { isRead: true }
     });
-    return true;
+    return result.count > 0;
   } catch (e) {
     console.error("markNotificationAsRead failed:", e);
     return false;
   }
 }
 
-export async function getUserNotifications(userId: string, isSeller: boolean = false) {
+export async function getUserNotifications(_userId: string, _isSeller: boolean = false) {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId || auth.userId !== _userId) return [];
+  void _isSeller;
+  const userId = auth.userId;
+  const isSeller = auth.role === "SELLER" || Boolean(auth.sellerId);
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   // Default eco offers & deals for all buyers
@@ -516,7 +470,10 @@ export async function getUserNotifications(userId: string, isSeller: boolean = f
   }
 }
 
-export async function markAllNotificationsAsRead(userId: string) {
+export async function markAllNotificationsAsRead(_userId: string) {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId || auth.userId !== _userId) return false;
+  const userId = auth.userId;
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   if (isMock) {
@@ -537,4 +494,3 @@ export async function markAllNotificationsAsRead(userId: string) {
     return false;
   }
 }
-

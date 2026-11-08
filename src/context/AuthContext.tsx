@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { syncUserInDb, loginUser, signupUser, logoutUser, setSellerSessionCookie, setAdminSessionCookie } from "@/actions/auth";
+import { syncUserInDb, loginUser, signupUser, logoutUser, setSellerSessionCookie } from "@/actions/auth";
 import { toast } from "sonner";
 import { useUser, useAuth as useClerkAuth } from "@clerk/nextjs";
 
@@ -249,20 +249,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     setIsLoading(true);
     const updated = { ...DEMO_USERS[role] };
-
-    if (role === "ADMIN") {
-      await setAdminSessionCookie(updated.id).catch(console.error);
-    } else if (role === "SELLER") {
-      await setSellerSessionCookie(updated.id, "SELLER", "APPROVED").catch(console.error);
-    }
-
-    // Sync with DB
     const syncResult = await syncUserInDb({
       id: updated.id,
       email: updated.email,
     });
 
-    const finalUser = syncResult.success ? syncResult.user : updated;
+    if (!syncResult.success) {
+      setIsLoading(false);
+      toast.error(syncResult.error || "Demo role switching requires a verified account.");
+      return;
+    }
+
+    const finalUser = syncResult.user;
     setUser(finalUser);
     localStorage.setItem("earthcentric_user", JSON.stringify(finalUser));
     setIsLoading(false);

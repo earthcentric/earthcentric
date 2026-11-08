@@ -13,7 +13,7 @@ import {
   SellerRemovalRecord 
 } from "./sellers";
 import { getDynamicProducts, approveDynamicProduct, rejectDynamicProduct, approveAllSellerProductsBySellerId, getProducts, getProductById, updateProduct } from "./products";
-import { createNotification } from "./notifications";
+import { createNotification } from "@/lib/notification-service";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { revalidatePath } from "next/cache";
 import { verifyAdminAuth } from "@/lib/auth-server";
@@ -52,6 +52,8 @@ export interface PlatformStats {
 }
 
 export async function getPendingSellers(): Promise<SellerProfile[]> {
+  const adminAuth = await verifyAdminAuth();
+  if (!adminAuth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const sellers = await getMockSellersInternal();
@@ -71,11 +73,6 @@ export async function getPendingSellers(): Promise<SellerProfile[]> {
         return timeB - timeA;
       });
       return mapped;
-    }
-
-    const adminAuth = await verifyAdminAuth();
-    if (!adminAuth.authorized) {
-      throw new Error("Unauthorized: Super Admin access is required to load seller applications.");
     }
 
     const [sellers, removalLogs] = await Promise.all([
@@ -195,6 +192,9 @@ export async function approveSeller(
     panNumber?: string;
   }
 ): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     let companyName = "";
     let userEmail = "";
@@ -288,6 +288,9 @@ export async function rejectSeller(
     panNumber?: string;
   }
 ): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     let companyName = "";
     let userEmail = "";
@@ -348,6 +351,11 @@ export async function removeSellerAsSeller(
   reason: string,
   adminEmail: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) {
+    return { success: false, error: "Unauthorized: Super Admin access is required to remove a seller." };
+  }
+  adminEmail = auth.email;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
@@ -495,6 +503,8 @@ export async function removeSellerAsSeller(
 }
 
 export async function getSellerRemovalHistory(sellerIdOrUserId: string): Promise<SellerRemovalRecord[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   return getSellerRemovalHistoryInternal(sellerIdOrUserId);
 }
 
@@ -504,6 +514,8 @@ export async function getPlatformStats(
   selectedMonth?: string,
   selectedYear?: string
 ): Promise<PlatformStats> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return {
@@ -691,6 +703,8 @@ export interface DisputeCase {
 }
 
 export async function getDisputes(): Promise<DisputeCase[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return [
@@ -781,6 +795,9 @@ export async function getDisputes(): Promise<DisputeCase[]> {
 }
 
 export async function resolveDispute(disputeId: string, orderId: string, adminEmail: string): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return true;
@@ -825,6 +842,8 @@ export interface SellerRevenueInfo {
 }
 
 export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return [
@@ -949,6 +968,8 @@ export async function getAllSellersRevenue(): Promise<SellerRevenueInfo[]> {
 }
 
 export async function getAdminAnalyticsTimeSeries() {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   const now = new Date();
   
   // Initialize data structures
@@ -1108,6 +1129,8 @@ export interface UserManagementData {
 }
 
 export async function getPlatformUsers(): Promise<UserManagementData> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   try {
     const allUsers = await db.user.findMany({
       include: {
@@ -1208,6 +1231,8 @@ let mockPendingProducts = [
 ];
 
 export async function getPendingProducts(): Promise<any[]> {
+  const adminAuth = await verifyAdminAuth();
+  if (!adminAuth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const mockPending = mockPendingProducts.filter(p => !p.isApproved && !p.isArchived && (p as any).status !== "REJECTED");
@@ -1215,11 +1240,6 @@ export async function getPendingProducts(): Promise<any[]> {
       const dynamicPending = dynProds.filter(p => !p.isApproved && p.status !== "REJECTED");
       return [...mockPending, ...dynamicPending];
     }
-    const adminAuth = await verifyAdminAuth();
-    if (!adminAuth.authorized) {
-      throw new Error("Unauthorized: Super Admin access is required to load product applications.");
-    }
-
     const dbProducts = await db.product.findMany({
       where: { 
         isApproved: false, 
@@ -1278,6 +1298,9 @@ export async function approveProduct(
   commissionRate?: number,
   customMarketplacePrice?: number
 ): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       mockPendingProducts = mockPendingProducts.map((p: any) => {
@@ -1400,6 +1423,9 @@ export async function approveProduct(
 }
 
 export async function rejectProduct(productId: string, reason: string, adminEmail: string): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  void adminEmail;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       mockPendingProducts = mockPendingProducts.map(p => {
@@ -1482,11 +1508,15 @@ export async function rejectProduct(productId: string, reason: string, adminEmai
 }
 
 export async function uploadCategoryImage(base64Image: string): Promise<string> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   const resultJson = await uploadImage(base64Image, "category");
   return resultJson;
 }
 
 export async function getAdminTransactions() {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   try {
     const payments = await db.payment.findMany({
       where: { status: "COMPLETED" },
@@ -1549,6 +1579,8 @@ export async function getAdminTransactions() {
 }
 
 export async function getBuyerProfileById(buyerId: string) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return null;
   try {
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       const user = await db.user.findUnique({
@@ -1660,16 +1692,11 @@ export async function updateSellerVerificationStatus(
   reason?: string,
   adminEmail?: string
 ) {
+  const adminAuth = await verifyAdminAuth();
+  if (!adminAuth.authorized) return false;
+  void adminEmail;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-
-    if (!isMock) {
-      const adminAuth = await verifyAdminAuth();
-      if (!adminAuth.authorized) {
-        console.error("Unauthorized attempt to update seller verification status.");
-        return false;
-      }
-    }
 
     if (!["APPROVED", "REJECTED", "NEED_MORE_DOCS", "SUSPENDED", "PENDING", "UNDER_REVIEW"].includes(status)) {
       console.error("Invalid seller verification status requested:", status);
@@ -1811,6 +1838,8 @@ export async function updateSellerVerificationStatus(
 }
 
 export async function getSellerInitialProductForAdmin(sellerId: string): Promise<any | null> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return null;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (!isMock) {
@@ -1860,6 +1889,8 @@ export async function getSellerInitialProductForAdmin(sellerId: string): Promise
 }
 
 export async function updateSellerTrustScore(sellerId: string, trustScore: number) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
   try {
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       await db.seller.update({
@@ -1875,11 +1906,15 @@ export async function updateSellerTrustScore(sellerId: string, trustScore: numbe
 }
 
 export async function uploadAdBanner(base64Image: string): Promise<string> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   const resultJson = await uploadImage(base64Image, "ad-banner");
   return resultJson;
 }
 
 export async function getPendingDiscounts(): Promise<any[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   try {
     const { getAllDiscountApprovalRequests } = await import("@/actions/discounts");
     const requests = await getAllDiscountApprovalRequests({ status: "ALL" });
@@ -1891,6 +1926,9 @@ export async function getPendingDiscounts(): Promise<any[]> {
 }
 
 export async function approveDiscount(requestIdOrProductId: string, adminEmail: string = "admin@earthcentric.com"): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     const { approveDiscountRequest, getAllDiscountApprovalRequests } = await import("@/actions/discounts");
     
@@ -1911,6 +1949,9 @@ export async function approveDiscount(requestIdOrProductId: string, adminEmail: 
 }
 
 export async function rejectDiscount(requestIdOrProductId: string, rejectionReason?: string, adminEmail: string = "admin@earthcentric.com"): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     const { rejectDiscountRequest, getAllDiscountApprovalRequests } = await import("@/actions/discounts");
     
@@ -1929,6 +1970,8 @@ export async function rejectDiscount(requestIdOrProductId: string, rejectionReas
 }
 
 export async function getAllProductsForAdminPromotions(): Promise<any[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const all = await getProducts({});
@@ -1973,6 +2016,9 @@ export async function updateProductPromotionsByAdmin(
   },
   adminEmail: string
 ): Promise<boolean> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return false;
+  adminEmail = auth.email;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const product = await getProductById(productId);
@@ -2153,6 +2199,8 @@ export interface SuperAdminFinancialAudit {
 }
 
 export async function getSuperAdminFinancialAudit(): Promise<SuperAdminFinancialAudit> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMock) {
@@ -2460,4 +2508,3 @@ export async function getSuperAdminFinancialAudit(): Promise<SuperAdminFinancial
     };
   }
 }
-

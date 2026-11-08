@@ -3,8 +3,8 @@
 import db from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
-import { createAdminNotification } from "@/actions/notifications";
-import { verifyAuthenticatedUser } from "@/lib/auth-server";
+import { createAdminNotification } from "@/lib/notification-service";
+import { verifyAdminAuth, verifyAuthenticatedUser, verifySellerAuth } from "@/lib/auth-server";
 import { upsertCategory, findExistingCategory } from "@/actions/categories";
 
 export interface ProductFilter {
@@ -104,6 +104,10 @@ export interface ProductItem {
   buyXGetYOffer?: BuyXGetYOffer | any | null;
   highlights?: string[];
   technicalSpecs?: string[];
+  weightKg?: number | null;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
   status?: string;
   rejectionReason?: string | null;
   productDate?: Date | string;
@@ -132,6 +136,22 @@ function keepEarliestReviewPerBuyer<T extends { userId: string; productId: strin
       seen.add(key);
       return true;
     });
+}
+
+function validateShippingMeasurements(input: {
+  weightKg?: number | null;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
+}) {
+  const values = [input.weightKg, input.lengthCm, input.widthCm, input.heightCm];
+  if (values.some((value) => value != null && (!Number.isFinite(value) || value <= 0))) {
+    throw new Error("Shipping weight and dimensions must be positive finite numbers.");
+  }
+  const dimensions = [input.lengthCm, input.widthCm, input.heightCm];
+  if (dimensions.some((value) => value != null) && dimensions.some((value) => value == null)) {
+    throw new Error("Enter all three package dimensions, or leave all three blank.");
+  }
 }
 
 // Global mock items for fallback mode
@@ -2029,10 +2049,14 @@ const MOCK_PRODUCTS: ProductItem[] = [
 let dynamicProducts: ProductItem[] = [];
 
 export async function getDynamicProducts(): Promise<ProductItem[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   return dynamicProducts;
 }
 
 export async function approveDynamicProduct(productId: string): Promise<void> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   const prod = dynamicProducts.find((p) => p.id === productId);
   if (prod) {
     prod.isApproved = true;
@@ -2041,6 +2065,8 @@ export async function approveDynamicProduct(productId: string): Promise<void> {
 }
 
 export async function rejectDynamicProduct(productId: string): Promise<void> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   const prod = dynamicProducts.find((p) => p.id === productId);
   if (prod) {
     prod.isApproved = false;
@@ -2049,6 +2075,8 @@ export async function rejectDynamicProduct(productId: string): Promise<void> {
 }
 
 export async function approveAllSellerProductsBySellerId(sellerId: string): Promise<void> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   dynamicProducts.forEach((p) => {
     if (p.sellerId === sellerId || p.seller?.id === sellerId) {
       p.isApproved = true;
@@ -2076,16 +2104,19 @@ export async function approveAllSellerProductsBySellerId(sellerId: string): Prom
 }
 
 export async function getSellerInitialProduct(sellerId: string): Promise<ProductItem | null> {
+  const auth = await verifySellerAuth(sellerId, { requireActive: false });
+  if (!auth.authorized || !auth.sellerId) return null;
+  const requestedSellerId = auth.sellerId;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const p = dynamicProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+      const p = dynamicProducts.find(p => p.sellerId === requestedSellerId || p.seller?.id === requestedSellerId);
       return p || null;
     }
     const dbProd = await db.product.findFirst({
       where: {
         OR: [
-          { sellerId: sellerId },
-          { seller: { userId: sellerId } }
+          { sellerId: requestedSellerId },
+          { seller: { userId: auth.userId } }
         ]
       },
       include: {
@@ -2096,7 +2127,7 @@ export async function getSellerInitialProduct(sellerId: string): Promise<Product
       orderBy: { createdAt: "desc" }
     });
     if (!dbProd) {
-      const p = dynamicProducts.find(p => p.sellerId === sellerId || p.seller?.id === sellerId);
+      const p = dynamicProducts.find(p => p.sellerId === requestedSellerId || p.seller?.id === requestedSellerId);
       return p || null;
     }
     return {
@@ -2137,9 +2168,26 @@ export async function getSellerInitialProduct(sellerId: string): Promise<Product
 
 export async function getProducts(filters: ProductFilter = {}): Promise<ProductItem[]> {
   try {
+    let resolvedFilters = filters;
+    if (filters.includeUnapproved) {
+      const adminAuth = await verifyAdminAuth();
+      if (!adminAuth.authorized) {
+        const sellerAuth = await verifySellerAuth(filters.sellerId);
+        if (!sellerAuth.authorized || !sellerAuth.sellerId) return [];
+        resolvedFilters = { ...filters, sellerId: sellerAuth.sellerId };
+      } else if (filters.sellerId && process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
+        const seller = await db.seller.findFirst({
+          where: { OR: [{ id: filters.sellerId }, { userId: filters.sellerId }] },
+          select: { id: true },
+        });
+        if (!seller) return [];
+        resolvedFilters = { ...filters, sellerId: seller.id };
+      }
+    }
+
     // Check database connection. If DATABASE_URL is not set or is 'mock', trigger fallback
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return getMockProductsFiltered(filters);
+      return getMockProductsFiltered(resolvedFilters);
     }
 
     // Prisma DB Query
@@ -2149,7 +2197,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
 
     // Public marketplace requests only show approved items from active verified sellers.
     // Seller dashboards pass includeUnapproved: true to display pending/unapproved/rejected items.
-    if (!filters.includeUnapproved) {
+    if (!resolvedFilters.includeUnapproved) {
       whereClause.isApproved = true;
       whereClause.status = "APPROVED";
       whereClause.seller = {
@@ -2161,17 +2209,17 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
     // Use AND array to compose filters safely (avoids OR clause conflicts)
     const andConditions: any[] = [];
 
-    if (filters.sellerId) {
+    if (resolvedFilters.sellerId) {
       andConditions.push({
         OR: [
-          { sellerId: filters.sellerId },
-          { seller: { userId: filters.sellerId } }
+          { sellerId: resolvedFilters.sellerId },
+          { seller: { userId: resolvedFilters.sellerId } }
         ]
       });
     }
 
-    if (filters.category) {
-      const catFilter = filters.category;
+    if (resolvedFilters.category) {
+      const catFilter = resolvedFilters.category;
       const catSlug = catFilter.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       andConditions.push({
         OR: [
@@ -2182,37 +2230,37 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       });
     }
 
-    if (filters.minSustainabilityScore) {
+    if (resolvedFilters.minSustainabilityScore) {
       whereClause.sustainabilityScore = {
-        gte: filters.minSustainabilityScore,
+        gte: resolvedFilters.minSustainabilityScore,
       };
     }
 
-    if (filters.verifiedOnly) {
+    if (resolvedFilters.verifiedOnly) {
       whereClause.seller = {
         verificationStatus: "APPROVED",
       };
     }
 
-    if (filters.search) {
+    if (resolvedFilters.search) {
       andConditions.push({
         OR: [
-          { name: { contains: filters.search, mode: "insensitive" } },
-          { description: { contains: filters.search, mode: "insensitive" } },
-          { category: { name: { contains: filters.search, mode: "insensitive" } } },
-          { sustainabilityDetail: { contains: filters.search, mode: "insensitive" } },
+          { name: { contains: resolvedFilters.search, mode: "insensitive" } },
+          { description: { contains: resolvedFilters.search, mode: "insensitive" } },
+          { category: { name: { contains: resolvedFilters.search, mode: "insensitive" } } },
+          { sustainabilityDetail: { contains: resolvedFilters.search, mode: "insensitive" } },
         ]
       });
     }
 
-    if (filters.priceRange) {
+    if (resolvedFilters.priceRange) {
       whereClause.price = {
-        gte: filters.priceRange[0],
-        lte: filters.priceRange[1],
+        gte: resolvedFilters.priceRange[0],
+        lte: resolvedFilters.priceRange[1],
       };
     }
 
-    if (filters.dealsOnly) {
+    if (resolvedFilters.dealsOnly) {
       andConditions.push({
         OR: [
           // MRP-based discount: has a higher original price set
@@ -2231,7 +2279,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       });
     }
 
-    if (filters.newArrivalsOnly) {
+    if (resolvedFilters.newArrivalsOnly) {
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date();
@@ -2242,20 +2290,20 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       };
     }
 
-    if (filters.filterType && filters.filterType !== "overall") {
+    if (resolvedFilters.filterType && resolvedFilters.filterType !== "overall") {
       let startDate: Date | undefined;
       let endDate: Date | undefined;
-      if (filters.filterType === "daily" && filters.selectedDate) {
-        startDate = new Date(filters.selectedDate);
+      if (resolvedFilters.filterType === "daily" && resolvedFilters.selectedDate) {
+        startDate = new Date(resolvedFilters.selectedDate);
         startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(filters.selectedDate);
+        endDate = new Date(resolvedFilters.selectedDate);
         endDate.setHours(23, 59, 59, 999);
-      } else if (filters.filterType === "monthly" && filters.selectedMonth) {
-        const [y, m] = filters.selectedMonth.split("-").map(Number);
+      } else if (resolvedFilters.filterType === "monthly" && resolvedFilters.selectedMonth) {
+        const [y, m] = resolvedFilters.selectedMonth.split("-").map(Number);
         startDate = new Date(y, m - 1, 1, 0, 0, 0, 0);
         endDate = new Date(y, m, 0, 23, 59, 59, 999);
-      } else if (filters.filterType === "yearly" && filters.selectedYear) {
-        const y = Number(filters.selectedYear);
+      } else if (resolvedFilters.filterType === "yearly" && resolvedFilters.selectedYear) {
+        const y = Number(resolvedFilters.selectedYear);
         startDate = new Date(y, 0, 1, 0, 0, 0, 0);
         endDate = new Date(y, 11, 31, 23, 59, 59, 999);
       }
@@ -2286,9 +2334,9 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
 
     // Sorting options mapping
     let orderBy: any = { createdAt: "desc" };
-    if (filters.sortBy === "price-asc") orderBy = { price: "asc" };
-    if (filters.sortBy === "price-desc") orderBy = { price: "desc" };
-    if (filters.sortBy === "rating") orderBy = { reviews: { _count: "desc" } }; // Simplified sorting
+    if (resolvedFilters.sortBy === "price-asc") orderBy = { price: "asc" };
+    if (resolvedFilters.sortBy === "price-desc") orderBy = { price: "desc" };
+    if (resolvedFilters.sortBy === "rating") orderBy = { reviews: { _count: "desc" } }; // Simplified sorting
 
     const dbProducts = await db.product.findMany({
       where: whereClause,
@@ -2353,7 +2401,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         categoryId: p.categoryId,
         isApproved: p.isApproved,
         sellerId: p.sellerId,
-        seller: filters.sellerId ? {
+        seller: resolvedFilters.sellerId ? {
           id: p.seller.id,
           companyName: p.seller.companyName,
           badges: p.seller.badges,
@@ -2378,6 +2426,10 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         unitsPerBox: (p as any).unitsPerBox || (p as any).bulkOrderQuantity || 100,
         pricePerBox: p.price,
         sellerBasePrice: (p as any).sellerBasePrice ?? (p as any).price ?? null,
+        weightKg: p.weightKg ?? null,
+        lengthCm: p.lengthCm ?? null,
+        widthCm: p.widthCm ?? null,
+        heightCm: p.heightCm ?? null,
         commissionAmount: (p as any).commissionAmount ?? null,
         twoBoxPrice: (p as any).twoBoxPrice ?? null,
         threePlusBoxPrice: (p as any).threePlusBoxPrice ?? null,
@@ -2398,9 +2450,9 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       };
     });
 
-    if (filters.sortBy === "rating") {
+    if (resolvedFilters.sortBy === "rating") {
       mappedProducts.sort((a, b) => b.rating - a.rating);
-    } else if (filters.sortBy === "popular") {
+    } else if (resolvedFilters.sortBy === "popular") {
       mappedProducts.sort((a, b) => b.reviewsCount - a.reviewsCount);
     }
     return mappedProducts;
@@ -2622,6 +2674,10 @@ export async function getProductById(id: string): Promise<ProductItem | null> {
       unitsPerBox: (p as any).unitsPerBox || 100,
       pricePerBox: p.price,
       sellerBasePrice: (p as any).sellerBasePrice ?? (p as any).price ?? null,
+      weightKg: p.weightKg ?? null,
+      lengthCm: p.lengthCm ?? null,
+      widthCm: p.widthCm ?? null,
+      heightCm: p.heightCm ?? null,
       commissionAmount: (p as any).commissionAmount ?? null,
       twoBoxPrice: (p as any).twoBoxPrice ?? (p.price * 1.75),
       threePlusBoxPrice: (p as any).threePlusBoxPrice ?? (p.price * 0.8),
@@ -2691,7 +2747,17 @@ export async function createProduct(data: {
   buyXGetYOffer?: BuyXGetYOffer | any | null;
   highlights?: string[]; // New optional field for product highlights
   technicalSpecs?: string[]; // New optional field for technical specifications
+  weightKg?: number | null;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
 }): Promise<ProductItem> {
+  const identity = await verifyAuthenticatedUser();
+  if (!identity.authorized || identity.role !== "SELLER" || !identity.sellerId) {
+    throw new Error("An authenticated seller account is required to create products.");
+  }
+  data = { ...data, sellerId: identity.sellerId };
+
   // Enforce server-side seller activation check
   if (data.sellerId) {
     const { checkSellerActivation } = await import("@/lib/auth-server");
@@ -2727,6 +2793,7 @@ export async function createProduct(data: {
   if (data.stock === undefined || isNaN(Number(data.stock)) || Number(data.stock) < 0) {
     throw new Error("Product stock must be a non-negative number.");
   }
+  validateShippingMeasurements(data);
   const rawImages = (data.imageUrls && Array.isArray(data.imageUrls) && data.imageUrls.length > 0)
     ? data.imageUrls
     : ["https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=60"];
@@ -2853,6 +2920,10 @@ export async function createProduct(data: {
         buyXGetYOffer: isBxgyEnabled ? data.buyXGetYOffer : null,
         highlights: data.highlights || [],
         technicalSpecs: data.technicalSpecs || [],
+        weightKg: data.weightKg ?? null,
+        lengthCm: data.lengthCm ?? null,
+        widthCm: data.widthCm ?? null,
+        heightCm: data.heightCm ?? null,
         createdAt: new Date(),
       };
       
@@ -2915,6 +2986,10 @@ export async function createProduct(data: {
         rejectionReason: null,
         highlights: data.highlights || [],
         technicalSpecs: data.technicalSpecs || [],
+        weightKg: data.weightKg ?? null,
+        lengthCm: data.lengthCm ?? null,
+        widthCm: data.widthCm ?? null,
+        heightCm: data.heightCm ?? null,
         tierDiscounts: isTierEnabled ? (data.tierDiscounts as any) : null,
         individualDiscount: isIndivEnabled ? { ...(data.individualDiscount as any), status: "PENDING" } : null,
         buyXGetYOffer: isBxgyEnabled ? (data.buyXGetYOffer as any) : null,
@@ -3058,6 +3133,10 @@ export async function createProduct(data: {
       unitsPerBox: (p as any).unitsPerBox || 100,
       pricePerBox: p.price,
       sellerBasePrice: (p as any).sellerBasePrice ?? (p as any).price ?? null,
+      weightKg: p.weightKg ?? null,
+      lengthCm: p.lengthCm ?? null,
+      widthCm: p.widthCm ?? null,
+      heightCm: p.heightCm ?? null,
       commissionAmount: (p as any).commissionAmount ?? null,
       twoBoxPrice: (p as any).twoBoxPrice ?? (p.price * 1.75),
       threePlusBoxPrice: (p as any).threePlusBoxPrice ?? (p.price * 0.8),
@@ -3114,15 +3193,23 @@ export async function updateProduct(
     buyXGetYOffer?: BuyXGetYOffer | any | null;
     highlights?: string[];
     technicalSpecs?: string[];
+    weightKg?: number | null;
+    lengthCm?: number | null;
+    widthCm?: number | null;
+    heightCm?: number | null;
     reapprovalRequired?: boolean;
     status?: string;
   }
 ): Promise<boolean> {
+  validateShippingMeasurements(data);
   try {
+    const identity = await verifyAuthenticatedUser();
+    if (!identity.authorized || identity.role !== "SELLER" || !identity.sellerId) return false;
     const reapproval = data.reapprovalRequired ?? true;
 
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       const existingProd = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
+      if (!existingProd || existingProd.sellerId !== identity.sellerId) return false;
       if (existingProd?.sellerId) {
         const { checkSellerActivation } = await import("@/lib/auth-server");
         const act = await checkSellerActivation(existingProd.sellerId);
@@ -3133,6 +3220,8 @@ export async function updateProduct(
     }
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const currentProduct = dynamicProducts.find((product) => product.id === id);
+      if (!currentProduct || currentProduct.sellerId !== identity.sellerId) return false;
       dynamicProducts = dynamicProducts.map((p) => {
         if (p.id === id) {
           return {
@@ -3161,6 +3250,10 @@ export async function updateProduct(
             buyXGetYOffer: data.buyXGetYOffer !== undefined ? data.buyXGetYOffer : null,
             highlights: data.highlights !== undefined ? data.highlights : p.highlights,
             technicalSpecs: data.technicalSpecs !== undefined ? data.technicalSpecs : p.technicalSpecs,
+            weightKg: data.weightKg !== undefined ? data.weightKg : p.weightKg,
+            lengthCm: data.lengthCm !== undefined ? data.lengthCm : p.lengthCm,
+            widthCm: data.widthCm !== undefined ? data.widthCm : p.widthCm,
+            heightCm: data.heightCm !== undefined ? data.heightCm : p.heightCm,
             isApproved: reapproval ? false : p.isApproved,
             status: reapproval ? "PENDING_APPROVAL" : (data.status || p.status),
           };
@@ -3247,6 +3340,10 @@ export async function updateProduct(
     if (data.buyXGetYOffer !== undefined) updatePayload.buyXGetYOffer = data.buyXGetYOffer as any;
     if (data.highlights !== undefined) updatePayload.highlights = data.highlights;
     if (data.technicalSpecs !== undefined) updatePayload.technicalSpecs = data.technicalSpecs;
+    if (data.weightKg !== undefined) updatePayload.weightKg = data.weightKg;
+    if (data.lengthCm !== undefined) updatePayload.lengthCm = data.lengthCm;
+    if (data.widthCm !== undefined) updatePayload.widthCm = data.widthCm;
+    if (data.heightCm !== undefined) updatePayload.heightCm = data.heightCm;
 
     if (data.categoryName || data.categoryId) {
       const categoryIdentifier = data.categoryId || data.categoryName;
@@ -3362,10 +3459,13 @@ export async function updateProduct(
 }
 
 export async function archiveProduct(id: string): Promise<boolean> {
+  const identity = await verifyAuthenticatedUser();
+  if (!identity.authorized || identity.role !== "SELLER" || !identity.sellerId) return false;
   try {
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       const existingProd = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
-      if (existingProd?.sellerId) {
+      if (!existingProd || existingProd.sellerId !== identity.sellerId) return false;
+      if (existingProd.sellerId) {
         const { checkSellerActivation } = await import("@/lib/auth-server");
         const act = await checkSellerActivation(existingProd.sellerId);
         if (!act.active) {
@@ -3375,6 +3475,8 @@ export async function archiveProduct(id: string): Promise<boolean> {
     }
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const currentProduct = dynamicProducts.find((product) => product.id === id);
+      if (!currentProduct || currentProduct.sellerId !== identity.sellerId) return false;
       dynamicProducts = dynamicProducts.filter((p) => p.id !== id);
       return true;
     }
@@ -3410,10 +3512,14 @@ export async function archiveProduct(id: string): Promise<boolean> {
 }
 
 export async function updateProductStock(id: string, newStock: number): Promise<boolean> {
+  const identity = await verifyAuthenticatedUser();
+  if (!identity.authorized || identity.role !== "SELLER" || !identity.sellerId) return false;
+  if (!Number.isInteger(newStock) || newStock < 0) return false;
   try {
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       const existingProd = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
-      if (existingProd?.sellerId) {
+      if (!existingProd || existingProd.sellerId !== identity.sellerId) return false;
+      if (existingProd.sellerId) {
         const { checkSellerActivation } = await import("@/lib/auth-server");
         const act = await checkSellerActivation(existingProd.sellerId);
         if (!act.active) {
@@ -3423,6 +3529,8 @@ export async function updateProductStock(id: string, newStock: number): Promise<
     }
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      const currentProduct = dynamicProducts.find((product) => product.id === id);
+      if (!currentProduct || currentProduct.sellerId !== identity.sellerId) return false;
       dynamicProducts = dynamicProducts.map((p) => {
         if (p.id === id) return { ...p, stock: newStock };
         return p;
@@ -3441,15 +3549,7 @@ export async function updateProductStock(id: string, newStock: number): Promise<
     return true;
   } catch (e) {
     console.error("updateProductStock failed, fallback to mock:", e);
-    dynamicProducts = dynamicProducts.map((p) => {
-      if (p.id === id) return { ...p, stock: newStock };
-      return p;
-    });
-    const idx = MOCK_PRODUCTS.findIndex((p) => p.id === id);
-    if (idx !== -1) {
-      MOCK_PRODUCTS[idx].stock = newStock;
-    }
-    return true;
+    return false;
   }
 }
 
@@ -3770,6 +3870,10 @@ export async function getAllProductsForAdmin(
   filterStatus: "all" | "pending" | "approved" | "rejected" | "inactive" = "all"
 ): Promise<any[]> {
   try {
+    const authorization = await verifyAdminAuth();
+    if (!authorization.authorized) {
+      throw new Error("Unauthorized: Super Admin access is required to view admin product catalog.");
+    }
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (!isMock) {
       const { verifyAdminAuth } = await import("@/lib/auth-server");
@@ -3878,6 +3982,11 @@ export async function updateProductCommissionByAdmin(
   customMarketplacePrice?: number,
   adminEmail: string = "admin@earthcentric.com"
 ): Promise<{ success: boolean; error?: string; marketplacePrice?: number; commissionAmount?: number }> {
+  const authorization = await verifyAdminAuth();
+  if (!authorization.authorized) {
+    return { success: false, error: "Unauthorized: Super Admin access required." };
+  }
+  adminEmail = authorization.email;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (!isMock) {
@@ -4019,6 +4128,11 @@ export async function updateSellerCommissionByAdmin(
   commissionRate: number,
   adminEmail: string = "admin@earthcentric.com"
 ): Promise<{ success: boolean; error?: string }> {
+  const authorization = await verifyAdminAuth();
+  if (!authorization.authorized) {
+    return { success: false, error: "Unauthorized: Super Admin access required." };
+  }
+  adminEmail = authorization.email;
   try {
     if (isNaN(commissionRate) || commissionRate < 0 || commissionRate > 100) {
       return { success: false, error: "Commission percentage must be between 0% and 100%." };
@@ -4067,6 +4181,11 @@ export async function updateProductVisibilityByAdmin(
   isApproved: boolean,
   adminEmail: string = "admin@earthcentric.com"
 ): Promise<{ success: boolean; error?: string }> {
+  const authorization = await verifyAdminAuth();
+  if (!authorization.authorized) {
+    return { success: false, error: "Unauthorized: Super Admin access required." };
+  }
+  adminEmail = authorization.email;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (!isMock) {
@@ -4132,6 +4251,11 @@ export async function updateProductBulkPricingByAdmin(
   },
   adminEmail: string = "admin@earthcentric.com"
 ): Promise<{ success: boolean; error?: string }> {
+  const authorization = await verifyAdminAuth();
+  if (!authorization.authorized) {
+    return { success: false, error: "Unauthorized: Super Admin access required." };
+  }
+  adminEmail = authorization.email;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     const updateData: any = {};

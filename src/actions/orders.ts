@@ -1,8 +1,15 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "crypto";
 import db from "@/lib/db";
-import { createCashfreeOrder, verifyPaymentSignature, getSecureAppUrl } from "@/lib/cashfree";
+import {
+  createCashfreeOrder,
+  fetchCashfreeOrderPayments,
+  verifyPaymentSignature,
+  getSecureAppUrl,
+} from "@/lib/cashfree";
 import {
   sendOrderConfirmationEmail,
   sendOrderStatusEmail,
@@ -13,8 +20,7 @@ import {
   sendAutoCancellationEmail,
   sendCancellationRejectedEmail,
 } from "@/lib/email";
-import { createNotification, createAdminNotification } from "./notifications";
-import { getProductById } from "./products";
+import { createNotification, createAdminNotification } from "@/lib/notification-service";
 import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 import { verifyAdminAuth, verifyAuthenticatedUser, verifySellerAuth } from "@/lib/auth-server";
 import {
@@ -25,6 +31,8 @@ import {
   type RefundState,
 } from "@/lib/order-cancellations";
 import { validateGSTIN, validateIndianMobile, validateGstAndPhone } from "@/lib/gstin";
+import { quoteSellerShipments } from "@/lib/shipping";
+import { calculateCheckoutLine } from "@/lib/checkout-pricing";
 
 const CANCELLATION_WINDOW_HOURS = 72; // 3 days (72 hours) duration cancellation policy
 
@@ -55,6 +63,7 @@ export interface AddressInput {
 
 export interface OrderDetail {
   id: string;
+  isDemo?: boolean;
   userId: string;
   sellerId?: string | null;
   seller?: {
@@ -64,6 +73,7 @@ export interface OrderDetail {
     phone?: string;
   };
   totalAmount: number;
+  shippingFee?: number;
   grossAmount?: number;
   totalSellerBaseAmount?: number;
   commissionRate?: number;
@@ -191,16 +201,59 @@ function mapLatestCancellation(cancellations?: any[]): OrderDetail["cancellation
 }
 
 export async function createOrder(data: {
-  userId: string;
-  userEmail: string;
+  addressId: string;
+  checkoutRequestId: string;
   userPhone?: string;
-  address: AddressInput;
-  items: OrderItemInput[];
-  totalAmount: number;
+  items: { productId: string; quantity: number }[];
   gstin?: string;
-  totalBoxes?: number;
 }) {
-  const orderId = `ord-${Math.random().toString(36).substring(2, 9)}`;
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    return {
+      success: false,
+      error: "Checkout is unavailable in demo mode. Configure the database-backed checkout to accept real orders.",
+    };
+  }
+
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId || !auth.email) {
+    return { success: false, error: "Please sign in with a verified buyer account before checking out." };
+  }
+  if (typeof data.checkoutRequestId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.checkoutRequestId)) {
+    return { success: false, error: "This checkout request is invalid. Refresh checkout and try again." };
+  }
+  if (!Array.isArray(data.items) || data.items.length === 0) {
+    return { success: false, error: "Your cart is empty." };
+  }
+  if (new Set(data.items.map((item) => item?.productId)).size !== data.items.length) {
+    return { success: false, error: "The cart contains duplicate product lines. Refresh your cart and try again." };
+  }
+
+  const buyer = await db.user.findUnique({
+    where: { id: auth.userId },
+    select: { id: true, email: true, name: true, phone: true },
+  });
+  if (!buyer) {
+    return { success: false, error: "Your account could not be verified. Please sign in again." };
+  }
+  const priorCheckout = await db.order.findFirst({
+    where: { userId: buyer.id, checkoutRequestId: data.checkoutRequestId },
+    select: { id: true },
+  });
+  if (priorCheckout) {
+    return {
+      success: false,
+      error: "This checkout has already been initialized. Check your orders before starting another payment.",
+    };
+  }
+  const address = await db.address.findFirst({
+    where: { id: data.addressId, userId: auth.userId, NOT: { street: { startsWith: "[Deleted]" } } },
+  });
+  if (!address) {
+    return { success: false, error: "Select a saved delivery address belonging to your account." };
+  }
+
+  const orderId = `ord-${randomUUID()}`;
 
   // Requirement 2 & 6: Bulk Box & GST Validation
   const hasBulkBoxes = data.items.some((it) => Number(it.quantity) >= 2);
@@ -225,6 +278,7 @@ export async function createOrder(data: {
 
   // Server-side recalculation & validation of box quantities, item prices, and commission snapshots
   let serverCalculatedTotal = 0;
+  const shippingItems: { productId: string; quantity: number }[] = [];
   const verifiedItems: (OrderItemInput & { itemTotal: number })[] = [];
 
   for (const item of data.items) {
@@ -233,13 +287,16 @@ export async function createOrder(data: {
     if (!Number.isInteger(boxQty) || boxQty < 1) {
       return {
         success: false,
-        error: `Invalid box quantity for "${item.name}". Minimum bulk order quantity is 1 complete box.`,
+        error: "Invalid box quantity. Minimum bulk order quantity is 1 complete box.",
       };
     }
 
-    const product = await getProductById(item.productId);
+    const product = await db.product.findUnique({
+      where: { id: item.productId },
+      include: { images: { orderBy: { sortOrder: "asc" } } },
+    });
     if (!product) {
-      return { success: false, error: `Product not found: ${item.name}` };
+      return { success: false, error: "A product in your cart could not be found." };
     }
     if (!product.isApproved || product.status !== "APPROVED") {
       return {
@@ -254,76 +311,59 @@ export async function createOrder(data: {
       };
     }
 
-    const unitsPerBox = product.unitsPerBox || (product as any).bulkOrderQuantity || 100;
-    const totalUnits = boxQty * unitsPerBox;
-    const oneBoxPrice = Math.max(0, Number(product.price ?? 2.0));
-    const twoBoxPrice = Math.max(0, Number((product as any).twoBoxPrice ?? 3.50));
-    const threePlusBoxPrice = Math.max(0, Number((product as any).threePlusBoxPrice ?? 1.60));
+    const price = calculateCheckoutLine(product, boxQty);
+    const { unitsPerBox, totalUnits } = price;
 
-    // Pricing Rules:
-    // 1 box = ₹2
-    // 2 boxes = twoBoxPrice (e.g. ₹3.50; NOT 2 × ₹2 = ₹4)
-    // 3+ boxes = boxQty × threePlusBoxPrice
-    let itemTotal = 0;
-    if (boxQty === 1) {
-      itemTotal = oneBoxPrice;
-    } else if (boxQty === 2) {
-      itemTotal = twoBoxPrice;
-    } else {
-      itemTotal = boxQty * threePlusBoxPrice;
-    }
-    itemTotal = Math.round(itemTotal * 100) / 100;
-
-    const effectivePricePerBox = Math.round((itemTotal / boxQty) * 100) / 100;
-    const commissionRate = product.commissionRate !== undefined && product.commissionRate !== null ? Number(product.commissionRate) : 20.0;
-
-    // Resolve seller base price per box (expected seller payout per box)
-    const sellerBasePrice = (product as any).sellerBasePrice !== null && (product as any).sellerBasePrice !== undefined
-      ? Number((product as any).sellerBasePrice)
-      : (product.price ? Math.round((Number(product.price) / (1 + (commissionRate / 100))) * 100) / 100 : 80);
-
-    // Commission Formula from Specification:
-    // EarthCentric Commission = Seller Base Price × Commission Percentage / 100 × Number of Boxes
-    // Seller Net Revenue = Gross Marketplace Order Amount − EarthCentric Commission
-    const itemCommission = Math.round((sellerBasePrice * (commissionRate / 100) * boxQty) * 100) / 100;
-    const itemSellerNet = Math.round((itemTotal - itemCommission) * 100) / 100;
-
-    serverCalculatedTotal += itemTotal;
+    serverCalculatedTotal += price.itemTotal;
+    shippingItems.push({ productId: product.id, quantity: boxQty });
 
     verifiedItems.push({
-      ...item,
-      price: effectivePricePerBox,
-      pricePerBox: effectivePricePerBox,
+      productId: product.id,
+      name: product.name,
+      price: price.unitPrice,
+      pricePerBox: price.unitPrice,
       quantity: boxQty,
       boxes: boxQty,
       unitsPerBox,
       totalUnits,
-      sellerBasePrice,
-      commissionRate,
-      commissionAmount: itemCommission,
-      sellerNetAmount: itemSellerNet,
-      sellerId: item.sellerId || product.sellerId,
-      itemTotal,
+      sellerBasePrice: price.sellerBasePrice,
+      commissionRate: price.commissionRate,
+      commissionAmount: price.commissionAmount,
+      sellerNetAmount: price.sellerNetAmount,
+      sellerId: product.sellerId,
+      image: product.images[0]?.url || "",
+      itemTotal: price.itemTotal,
     });
   }
 
-  const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : data.totalAmount;
+  const finalTotalAmount = Math.round(serverCalculatedTotal * 100) / 100;
   if (!Number.isFinite(finalTotalAmount) || finalTotalAmount <= 0) {
     return { success: false, error: "The order total is invalid. Please refresh your cart and try again." };
   }
 
+  let shippingQuote;
+  try {
+    shippingQuote = await quoteSellerShipments(address.id, buyer.id, shippingItems);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Could not validate shipping for this order.",
+    };
+  }
+  const payableTotal = Math.round((finalTotalAmount + shippingQuote.totalFee) * 100) / 100;
+
   // Generate Cashfree Order strictly with server-calculated payable amount
   let paymentOrder: Awaited<ReturnType<typeof createCashfreeOrder>>;
-  const customerPhone = data.userPhone ? data.userPhone.replace(/\D/g, "").slice(-10) : "";
+  const customerPhone = (data.userPhone || buyer.phone || "").replace(/\D/g, "").slice(-10);
   try {
     const appBaseUrl = getSecureAppUrl();
     paymentOrder = await createCashfreeOrder({
-      amount: finalTotalAmount,
+      amount: payableTotal,
       orderId: orderId,
       customer: {
-        id: data.userId,
-        name: data.userEmail.split("@")[0],
-        email: data.userEmail,
+        id: buyer.id,
+        name: buyer.name || buyer.email.split("@")[0],
+        email: buyer.email,
         phone: customerPhone
       },
       returnUrl: `${appBaseUrl}/orders/${orderId}`,
@@ -342,116 +382,27 @@ export async function createOrder(data: {
   try {
     // Group items by sellerId
     const itemsBySeller: Record<string, (OrderItemInput & { itemTotal: number })[]> = {};
-    const mockSellerId = "mock-seller-id";
     for (const item of verifiedItems) {
-      const sId = item.sellerId || mockSellerId;
+      const sId = item.sellerId;
+      if (!sId) return { success: false, error: "A product is missing its seller assignment." };
       if (!itemsBySeller[sId]) {
         itemsBySeller[sId] = [];
       }
       itemsBySeller[sId].push(item);
     }
 
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      const newOrders: OrderDetail[] = [];
-      Object.entries(itemsBySeller).forEach(([sellerId, items], index) => {
-        const orderGrossAmount = Math.round(items.reduce((sum, item) => sum + (item.itemTotal ?? (item.price * item.quantity)), 0) * 100) / 100;
-        const orderSellerBaseAmount = Math.round(items.reduce((sum, item) => sum + ((item.sellerBasePrice ?? 0) * item.quantity), 0) * 100) / 100;
-        const orderCommission = Math.round(items.reduce((sum, item) => sum + (item.commissionAmount || 0), 0) * 100) / 100;
-        const orderSellerNet = Math.round((orderGrossAmount - orderCommission) * 100) / 100;
-        const orderTotalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
-        const orderCommissionRate = orderSellerBaseAmount > 0 
-          ? Math.round((orderCommission / orderSellerBaseAmount) * 100 * 10) / 10 
-          : (orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 20.0);
-        const splitOrderId = `${orderId}-${index}`;
-
-        const newOrder: OrderDetail = {
-          id: splitOrderId,
-          userId: data.userId,
-          totalAmount: orderGrossAmount,
-          grossAmount: orderGrossAmount,
-          totalSellerBaseAmount: orderSellerBaseAmount,
-          commissionRate: orderCommissionRate,
-          commissionAmount: orderCommission,
-          sellerNetAmount: orderSellerNet,
-          totalBoxes: orderTotalBoxes,
-          gstin: validatedGstin,
-          isForwardedToSeller: false,
-          adminReviewStatus: "PENDING_REVIEW",
-          assignedSellerId: sellerId === mockSellerId ? undefined : sellerId,
-          status: "PLACED",
-          createdAt: new Date(),
-          address: data.address,
-          items: items.map((item) => ({
-            productId: item.productId,
-            name: item.name,
-            quantity: item.quantity,
-            boxes: item.quantity,
-            unitsPerBox: item.unitsPerBox || 100,
-            totalUnits: item.totalUnits || (item.quantity * 100),
-            price: item.price,
-            pricePerBox: item.price,
-            sellerBasePrice: item.sellerBasePrice,
-            commissionRate: item.commissionRate || 20.0,
-            commissionAmount: item.commissionAmount || 0,
-            sellerNetAmount: item.sellerNetAmount || (item.itemTotal - (item.commissionAmount || 0)),
-            image: item.image,
-            sellerId: item.sellerId,
-          })),
-          paymentStatus: "PENDING",
-          cashfreeOrderId: paymentOrder.order_id,
-          cashfreePaymentSessionId: paymentOrder.payment_session_id,
-          timeline: [
-            {
-              status: "PLACED",
-              description: "Commercial bulk order placed. Awaiting payment authorization.",
-              createdAt: new Date(),
-            },
-          ],
-        };
-        mockOrders.push(newOrder);
-        newOrders.push(newOrder);
-      });
-      return {
-        success: true,
-        order: newOrders[0],
-        cashfreeOrderId: paymentOrder.order_id,
-        paymentSessionId: paymentOrder.payment_session_id,
-        paymentMode: paymentOrder.mode,
-      };
-    }
-
-    // Ensure user exists in database before creating address
-    try {
-      await db.user.upsert({
-        where: { id: data.userId },
-        update: {
-          ...(customerPhone ? { phone: customerPhone } : {}),
-        },
-        create: {
-          id: data.userId,
-          email: data.userEmail || `${data.userId}@earthcentric.com`,
-          name: data.userEmail ? data.userEmail.split("@")[0] : "Customer",
-          phone: customerPhone || null,
-          role: "BUYER",
-        },
-      });
-    } catch (upsertError) {
-      console.warn("User upsert skipped or handled:", upsertError);
-    }
-
-    // Write to Prisma Database
-    const address = await db.address.create({
-      data: {
-        userId: data.userId,
-        street: data.address.street || (data.address as any).addressLine1 || "123 Eco Way",
-        city: data.address.city || "Bengaluru",
-        state: data.address.state || "Karnataka",
-        postalCode: data.address.postalCode || (data.address as any).pincode || "560001",
-        country: data.address.country || "India",
-      },
+    await db.user.update({
+      where: { id: buyer.id },
+      data: { ...(customerPhone ? { phone: customerPhone } : {}) },
     });
 
-    const createdOrders = [];
+    type CreatedCheckoutOrder = Prisma.OrderGetPayload<{
+      include: {
+        items: { include: { product: { include: { images: true } } } };
+        timeline: true;
+      };
+    }>;
+    const createdOrders: CreatedCheckoutOrder[] = [];
     let index = 0;
     for (const [sellerId, items] of Object.entries(itemsBySeller)) {
       const orderGrossAmount = Math.round(items.reduce((sum, item) => sum + (item.itemTotal ?? (item.price * item.quantity)), 0) * 100) / 100;
@@ -463,14 +414,20 @@ export async function createOrder(data: {
         ? Math.round((orderCommission / orderSellerBaseAmount) * 100 * 10) / 10 
         : (orderGrossAmount > 0 ? Math.round((orderCommission / orderGrossAmount) * 100 * 10) / 10 : 20.0);
       const splitOrderId = `${orderId}-${index}`;
-      const sId = sellerId === mockSellerId ? undefined : sellerId;
+      const sId = sellerId;
+      const shipment = shippingQuote.shipments.find((entry) => entry.sellerId === sId);
+      if (!shipment) {
+        return { success: false, error: "Shipping could not be calculated for one of the seller shipments." };
+      }
 
       const order = await db.order.create({
         data: {
           id: splitOrderId,
-          userId: data.userId,
+          userId: buyer.id,
+          checkoutRequestId: data.checkoutRequestId,
           addressId: address.id,
           totalAmount: orderGrossAmount,
+          shippingFee: shipment.fee,
           grossAmount: orderGrossAmount,
           totalSellerBaseAmount: orderSellerBaseAmount,
           commissionRate: orderCommissionRate,
@@ -502,7 +459,7 @@ export async function createOrder(data: {
           payment: {
             create: {
               cashfreeOrderId: paymentOrder.order_id,
-              amount: orderGrossAmount,
+              amount: orderGrossAmount + shipment.fee,
               status: "PENDING",
             },
           },
@@ -510,6 +467,36 @@ export async function createOrder(data: {
             create: {
               status: "PLACED",
               description: "Bulk order placed. Awaiting payment authorization.",
+            },
+          },
+          shipmentSnapshot: {
+            create: {
+              sellerId: sId,
+              warehouseAddress: shipment.warehouse,
+              buyerAddress: {
+                label: address.label,
+                street: address.street,
+                landmark: address.landmark,
+                city: address.city,
+                state: address.state,
+                postalCode: address.postalCode,
+                country: address.country,
+                latitude: address.latitude,
+                longitude: address.longitude,
+                geocodingProvider: address.geocodingProvider,
+                providerLocationId: address.providerLocationId,
+              },
+              warehousePin: shipment.warehouse.postalCode,
+              buyerPin: address.postalCode,
+              shippingZone: shipment.zone,
+              routeDistanceKm: shipment.routeDistanceKm,
+              routeDurationMinutes: shipment.routeDurationMinutes,
+              routeProvider: shipment.routeProvider,
+              estimateStatus: shipment.estimateStatus,
+              configurationVersion: shippingQuote.configurationVersion,
+              feeBreakdown: { ...shipment.breakdown },
+              estimatedMinDays: shipment.estimatedMinDays,
+              estimatedMaxDays: shipment.estimatedMaxDays,
             },
           },
         },
@@ -533,6 +520,7 @@ export async function createOrder(data: {
       id: firstOrder.id,
       userId: firstOrder.userId,
       totalAmount: firstOrder.totalAmount,
+      shippingFee: firstOrder.shippingFee,
       grossAmount: firstOrder.grossAmount ?? firstOrder.totalAmount,
       commissionRate: firstOrder.commissionRate ?? 10.0,
       commissionAmount: firstOrder.commissionAmount ?? 0,
@@ -544,7 +532,13 @@ export async function createOrder(data: {
       assignedSellerId: (firstOrder as any).assignedSellerId || null,
       status: firstOrder.status as any,
       createdAt: firstOrder.createdAt,
-      address: data.address,
+      address: {
+        street: address.street,
+        city: address.city,
+        state: address.state,
+        postalCode: address.postalCode,
+        country: address.country,
+      },
       items: firstOrder.items.map((it) => ({
         productId: it.productId,
         name: it.product.name,
@@ -575,6 +569,8 @@ export async function createOrder(data: {
       cashfreeOrderId: paymentOrder.order_id,
       paymentSessionId: paymentOrder.payment_session_id,
       paymentMode: paymentOrder.mode,
+      shippingQuote,
+      payableTotal,
     };
   } catch (error) {
     console.error("Order persistence failed after Cashfree order initialization:", error);
@@ -587,97 +583,70 @@ export async function createOrder(data: {
 
 export async function confirmOrderPayment(
   orderId: string,
-  cashfreePaymentId: string,
-  signature: string,
-  userEmail: string
+  _cashfreePaymentId: string,
+  _signature: string,
+  _userEmail: string
 ): Promise<boolean> {
-  // 1. Verify Signature
-  let cashfreeOrderId = "";
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-    const order = mockOrders.find((o) => o.id === orderId);
-    cashfreeOrderId = order ? order.cashfreeOrderId || "" : "";
-  } else {
-    try {
-      const dbPayment = await db.payment.findFirst({
-        where: {
-          OR: [
-            { orderId: orderId },
-            { orderId: `${orderId}-0` },
-            { cashfreeOrderId: orderId },
-          ],
-        },
-        select: { cashfreeOrderId: true },
-      });
-      cashfreeOrderId = dbPayment?.cashfreeOrderId || "";
-    } catch (e) {
-      console.warn("Failed to retrieve payment from database, checking mock:", e);
-      const order = mockOrders.find((o) => o.id === orderId);
-      cashfreeOrderId = order ? order.cashfreeOrderId || "" : "";
-    }
-  }
-
-  const isValid = await verifyPaymentSignature(cashfreeOrderId);
-
-  if (!isValid) {
-    console.error("Signature verification failed for order", orderId, "with cashfreeOrderId", cashfreeOrderId);
-    return false;
-  }
+  void _cashfreePaymentId;
+  void _signature;
+  void _userEmail;
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) return false;
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId || !auth.email) return false;
 
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      mockOrders = mockOrders.map((o) => {
-        if (o.id === orderId) {
-          return {
-            ...o,
-            status: "CONFIRMED",
-            paymentStatus: "COMPLETED",
-            timeline: [
-              ...o.timeline,
-              {
-                status: "CONFIRMED",
-                description: "Payment confirmed. Order received by EarthCentric Super Admin for mediation and review.",
-                createdAt: new Date(),
-              },
-            ],
-          };
-        }
-        return o;
-      });
+    const ownedOrder = await db.order.findFirst({
+      where: {
+        userId: auth.userId,
+        OR: [
+          { id: orderId },
+          { id: `${orderId}-0` },
+          { paymentGroupId: orderId },
+        ],
+      },
+      select: {
+        id: true,
+        totalAmount: true,
+        shippingFee: true,
+        paymentGroupId: true,
+        payment: { select: { cashfreeOrderId: true } },
+      },
+    });
+    if (!ownedOrder) return false;
+    const cashfreeOrderId = ownedOrder.paymentGroupId || ownedOrder.payment?.cashfreeOrderId;
+    if (!cashfreeOrderId) return false;
 
-      const updated = mockOrders.find((o) => o.id === orderId);
-      if (updated) {
-        const mockAddr = updated.address;
-        await sendOrderConfirmationEmail(userEmail, orderId, updated.totalAmount, {
-          buyerName: (updated as any).user?.name || undefined,
-          placedAt: updated.createdAt,
-          items: (updated.items || []).map((it: any) => ({
-            name: it.name,
-            quantity: it.quantity,
-            price: it.price,
-            image: it.image || undefined,
-            sellerName: it.seller?.companyName || undefined,
-          })),
-          shippingAddress: mockAddr
-            ? {
-                street: mockAddr.street,
-                city: mockAddr.city,
-                state: mockAddr.state,
-                postalCode: mockAddr.postalCode,
-                country: mockAddr.country,
-              }
-            : undefined,
-          paymentMethod: "Cashfree",
-        });
-      }
-      return true;
-    }
+    const relatedOrders = await db.order.findMany({
+      where: {
+        userId: auth.userId,
+        OR: [
+          { paymentGroupId: cashfreeOrderId },
+          { id: ownedOrder.id },
+        ],
+      },
+      select: { totalAmount: true, shippingFee: true },
+    });
+    const expectedAmount = Math.round(
+      relatedOrders.reduce((total, order) => total + order.totalAmount + order.shippingFee, 0) * 100
+    ) / 100;
+    if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) return false;
+
+    const payments = await fetchCashfreeOrderPayments(cashfreeOrderId);
+    const successfulPayment = payments.find(
+      (payment) =>
+        payment.payment_status === "SUCCESS" &&
+        payment.payment_currency === "INR" &&
+        Math.round(Number(payment.payment_amount) * 100) === Math.round(expectedAmount * 100)
+    );
+    if (!successfulPayment) return false;
 
     // Update in DB (update all payments associated with this Cashfree Order ID)
     await db.payment.updateMany({
       where: { cashfreeOrderId: cashfreeOrderId },
       data: {
-        cashfreePaymentId,
-        cashfreeSignature: signature,
+        ...(successfulPayment.cf_payment_id != null
+          ? { cashfreePaymentId: String(successfulPayment.cf_payment_id) }
+          : {}),
         status: "COMPLETED",
       },
     });
@@ -770,7 +739,11 @@ export async function confirmOrderPayment(
     const buyerName = dbOrder?.user?.name || undefined;
     const orderAddress = dbOrder?.address;
 
-    await sendOrderConfirmationEmail(userEmail, orderId, dbOrder?.totalAmount || 0, {
+    await sendOrderConfirmationEmail(
+      auth.email,
+      orderId,
+      (dbOrder?.totalAmount || 0) + (dbOrder?.shippingFee || 0),
+      {
       buyerName,
       placedAt: dbOrder?.createdAt,
       items: (dbOrder?.items || []).map((it) => ({
@@ -790,29 +763,12 @@ export async function confirmOrderPayment(
           }
         : undefined,
       paymentMethod: "Cashfree",
-    });
+      }
+    );
     return true;
   } catch (error) {
-    console.error("Failed to update database payment confirmation, updating mock:", error);
-    mockOrders = mockOrders.map((o) => {
-      if (o.id === orderId) {
-        return {
-          ...o,
-          status: "CONFIRMED",
-          paymentStatus: "COMPLETED",
-          timeline: [
-            ...o.timeline,
-            {
-              status: "CONFIRMED",
-              description: "Payment confirmed. Order sent to supplier fulfillment queue.",
-              createdAt: new Date(),
-            },
-          ],
-        };
-      }
-      return o;
-    });
-    return true;
+    console.error("Failed to update database payment confirmation:", error);
+    return false;
   }
 }
 
@@ -824,15 +780,11 @@ export async function forwardOrderToSellerByAdmin(params: {
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-    let adminEmail = "admin@earthcentric.com";
-
-    if (!isMock) {
-      const adminAuth = await verifyAdminAuth();
-      if (!adminAuth.authorized) {
-        return { success: false, error: "Super Admin authorization required to forward orders." };
-      }
-      if (adminAuth.email) adminEmail = adminAuth.email;
+    const adminAuth = await verifyAdminAuth();
+    if (!adminAuth.authorized) {
+      return { success: false, error: "Super Admin authorization required to forward orders." };
     }
+    const adminEmail = adminAuth.email;
 
     const { orderId, sellerId, fulfillmentInstructions, fulfillmentDeadline } = params;
     const deadlineDate = fulfillmentDeadline ? new Date(fulfillmentDeadline) : new Date(Date.now() + 48 * 3600 * 1000);
@@ -945,16 +897,43 @@ export async function forwardOrderToSellerByAdmin(params: {
 
 export async function getOrderById(orderId: string): Promise<OrderDetail | null> {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) return null;
+  const isAdmin = auth.role === "ADMIN" || (await verifyAdminAuth()).authorized;
   try {
     if (isMock) {
-      return (
-        mockOrders.find(
-          (o) =>
-            o.id === orderId ||
-            o.id === `${orderId}-0` ||
-            o.cashfreeOrderId === orderId
-        ) || null
+      const order = mockOrders.find(
+        (o) =>
+          o.id === orderId ||
+          o.id === `${orderId}-0` ||
+          o.cashfreeOrderId === orderId
       );
+      if (!order) return null;
+      const isOrderBuyer = order.userId === auth.userId;
+      const isOrderSeller =
+        auth.role === "SELLER" &&
+        order.isForwardedToSeller === true &&
+        (order.isDemo === true || order.items.some((item) => item.sellerId === auth.sellerId));
+      if (!isAdmin && !isOrderBuyer && !isOrderSeller) return null;
+      if (isOrderSeller && !isAdmin && !order.isForwardedToSeller) return null;
+      if (isOrderSeller && !isAdmin && order.isDemo) {
+        return {
+          ...order,
+          sellerId: auth.sellerId,
+          assignedSellerId: auth.sellerId,
+          orderReceivedFrom: "EarthCentric",
+          user: { name: "EarthCentric" },
+          address: {
+            street: "EarthCentric Central Fulfillment Hub",
+            city: order.address.city,
+            state: order.address.state,
+            postalCode: order.address.postalCode,
+            country: order.address.country,
+          },
+          items: order.items.map((item) => ({ ...item, sellerId: auth.sellerId })),
+        };
+      }
+      return order;
     }
 
     const cleanId = orderId.trim();
@@ -1018,21 +997,16 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       }
     }
 
-    const auth = await verifyAuthenticatedUser();
-    const isAdmin = auth.authorized && (auth.role === "ADMIN" || (await verifyAdminAuth()).authorized);
     const isOrderSeller =
       auth.authorized &&
       auth.role === "SELLER" &&
       (auth.sellerId === order.sellerId ||
         auth.sellerId === (order as any).assignedSellerId ||
         order.items.some((item) => item.product.sellerId === auth.sellerId));
-    const isOrderBuyer =
-      auth.authorized &&
-      (auth.userId === order.userId ||
-        Boolean(auth.email && order.user?.email && auth.email.toLowerCase() === order.user.email.toLowerCase()));
+    const isOrderBuyer = auth.userId === order.userId;
 
     // If an authenticated user is trying to view someone else's order (and is not admin/seller):
-    if (auth.authorized && !isAdmin && !isOrderSeller && !isOrderBuyer) {
+    if (!isAdmin && !isOrderSeller && !isOrderBuyer) {
       return null;
     }
 
@@ -1058,6 +1032,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
         email: isAdmin ? (order.user.email || "") : undefined,
       } : undefined),
       totalAmount: order.totalAmount,
+      shippingFee: order.shippingFee,
       grossAmount,
       commissionRate,
       commissionAmount,
@@ -1125,38 +1100,22 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
   }
 }
 
-export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
+export async function getOrdersByUser(_userId: string): Promise<OrderDetail[]> {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   
   const auth = await verifyAuthenticatedUser();
-  if (!isMock) {
-    if (!auth.authorized) {
-      return [];
-    }
-  }
+  if (!auth.authorized || !auth.userId || auth.userId !== _userId) return [];
 
   try {
     if (isMock) {
       return mockOrders
-        .filter((o) => (o.userId === userId || o.userId === auth.userId) && o.paymentStatus === "COMPLETED")
+        .filter((o) => o.userId === auth.userId && o.paymentStatus === "COMPLETED")
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }
 
-    const userEmails = [
-      auth.email?.toLowerCase(),
-    ].filter(Boolean) as string[];
-
-    const userIds = [
-      userId,
-      auth.userId,
-    ].filter(Boolean) as string[];
-
     const dbOrders = await db.order.findMany({
       where: {
-        OR: [
-          { userId: { in: userIds } },
-          ...(userEmails.length > 0 ? [{ user: { email: { in: userEmails } } }] : []),
-        ],
+        userId: auth.userId,
         status: { not: "CANCELLED" },
       },
       include: {
@@ -1246,15 +1205,27 @@ export async function getOrdersByUser(userId: string): Promise<OrderDetail[]> {
   }
 }
 
-export async function updateOrderStatus(orderId: string, status: OrderDetail["status"], description: string, buyerEmail?: string) {
+export async function updateOrderStatus(orderId: string, status: OrderDetail["status"], description: string, _buyerEmail?: string) {
+  void _buyerEmail;
   try {
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    const adminAuth = await verifyAdminAuth();
+    const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth();
+    if (!adminAuth.authorized && !sellerAuth?.authorized) return false;
     if (status === "CANCELLED" || status === "REFUNDED") {
       console.warn("Cancellation and refund statuses must use the cancellation workflow.");
       return false;
     }
 
     if (isMock) {
+      const currentOrder = mockOrders.find((o) => o.id === orderId);
+      if (!currentOrder) return false;
+      if (
+        !adminAuth.authorized &&
+        !currentOrder.items.some((item) => item.sellerId === sellerAuth?.sellerId)
+      ) {
+        return false;
+      }
       let updatedOrder: OrderDetail | undefined;
       mockOrders = mockOrders.map((o) => {
         if (o.id === orderId) {
@@ -1274,47 +1245,10 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
         return o;
       });
       if (!updatedOrder) return false;
-
-      if (updatedOrder !== mockOrders.find((o) => o.id === orderId) && buyerEmail) {
-        if (status === "CONFIRMED") {
-          const ord = mockOrders.find((o) => o.id === orderId);
-          if (ord) {
-            const mockAddr = ord.address;
-            await sendOrderConfirmationEmail(buyerEmail, orderId, ord.totalAmount, {
-              buyerName: (ord as any).user?.name || undefined,
-              placedAt: ord.createdAt,
-              items: (ord.items || []).map((it: any) => ({
-                name: it.name,
-                quantity: it.quantity,
-                price: it.price,
-                image: it.image || undefined,
-                sellerName: it.seller?.companyName || undefined,
-              })),
-              shippingAddress: mockAddr
-                ? {
-                    street: mockAddr.street,
-                    city: mockAddr.city,
-                    state: mockAddr.state,
-                    postalCode: mockAddr.postalCode,
-                    country: mockAddr.country,
-                  }
-                : undefined,
-            }).catch((err) => console.error("Failed to send mock order confirmation email:", err));
-          }
-        } else {
-          await sendOrderStatusEmail(buyerEmail, orderId, status, description).catch((err) =>
-            console.error("Failed to send order status email:", err)
-          );
-        }
-      }
       return true;
     }
 
-    const adminAuth = await verifyAdminAuth();
-    const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth();
-    if (!adminAuth.authorized && !sellerAuth?.authorized) return false;
-
-    let emailToSend = buyerEmail;
+    let emailToSend: string | undefined;
     const order = await db.order.findUnique({
       where: { id: orderId },
       include: {
@@ -1324,6 +1258,7 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
       },
     });
     if (!order || order.status === "CANCELLED" || order.status === "REFUNDED") return false;
+    emailToSend = order.user?.email;
 
     if (!adminAuth.authorized) {
       let resolvedSellerId = sellerAuth?.sellerId;
@@ -1460,22 +1395,21 @@ export async function updateOrderStatus(orderId: string, status: OrderDetail["st
 
 export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<OrderDetail[]> {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  if (!isMock) {
-    const auth = await verifySellerAuth();
-    if (!auth.authorized) {
-      throw new Error("Seller sign-in is required to view seller orders.");
-    }
-    if (auth.sellerId && auth.sellerId !== sellerIdOrUserId && auth.userId !== sellerIdOrUserId) {
-      throw new Error("You can only view orders for your own seller account.");
-    }
+  const auth = await verifySellerAuth(sellerIdOrUserId);
+  if (!auth.authorized) {
+    throw new Error("Seller sign-in is required to view seller orders.");
   }
+  const adminAuth = await verifyAdminAuth();
+  const requestedSellerId = adminAuth.authorized ? sellerIdOrUserId : auth.sellerId;
+  if (!requestedSellerId) throw new Error("No seller profile is linked to this account.");
   try {
     if (isMock) {
       // In mock mode, initialize sample box-based commercial orders if mockOrders is empty
       if (mockOrders.length === 0) {
         mockOrders = [
           {
-            id: "ord-8834a",
+            id: "demo-ord-8834a",
+            isDemo: true,
             userId: "buyer-1",
             user: { name: "Commercial Buyer" },
             totalAmount: 10000,
@@ -1505,11 +1439,12 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
               sellerNetAmount: 9000,
               image: "/images/products/product_p1_1.png"
             }],
-            paymentStatus: "COMPLETED",
+            paymentStatus: "PENDING",
             timeline: [],
           },
           {
-            id: "ord-4921b",
+            id: "demo-ord-4921b",
+            isDemo: true,
             userId: "buyer-2",
             user: { name: "Commercial Buyer" },
             totalAmount: 6000,
@@ -1537,22 +1472,29 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
                 image: "/images/products/product_p1_2.png"
               }
             ],
-            paymentStatus: "COMPLETED",
+            paymentStatus: "PENDING",
             timeline: [],
           }
         ];
       }
-      return mockOrders.filter((o) => o.paymentStatus === "COMPLETED" && o.isForwardedToSeller === true);
+      return mockOrders
+        .filter((order) => order.isDemo && order.isForwardedToSeller === true)
+        .map((order) => ({
+          ...order,
+          sellerId: requestedSellerId,
+          assignedSellerId: requestedSellerId,
+          items: order.items.map((item) => ({ ...item, sellerId: requestedSellerId })),
+        }));
     }
 
     // Resolve seller ID candidate keys
-    let seller = await db.seller.findUnique({ where: { id: sellerIdOrUserId } });
+    let seller = await db.seller.findUnique({ where: { id: requestedSellerId } });
     if (!seller) {
-      seller = await db.seller.findUnique({ where: { userId: sellerIdOrUserId } });
+      seller = await db.seller.findUnique({ where: { userId: requestedSellerId } });
     }
     
     const candidateSellerIds = Array.from(
-      new Set([sellerIdOrUserId, seller?.id, seller?.userId].filter(Boolean) as string[])
+      new Set([requestedSellerId, seller?.id, seller?.userId].filter(Boolean) as string[])
     );
 
     const dbOrders = await db.order.findMany({
@@ -1674,10 +1616,8 @@ export async function getOrdersBySeller(sellerIdOrUserId: string): Promise<Order
 }
 
 export async function getAllOrdersForAdmin(): Promise<OrderDetail[]> {
-  if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
-    const auth = await verifyAdminAuth();
-    if (!auth.authorized) throw new Error("Super Admin access is required to view all orders.");
-  }
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Super Admin access is required to view all orders.");
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       if (mockOrders.length === 0) {
@@ -1956,10 +1896,16 @@ async function createCancellationRequest(
       };
     });
 
-    let calculatedRefundAmount = order.totalAmount;
+    let calculatedRefundAmount = order.totalAmount + (order.shippingFee || 0);
     if (options?.selectedProductIds && options.selectedProductIds.length > 0) {
       const itemsSum = snapshotItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
       calculatedRefundAmount = Math.min(Math.round(itemsSum * 100) / 100, order.totalAmount);
+      const allItemsReturned = snapshotItems.length === order.items.length &&
+        order.items.every((orderItem) => {
+          const returned = snapshotItems.find((snapshotItem) => snapshotItem.productId === orderItem.productId);
+          return returned?.quantity === orderItem.quantity;
+        });
+      if (allItemsReturned) calculatedRefundAmount += order.shippingFee || 0;
     }
 
     const resultingRefundStatus: RefundState =
@@ -2217,17 +2163,20 @@ export async function getSellerCancelledOrders(sellerIdOrUserId: string) {
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
   if (isMock) return [];
 
-  const auth = await verifySellerAuth();
+  const auth = await verifySellerAuth(sellerIdOrUserId);
   if (!auth.authorized) {
     throw new Error("Seller access required to view cancelled orders.");
   }
+  const adminAuth = await verifyAdminAuth();
+  const requestedSellerId = adminAuth.authorized ? sellerIdOrUserId : auth.sellerId;
+  if (!requestedSellerId) throw new Error("No seller profile is linked to this account.");
 
   // Resolve seller ID
-  let seller = await db.seller.findUnique({ where: { id: sellerIdOrUserId } });
+  let seller = await db.seller.findUnique({ where: { id: requestedSellerId } });
   if (!seller) {
-    seller = await db.seller.findUnique({ where: { userId: sellerIdOrUserId } });
+    seller = await db.seller.findUnique({ where: { userId: requestedSellerId } });
   }
-  const candidateIds = Array.from(new Set([sellerIdOrUserId, seller?.id, seller?.userId].filter(Boolean) as string[]));
+  const candidateIds = Array.from(new Set([requestedSellerId, seller?.id, seller?.userId].filter(Boolean) as string[]));
 
   // Orders that either have a cancellation record OR are in CANCELLED/REFUNDED/RETURNED status
   const orders = await db.order.findMany({
@@ -2767,6 +2716,26 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
   if (!cleanId) return { success: false, error: "Please provide a valid Order Track ID." };
 
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Sign in to track an order." };
+    }
+    const adminAuth = await verifyAdminAuth();
+    const isAdmin = adminAuth.authorized;
+    const sellerAuth = !isAdmin && auth.role === "SELLER" ? await verifySellerAuth() : null;
+    if (!isAdmin && auth.role === "SELLER" && (!sellerAuth?.authorized || !sellerAuth.sellerId)) {
+      return { success: false, error: "Seller access is required to track this order." };
+    }
+    if (
+      !isAdmin &&
+      sellerIdFilter &&
+      (!sellerAuth ||
+        (sellerIdFilter !== sellerAuth.sellerId && sellerIdFilter !== sellerAuth.userId))
+    ) {
+      return { success: false, error: "You can only track orders assigned to your seller account." };
+    }
+    const requestedSellerId = isAdmin ? sellerIdFilter : sellerAuth?.sellerId;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       let order = mockOrders.find(
         (o) => o.id.toLowerCase() === cleanId.toLowerCase() || o.id.toLowerCase().includes(cleanId.toLowerCase())
@@ -2776,17 +2745,25 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
         return { success: false, error: `No order found matching Tracking ID "${cleanId}".` };
       }
 
-      let sellerItems = order.items;
-      if (sellerIdFilter) {
-        sellerItems = order.items.filter(
-          (it: any) =>
-            it.sellerId === sellerIdFilter ||
-            it.seller?.id === sellerIdFilter ||
-            it.sellerUserId === sellerIdFilter
-        );
-        if (sellerItems.length === 0 && order.items.length > 0) {
-          sellerItems = [order.items[0]];
-        }
+      const isOrderBuyer = order.userId === auth.userId;
+      const isOrderSeller =
+        Boolean(sellerAuth?.sellerId) &&
+        order.isForwardedToSeller === true &&
+        (order.isDemo === true ||
+          order.sellerId === sellerAuth?.sellerId ||
+          order.assignedSellerId === sellerAuth?.sellerId ||
+          order.items.some((item) => item.sellerId === sellerAuth?.sellerId));
+      if (!isAdmin && !isOrderBuyer && !isOrderSeller) {
+        return { success: false, error: "You are not authorized to track this order." };
+      }
+
+      const sellerItems = isOrderSeller
+        ? order.items.filter((item) => order.isDemo || item.sellerId === sellerAuth?.sellerId)
+        : requestedSellerId
+          ? order.items.filter((item) => item.sellerId === requestedSellerId)
+          : order.items;
+      if (!sellerItems.length) {
+        return { success: false, error: "No items belonging to your brand exist under this tracking ID." };
       }
 
       const brandTotalAmount = sellerItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -2795,16 +2772,22 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
         success: true,
         order: {
           ...order,
-          items: sellerItems,
+          ...(isOrderSeller && order.isDemo
+            ? {
+                sellerId: sellerAuth?.sellerId,
+                assignedSellerId: sellerAuth?.sellerId,
+                items: sellerItems.map((item) => ({ ...item, sellerId: sellerAuth?.sellerId })),
+              }
+            : { items: sellerItems }),
           brandTotalAmount,
-          user: sellerIdFilter ? {
+          user: isOrderSeller || requestedSellerId ? {
             name: "Commercial Buyer (Verified)",
           } : {
             name: (order as any).user?.name || "Verified Buyer",
             email: (order as any).user?.email || "buyer@earthcentric.com",
             phone: (order as any).user?.phone || "+91 9876543210",
           },
-          address: sellerIdFilter ? {
+          address: isOrderSeller || requestedSellerId ? {
             street: "EarthCentric Central Fulfillment Hub",
             city: order.address?.city || "Bengaluru",
             state: order.address?.state || "Karnataka",
@@ -2816,13 +2799,39 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
     }
 
     // Database lookup (only paid orders)
+    let targetSellerId = requestedSellerId;
+    if (isAdmin && targetSellerId) {
+      const seller = await db.seller.findFirst({
+        where: { OR: [{ id: targetSellerId }, { userId: targetSellerId }] },
+        select: { id: true },
+      });
+      if (!seller) {
+        return { success: false, error: "The selected seller could not be found." };
+      }
+      targetSellerId = seller.id;
+    }
+    const trackingFilter = {
+      OR: [
+        { id: { equals: cleanId, mode: "insensitive" as const } },
+        { id: { contains: cleanId, mode: "insensitive" as const } },
+        { paymentGroupId: { equals: cleanId, mode: "insensitive" as const } },
+      ],
+    };
+    const sellerFilter = targetSellerId
+      ? {
+          OR: [
+            { sellerId: targetSellerId },
+            { assignedSellerId: targetSellerId },
+            { items: { some: { product: { sellerId: targetSellerId } } } },
+          ],
+        }
+      : undefined;
     const dbOrder = await db.order.findFirst({
       where: {
         payment: { status: "COMPLETED" },
-        OR: [
-          { id: { equals: cleanId, mode: "insensitive" } },
-          { id: { contains: cleanId, mode: "insensitive" } },
-          { paymentGroupId: { equals: cleanId, mode: "insensitive" } },
+        AND: [
+          trackingFilter,
+          ...(isAdmin ? (sellerFilter ? [sellerFilter] : []) : sellerFilter ? [sellerFilter] : [{ userId: auth.userId }]),
         ],
       },
       include: {
@@ -2858,9 +2867,9 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
       sellerName: it.product.seller.companyName,
     }));
 
-    if (sellerIdFilter) {
+    if (targetSellerId) {
       items = items.filter(
-        (it) => it.sellerId === sellerIdFilter || it.sellerUserId === sellerIdFilter
+        (it) => it.sellerId === targetSellerId
       );
       if (items.length === 0) {
         return { success: false, error: `No items belonging to your brand exist under Tracking ID "${cleanId}".` };
@@ -2876,7 +2885,7 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
       brandTotalAmount,
       status: dbOrder.status as any,
       createdAt: dbOrder.createdAt,
-      address: sellerIdFilter ? {
+      address: targetSellerId ? {
         street: "EarthCentric Central Fulfillment Hub",
         city: dbOrder.address.city,
         state: dbOrder.address.state,
@@ -2889,7 +2898,7 @@ export async function trackOrderById(orderIdInput: string, sellerIdFilter?: stri
         postalCode: dbOrder.address.postalCode,
         country: dbOrder.address.country,
       },
-      user: sellerIdFilter ? {
+      user: targetSellerId ? {
         name: dbOrder.user?.name ? `Commercial Buyer (${dbOrder.user.name.split(" ")[0]})` : "Commercial Buyer",
       } : {
         name: dbOrder.user?.name || "Customer",

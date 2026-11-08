@@ -85,8 +85,8 @@ export async function createCashfreeOrder(options: {
   returnUrl?: string;
 }): Promise<CashfreeOrderSession> {
   const isMockDatabase = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  if (isMockDatabase && process.env.NODE_ENV === "production") {
-    throw new Error("The production database is not configured for live payments.");
+  if (isMockDatabase) {
+    throw new Error("Cashfree payments are unavailable while the application is in mock mode.");
   }
 
   const instance = await getCashfreeClient();

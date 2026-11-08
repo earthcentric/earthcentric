@@ -1,18 +1,21 @@
 "use client";
 
-import React, { useState, useTransition, useEffect } from "react";
+import React, { useState, useTransition, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Input, Label, Badge, LiquidButton, MetalButton } from "@/components/ui/shared";
-import { createOrder, confirmOrderPayment, AddressInput } from "@/actions/orders";
+import { createOrder, confirmOrderPayment } from "@/actions/orders";
 import { load } from '@cashfreepayments/cashfree-js';
 import { getUserAddresses, addUserAddress, AddressData, getBuyerProfile, updateBuyerProfile } from "@/actions/profile";
 import { ShieldCheck, ShoppingBag, CreditCard, ArrowLeft, Leaf, Loader2, MapPin, Plus, Check, Star, Phone, Building2, FileText, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 import { validateGSTIN } from "@/lib/gstin";
+import { getCheckoutShippingQuote } from "@/actions/shipping";
+import type { ShippingQuoteResult } from "@/lib/shipping";
+import { LocationPicker, type SelectedLocation } from "@/components/LocationPicker";
 
 export default function CheckoutPage() {
   const { cart, cartTotal, clearCart, verifiedGstin, verifiedPhone, isGstVerified, openGstModal } = useCart();
@@ -42,7 +45,44 @@ export default function CheckoutPage() {
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("India");
+  const [addressLabel, setAddressLabel] = useState<AddressData["label"]>("Home");
+  const [landmark, setLandmark] = useState("");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [geocodingProvider, setGeocodingProvider] = useState<string | null>(null);
+  const [providerLocationId, setProviderLocationId] = useState<string | null>(null);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [addressError, setAddressError] = useState("");
+  const [shippingQuoteState, setShippingQuoteState] = useState<{
+    key: string;
+    status: "loading" | "ready" | "error";
+    quote?: ShippingQuoteResult;
+    error?: string;
+  } | null>(null);
+  const [serverPayableState, setServerPayableState] = useState<{ key: string; total: number } | null>(null);
+  const cartItemsForQuote = useMemo(
+    () => cart.map((item) => ({ productId: item.id, quantity: item.quantity })),
+    [cart]
+  );
+  const cartQuoteKey = JSON.stringify(cartItemsForQuote);
+  const currentShippingQuoteKey = user && selectedAddressId
+    ? `${user.id}:${selectedAddressId}:${cartQuoteKey}`
+    : null;
+  const currentShippingQuoteState = currentShippingQuoteKey &&
+    shippingQuoteState?.key === currentShippingQuoteKey
+    ? shippingQuoteState
+    : null;
+  const currentShippingQuote = currentShippingQuoteState?.status === "ready"
+    ? currentShippingQuoteState.quote ?? null
+    : null;
+  const shippingQuoteLoading = currentShippingQuoteState?.status === "loading";
+  const shippingQuoteError = currentShippingQuoteState?.status === "error"
+    ? currentShippingQuoteState.error ?? "Delivery charges could not be calculated."
+    : "";
+  const currentServerPayableTotal = currentShippingQuoteKey &&
+    serverPayableState?.key === currentShippingQuoteKey
+    ? serverPayableState.total
+    : null;
 
   // Handle return from Cashfree payment redirect
   useEffect(() => {
@@ -60,6 +100,7 @@ export default function CheckoutPage() {
   const [showMockGateway, setShowMockGateway] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [activeCashfreeOrderId, setActiveCashfreeOrderId] = useState<string | null>(null);
+  const checkoutRequestId = useRef<{ key: string; id: string } | null>(null);
 
   // Sync GST and phone from session/cart verification
   useEffect(() => {
@@ -93,13 +134,83 @@ export default function CheckoutPage() {
         const def = addrs.find((a) => a.isDefault) || addrs[0];
         if (def?.id) setSelectedAddressId(def.id);
         if (addrs.length === 0) setShowNewAddressForm(true);
-        setAddressesLoading(false);
-      });
+      }).catch((error: unknown) => {
+        console.error("Could not load checkout addresses:", error);
+        setAddressError("Saved addresses could not be loaded. Please try reloading the page.");
+      }).finally(() => setAddressesLoading(false));
     } else {
       setAddressesLoading(false);
       setShowNewAddressForm(true);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !selectedAddressId || !currentShippingQuoteKey || cartItemsForQuote.length === 0) return;
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setShippingQuoteState({ key: currentShippingQuoteKey, status: "loading" });
+      getCheckoutShippingQuote(selectedAddressId, cartItemsForQuote)
+        .then((result) => {
+          if (!active) return;
+          if (!result.success || !result.quote) {
+            setShippingQuoteState({
+              key: currentShippingQuoteKey,
+              status: "error",
+              error: result.error || "Delivery serviceability could not be confirmed.",
+            });
+            return;
+          }
+          setShippingQuoteState({
+            key: currentShippingQuoteKey,
+            status: "ready",
+            quote: result.quote,
+          });
+        })
+        .catch((error: unknown) => {
+          console.error("Could not calculate checkout shipping:", error);
+          if (active) {
+            setShippingQuoteState({
+              key: currentShippingQuoteKey,
+              status: "error",
+              error: "Delivery charges could not be calculated. Please try again.",
+            });
+          }
+        });
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [user, selectedAddressId, currentShippingQuoteKey, cartItemsForQuote]);
+
+  const applyNewAddressLocation = (location: SelectedLocation) => {
+    setStreet(location.street || location.displayName || street);
+    setCity(location.city || city);
+    setState(location.state || state);
+    setPostalCode(location.postalCode || postalCode);
+    setCountry(location.country || country);
+    setLatitude(location.latitude);
+    setLongitude(location.longitude);
+    setGeocodingProvider(location.provider);
+    setProviderLocationId(location.providerLocationId);
+    setAddressError("");
+  };
+
+  const newAddressData = () => ({
+    label: addressLabel,
+    street,
+    landmark: landmark || null,
+    city,
+    state,
+    postalCode,
+    country,
+    latitude,
+    longitude,
+    geocodingProvider,
+    providerLocationId,
+  });
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Strictly numeric digits, maximum 10 digits
@@ -136,7 +247,7 @@ export default function CheckoutPage() {
     }
     if (!user) return;
     setSavingAddress(true);
-    const res = await addUserAddress(user.id, { street, city, state, postalCode, country });
+    const res = await addUserAddress(user.id, newAddressData());
     setSavingAddress(false);
     if (res.success && res.address) {
       // Re-fetch full address list to ensure UI is always in sync with DB
@@ -144,20 +255,14 @@ export default function CheckoutPage() {
       setSavedAddresses(refreshed);
       setSelectedAddressId(res.address.id!);
       setShowNewAddressForm(false);
+      setAddressError("");
       // Clear the form fields
       setStreet(""); setCity(""); setState(""); setPostalCode(""); setCountry("India");
+      setAddressLabel("Home"); setLandmark(""); setLatitude(null); setLongitude(null);
+      setGeocodingProvider(null); setProviderLocationId(null);
+    } else {
+      setAddressError(res.error || "Could not save your address.");
     }
-  };
-
-  const getSelectedAddress = (): AddressInput | null => {
-    if (selectedAddressId) {
-      const addr = savedAddresses.find((a) => a.id === selectedAddressId);
-      if (addr) return { street: addr.street, city: addr.city, state: addr.state, postalCode: addr.postalCode, country: addr.country };
-    }
-    if (showNewAddressForm && street && city && state && postalCode && country) {
-      return { street, city, state, postalCode, country };
-    }
-    return null;
   };
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
@@ -183,47 +288,59 @@ export default function CheckoutPage() {
       return;
     }
 
-    const address = getSelectedAddress();
-    if (!address) {
+    let checkoutAddressId = selectedAddressId;
+    if (!checkoutAddressId && showNewAddressForm && street && city && state && postalCode && country) {
+      const saved = await addUserAddress(user.id, newAddressData());
+      if (!saved.success || !saved.address?.id) {
+        alert(saved.error || "Could not save your delivery address.");
+        return;
+      }
+      checkoutAddressId = saved.address.id;
+      setSelectedAddressId(checkoutAddressId);
+      setSavedAddresses(await getUserAddresses(user.id));
+      setShowNewAddressForm(false);
+    }
+    if (!checkoutAddressId) {
       alert("Please select or add a delivery address.");
       return;
     }
+    if (!currentShippingQuote || shippingQuoteLoading || shippingQuoteError) {
+    alert(shippingQuoteError || "Wait for delivery serviceability and charges to be confirmed.");
+    return;
+    }
 
     startTransition(async () => {
-      const address = getSelectedAddress()!;
+      const requestKey = `${user.id}:${checkoutAddressId}:${cartQuoteKey}`;
+      if (checkoutRequestId.current?.key !== requestKey) {
+        checkoutRequestId.current = { key: requestKey, id: crypto.randomUUID() };
+      }
+      const checkoutRequestIdValue = checkoutRequestId.current.id;
       const items = cart.map((item) => {
-        const unitsPerBox = item.unitsPerBox && item.unitsPerBox > 0 ? item.unitsPerBox : 100;
         return {
           productId: item.id,
-          name: item.name,
-          price: item.price,
           quantity: item.quantity,
-          boxes: item.quantity,
-          unitsPerBox: unitsPerBox,
-          totalUnits: item.quantity * unitsPerBox,
-          pricePerBox: item.price,
-          image: item.image,
-          sellerId: item.sellerId,
         };
       });
 
-      const totalBoxes = cart.reduce((acc, item) => acc + item.quantity, 0);
-
       // Call server action to create Order & Cashfree ID
       const res = await createOrder({
-        userId: user.id,
-        userEmail: user.email,
+        addressId: checkoutAddressId,
+        checkoutRequestId: checkoutRequestIdValue,
         userPhone: digitsPhone,
         gstin: gstinValidation.normalizedGstin,
-        totalBoxes,
-        address,
         items,
-        totalAmount: cartTotal,
       });
 
-      if (!res.success || !res.order) {
-        alert((res as any)?.error || "Failed to initialize order payment. Try again.");
+      if (!res.success) {
+        alert(res.error || "Failed to initialize order payment. Try again.");
         return;
+      }
+      if (!res.order) {
+        alert("Failed to initialize order payment. Try again.");
+        return;
+      }
+      if (res.payableTotal !== undefined && res.payableTotal !== null) {
+        setServerPayableState({ key: requestKey, total: res.payableTotal });
       }
 
       // Sync phone to profile if user opted in or if user had no phone registered
@@ -533,7 +650,9 @@ export default function CheckoutPage() {
                         {addr.isDefault && (
                           <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full mr-2">Default</span>
                         )}
+                        <span className="text-[10px] font-semibold text-muted-foreground">{addr.label || "Address"}</span>
                         <p className="text-sm font-medium text-foreground">{addr.street}</p>
+                        {addr.landmark && <p className="text-xs text-muted-foreground">Near {addr.landmark}</p>}
                         <p className="text-xs text-muted-foreground">{addr.city}, {addr.state} — {addr.postalCode}, {addr.country}</p>
                       </div>
                     </div>
@@ -555,9 +674,26 @@ export default function CheckoutPage() {
                 {showNewAddressForm && (
                   <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
                     <p className="text-xs font-semibold text-primary mb-2">Enter New Address</p>
+                    <LocationPicker
+                      latitude={latitude}
+                      longitude={longitude}
+                      onSelect={applyNewAddressLocation}
+                    />
                     <div className="space-y-1">
-                      <Label>Street Address</Label>
+                      <Label>Address label</Label>
+                      <select className="w-full rounded-lg border bg-background px-3 py-2 text-sm" value={addressLabel} onChange={(event) => setAddressLabel(event.target.value as AddressData["label"])}>
+                        <option value="Home">Home</option>
+                        <option value="Office">Office</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Full Street Address</Label>
                       <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="e.g. 14 Green Ridge Lane" required={!selectedAddressId} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Landmark (optional)</Label>
+                      <Input value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Nearby landmark" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1"><Label>City</Label><Input value={city} onChange={(e) => setCity(e.target.value)} required={!selectedAddressId} /></div>
@@ -585,6 +721,17 @@ export default function CheckoutPage() {
                         </button>
                       )}
                     </div>
+                    {(latitude !== null || longitude !== null) && (
+                      <button type="button" className="text-[11px] text-primary underline" onClick={() => {
+                        setLatitude(null);
+                        setLongitude(null);
+                        setGeocodingProvider(null);
+                        setProviderLocationId(null);
+                      }}>
+                        Save manually without map coordinates
+                      </button>
+                    )}
+                    {addressError && <p role="alert" className="text-xs text-red-600">{addressError}</p>}
                     <p className="text-[10px] text-muted-foreground">
                       Or <Link href="/account" className="underline text-primary">manage addresses</Link> in your account to save them for future orders.
                     </p>
@@ -702,14 +849,62 @@ export default function CheckoutPage() {
                     <span className="font-semibold text-foreground">{totalPurchasedBoxes + totalFreeBoxes} Boxes</span>
                   </div>
 
-                  <div className="flex justify-between text-emerald-600 font-semibold">
-                    <span>Shipping Carbon Offset Fee</span>
-                    <span>SPONSORED</span>
+                  {shippingQuoteLoading && (
+                    <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking delivery serviceability and charges…
+                    </div>
+                  )}
+                  {shippingQuoteError && <p role="alert" className="rounded-lg bg-red-50 p-2 text-xs text-red-700">{shippingQuoteError}</p>}
+                  {currentShippingQuote && (
+                    <div className="space-y-2 border-t border-border/30 pt-3">
+                      <p className="font-bold text-foreground">Server-calculated merchandise</p>
+                      {currentShippingQuote.items.map((quoteItem) => (
+                        <div key={quoteItem.productId} className="rounded-lg bg-muted/30 p-2.5">
+                          <div className="flex justify-between gap-3">
+                            <span className="font-semibold">{quoteItem.name} × {quoteItem.quantity}</span>
+                            <span className="font-bold">₹{quoteItem.productSellingPrice.toFixed(2)}</span>
+                          </div>
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Seller base ₹{quoteItem.sellerBaseAmount.toFixed(2)} · Marketplace commission ₹{quoteItem.commissionAmount.toFixed(2)} · Selling price ₹{quoteItem.productSellingPrice.toFixed(2)}
+                          </p>
+                        </div>
+                      ))}
+                      <div className="flex justify-between font-semibold">
+                        <span>Server-calculated merchandise subtotal</span>
+                        <span>₹{currentShippingQuote.merchandiseSubtotal.toFixed(2)}</span>
+                      </div>
+                      <p className="font-bold text-foreground">Delivery by seller shipment</p>
+                      {currentShippingQuote.shipments.map((shipment) => (
+                        <div key={shipment.sellerId} className="rounded-lg bg-muted/30 p-2.5">
+                          <div className="flex justify-between gap-3">
+                            <span className="font-semibold">{shipment.sellerName}</span>
+                            <span className="font-bold">₹{shipment.fee.toFixed(2)}</span>
+                          </div>
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            {shipment.zone} · {shipment.routeDistanceKm !== null
+                              ? `${shipment.routeDistanceKm.toFixed(1)} km road route`
+                              : "PIN-zone fallback estimate"}
+                            {" · "}{shipment.estimatedMinDays}–{shipment.estimatedMaxDays} days
+                          </p>
+                        </div>
+                      ))}
+                      <div className="flex justify-between font-semibold">
+                        <span>Total estimated delivery charge</span>
+                        <span>₹{currentShippingQuote.totalFee.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t border-border/30 pt-3 text-sm">
+                    <span className="text-muted-foreground">Merchandise subtotal</span>
+                    <span>₹{(currentShippingQuote?.merchandiseSubtotal ?? cartTotal).toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between border-t border-border/30 pt-3 text-sm font-bold text-foreground">
-                    <span>Gross Amount Due</span>
-                    <span>₹{cartTotal.toLocaleString()}</span>
+                  <div className="flex justify-between text-sm font-bold text-foreground">
+                    <span>Estimated total payable</span>
+                    <span>₹{((currentShippingQuote?.merchandiseSubtotal ?? cartTotal) + (currentShippingQuote?.totalFee || 0)).toFixed(2)}</span>
                   </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Final product prices, commission and delivery charges are recalculated from server records before Cashfree payment. Taxes and discounts follow the existing checkout rules.
+                  </p>
                 </div>
               );
             })()}
@@ -718,7 +913,7 @@ export default function CheckoutPage() {
               type="submit"
               variant="success"
               className="w-full py-3 flex items-center justify-center space-x-2"
-              disabled={isPending}
+              disabled={isPending || addressesLoading || !selectedAddressId || !currentShippingQuote || shippingQuoteLoading || Boolean(shippingQuoteError)}
             >
               {isPending ? (
                 <>
@@ -728,7 +923,7 @@ export default function CheckoutPage() {
               ) : (
                 <>
                   <ShieldCheck className="h-4.5 w-4.5" />
-                  <span>Authorize & Pay ₹{cartTotal}</span>
+                  <span>Authorize & Pay ₹{((currentShippingQuote?.merchandiseSubtotal ?? cartTotal) + (currentShippingQuote?.totalFee || 0)).toFixed(2)}</span>
                 </>
               )}
             </MetalButton>
@@ -761,7 +956,7 @@ export default function CheckoutPage() {
               </div>
               <div className="flex justify-between border-t border-border/30 pt-2 font-bold">
                 <span>Amount Charged:</span>
-                <span className="text-primary">₹{cartTotal}</span>
+                <span className="text-primary">₹{(currentServerPayableTotal ?? ((currentShippingQuote?.merchandiseSubtotal ?? cartTotal) + (currentShippingQuote?.totalFee || 0))).toFixed(2)}</span>
               </div>
             </div>
 

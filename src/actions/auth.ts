@@ -8,6 +8,7 @@ import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import { setEarthcentricSessionCookie } from "@/lib/session";
+import { verifyAdminAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
 
 function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
@@ -127,7 +128,7 @@ export async function signupUser(
     // Create Welcome Notification for new buyer
     if (role === "BUYER") {
       try {
-        const { createNotification } = await import("@/actions/notifications");
+        const { createNotification } = await import("@/lib/notification-service");
         await createNotification(
           user.id,
           "Welcome to EarthCentric! 🌿",
@@ -176,15 +177,35 @@ export async function syncUserInDb(userData: {
   id: string;
   email: string;
 }) {
-  const normalizedUserDataEmail = userData.email.trim().toLowerCase();
-  const isSuperAdminFallback = isSuperAdminEmail(normalizedUserDataEmail);
-  const isConfiguredSellerFallback = isConfiguredSellerEmail(normalizedUserDataEmail);
+  let identity: Awaited<ReturnType<typeof getVerifiedClerkIdentity>>;
+  try {
+    identity = await getVerifiedClerkIdentity();
+  } catch (error) {
+    console.error("Failed to verify Clerk identity:", error);
+    return {
+      success: false as const,
+      error: "Your signed-in account could not be verified. Sign out and sign in again.",
+    };
+  }
+  if (
+    !identity ||
+    identity.id !== userData.id ||
+    identity.email !== userData.email.trim().toLowerCase()
+  ) {
+    return {
+      success: false as const,
+      error: "Your signed-in Clerk account could not be verified. Sign out and sign in again.",
+    };
+  }
+  const normalizedUserDataEmail = identity.email;
+  const isSuperAdminFallback = isSuperAdminEmail(identity.email);
+  const isConfiguredSellerFallback = isConfiguredSellerEmail(identity.email);
 
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
     const role = isSuperAdminFallback ? "ADMIN" : (isConfiguredSellerFallback ? "SELLER" : "BUYER");
     const fallbackUser = {
-      id: userData.id,
-      name: normalizedUserDataEmail.split("@")[0],
+      id: identity.id,
+      name: identity.name || normalizedUserDataEmail.split("@")[0],
       email: normalizedUserDataEmail,
       phone: null,
       role: role as any,
@@ -205,18 +226,6 @@ export async function syncUserInDb(userData: {
   }
 
   try {
-    const identity = await getVerifiedClerkIdentity();
-    if (
-      !identity ||
-      identity.id !== userData.id ||
-      identity.email !== userData.email.trim().toLowerCase()
-    ) {
-      return {
-        success: false as const,
-        error: "Your signed-in Clerk account could not be verified. Sign out and sign in again.",
-      };
-    }
-
     const normalizedEmail = identity.email;
 
     const existingUser = await db.user.findUnique({
@@ -331,27 +340,42 @@ export async function syncUserInDb(userData: {
   }
 }
 
-export async function setSellerSessionCookie(userId: string, role: string = "SELLER", sellerStatus: string = "APPROVED") {
+export async function setSellerSessionCookie(
+  userId: string,
+  _role: string = "SELLER",
+  _sellerStatus: string = "APPROVED"
+) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      const identity = await getVerifiedClerkIdentity();
-      if (!identity) return { success: false };
+    void _role;
+    void _sellerStatus;
+    const identity = await verifyAuthenticatedUser();
+    if (
+      !identity.authorized ||
+      !identity.userId ||
+      identity.userId !== userId ||
+      identity.role !== "SELLER" ||
+      !identity.sellerId
+    ) return { success: false };
 
-      const user = await db.user.findUnique({
-        where: { email: identity.email },
-        include: { seller: true },
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      await setEarthcentricSessionCookie({
+        id: identity.userId,
+        role: "SELLER",
+        sellerStatus: "APPROVED",
       });
-      if (!user || user.role !== "SELLER" || !user.seller || user.id !== userId) {
-        return { success: false };
-      }
-      role = user.role;
-      sellerStatus = user.seller.verificationStatus;
+      return { success: true };
     }
 
+    const seller = await db.seller.findUnique({
+      where: { id: identity.sellerId },
+      select: { verificationStatus: true },
+    });
+    if (!seller) return { success: false };
+
     await setEarthcentricSessionCookie({
-      id: userId,
-      role,
-      sellerStatus,
+      id: identity.userId,
+      role: "SELLER",
+      sellerStatus: seller.verificationStatus,
     });
     return { success: true };
   } catch (e) {
@@ -360,22 +384,19 @@ export async function setSellerSessionCookie(userId: string, role: string = "SEL
   }
 }
 
-export async function setAdminSessionCookie(userId: string = "admin-1") {
+export async function setAdminSessionCookie(userId?: string) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      const identity = await getVerifiedClerkIdentity();
-      if (!identity) return { success: false };
+    const identity = await verifyAuthenticatedUser();
+    const admin = await verifyAdminAuth();
+    if (
+      !identity.authorized ||
+      !identity.userId ||
+      !admin.authorized ||
+      admin.userId !== identity.userId ||
+      (userId && identity.userId !== userId)
+    ) return { success: false };
 
-      const user = await db.user.findUnique({
-        where: { email: identity.email },
-        select: { id: true, role: true },
-      });
-      if (!user || user.id !== userId || user.role !== "ADMIN") {
-        return { success: false };
-      }
-    }
-
-    await setEarthcentricSessionCookie({ id: userId, role: "ADMIN" });
+    await setEarthcentricSessionCookie({ id: identity.userId, role: "ADMIN" });
     return { success: true };
   } catch (e) {
     console.error("Failed to set admin session cookie:", e);
@@ -383,7 +404,11 @@ export async function setAdminSessionCookie(userId: string = "admin-1") {
   }
 }
 
-export async function updateUserProfilePicture(userId: string, base64Image: string): Promise<string> {
+export async function updateUserProfilePicture(_userId: string, base64Image: string): Promise<string> {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) {
+    throw new Error("Sign in before updating your profile picture.");
+  }
   const resultJson = await uploadImage(base64Image, "buyer-profile");
   
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
@@ -392,7 +417,7 @@ export async function updateUserProfilePicture(userId: string, base64Image: stri
   
   try {
     const existingUser = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: auth.userId },
       select: { image: true }
     });
     
@@ -404,7 +429,7 @@ export async function updateUserProfilePicture(userId: string, base64Image: stri
     }
     
     await db.user.update({
-      where: { id: userId },
+      where: { id: auth.userId },
       data: { image: resultJson }
     });
   } catch (error) {

@@ -2,11 +2,12 @@
 
 import db from "@/lib/db";
 import { uploadImage, deleteImage, getUrlFromDb, getPublicIdFromDb } from "@/lib/cloudinary";
-import { createAdminNotification } from "@/actions/notifications";
+import { createAdminNotification } from "@/lib/notification-service";
 import { createProduct } from "./products";
 import { getOrdersBySeller } from "./orders";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { setEarthcentricSessionCookie } from "@/lib/session";
+import { verifyAdminAuth, verifyAuthenticatedUser, verifySellerAuth } from "@/lib/auth-server";
 import { validateFullApplication } from "@/lib/seller-validation";
 import { findExistingCategory } from "@/actions/categories";
 import {
@@ -134,14 +135,17 @@ let mockSellers: SellerProfile[] = [
   }
 ];
 
-export async function getSellerProfile(userId: string): Promise<SellerProfile | null> {
+export async function getSellerProfile(_userId: string): Promise<SellerProfile | null> {
+  void _userId;
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) return null;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
-      return mockSellers.find((s) => s.userId === userId) || null;
+      return mockSellers.find((s) => s.userId === auth.userId) || null;
     }
 
     const seller = await db.seller.findUnique({
-      where: { userId },
+      where: { userId: auth.userId },
       include: {
         documents: true,
         user: true,
@@ -213,11 +217,14 @@ export async function getSellerProfile(userId: string): Promise<SellerProfile | 
       })),
     };
   } catch (e) {
-    return mockSellers.find((s) => s.userId === userId) || null;
+    console.error("getSellerProfile failed:", e);
+    return null;
   }
 }
 
 export async function getSellerProfileById(id: string): Promise<SellerProfile | null> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return null;
   try {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       const s = mockSellers.find((sel) => sel.id === id || sel.userId === id);
@@ -343,6 +350,15 @@ export async function submitSellerVerification(data: {
     fileSize?: number | null;
   }[];
 }): Promise<SellerProfile> {
+  const identity = await verifyAuthenticatedUser();
+  if (!identity.authorized || !identity.userId) {
+    throw new Error("Please sign in before submitting a seller application.");
+  }
+  if (identity.role !== "BUYER") {
+    throw new Error("Only buyer accounts can submit a seller application.");
+  }
+  data = { ...data, userId: identity.userId };
+
   // Process documents: preserve verified pre-uploaded URLs, or upload base64 if provided
   const uploadedDocs = await Promise.all(
     data.documents.map(async (doc) => {
@@ -673,6 +689,10 @@ export async function updateSellerProfile(
   }
 ): Promise<{ success: boolean; profile?: SellerProfile | null; error?: string }> {
   try {
+    const identity = await verifySellerAuth(undefined, { requireActive: false });
+    if (!identity.authorized || !identity.sellerId) {
+      return { success: false, error: "An authenticated seller account is required." };
+    }
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     let uploadedLogoUrl: string | null | undefined = undefined;
@@ -683,7 +703,7 @@ export async function updateSellerProfile(
     }
 
     if (isMock) {
-      const existing = mockSellers.find((s) => s.userId === userId || s.id === userId);
+      const existing = mockSellers.find((s) => s.userId === identity.userId || s.id === identity.sellerId);
       if (existing) {
         if (data.companyName) existing.companyName = data.companyName;
         if (data.description) existing.description = data.description;
@@ -699,7 +719,7 @@ export async function updateSellerProfile(
     }
 
     const seller = await db.seller.findFirst({
-      where: { OR: [{ id: userId }, { userId }] },
+      where: { id: identity.sellerId, userId: identity.userId },
     });
 
     if (!seller) {
@@ -765,6 +785,12 @@ export async function getSellerDashboardStats(
   selectedMonth?: string,
   selectedYear?: string
 ) {
+  const adminAuth = await verifyAdminAuth();
+  const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth(sellerId);
+  if (!adminAuth.authorized && (!sellerAuth?.authorized || !sellerAuth.sellerId)) {
+    throw new Error("Seller sign-in is required to view seller dashboard statistics.");
+  }
+  const requestedSellerId = adminAuth.authorized ? sellerId : sellerAuth!.sellerId!;
   try {
     let startDate: Date | undefined;
     let endDate: Date | undefined;
@@ -785,6 +811,9 @@ export async function getSellerDashboardStats(
     }
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+      if (!adminAuth.authorized && requestedSellerId !== sellerAuth?.sellerId) {
+        throw new Error("You can only view your own seller statistics.");
+      }
       const scale = filterType === "daily" ? 0.05 : filterType === "monthly" ? 0.45 : filterType === "yearly" ? 0.9 : 1;
       const baseGrossRev = Math.round(96000 * scale);
       const baseComm = Math.round(16000 * scale);
@@ -831,9 +860,10 @@ export async function getSellerDashboardStats(
 
     // Resolve seller ID candidate keys
     const seller = await db.seller.findFirst({
-      where: { OR: [{ id: sellerId }, { userId: sellerId }] },
+      where: { OR: [{ id: requestedSellerId }, { userId: requestedSellerId }] },
     });
-    const candidateSellerIds = Array.from(new Set([sellerId, seller?.id, seller?.userId].filter(Boolean) as string[]));
+
+    const candidateSellerIds = Array.from(new Set([requestedSellerId, seller?.id, seller?.userId].filter(Boolean) as string[]));
 
     // DB Aggregations - Product Count filtered by Product Created Date / productDate
     const productWhere: any = {
@@ -1089,19 +1119,50 @@ export async function getSellerDashboardStats(
 }
 
 // Internal mock helper for admin approvals
-export async function getMockSellersInternal() {
-  return mockSellers;
+export async function getMockSellersInternal(): Promise<SellerProfile[]> {
+  const adminAuth = await verifyAdminAuth();
+  if (adminAuth.authorized) return mockSellers;
+
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized) return [];
+  return mockSellers.map((seller) => {
+    const safeSeller = { ...seller };
+    delete safeSeller.gstNumber;
+    delete safeSeller.panNumber;
+    delete safeSeller.aadharNumber;
+    delete safeSeller.declaredRevenue;
+    delete safeSeller.bankAccountNo;
+    delete safeSeller.bankName;
+    delete safeSeller.bankIfsc;
+    delete safeSeller.bankProofUrl;
+    safeSeller.documents = [];
+    return {
+      ...safeSeller,
+    };
+  });
 }
 
 let mockSellerRemovalHistory: SellerRemovalRecord[] = [];
 
 export async function getMockSellerRemovalHistory(userId: string, sellerId?: string): Promise<SellerRemovalRecord[]> {
+  const adminAuth = await verifyAdminAuth();
+  const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth(sellerId || userId, { requireActive: false });
+  if (!adminAuth.authorized) {
+    if (!sellerAuth?.authorized || !sellerAuth.userId || !sellerAuth.sellerId) return [];
+    const requestedIds = [userId, sellerId].filter((id): id is string => Boolean(id));
+    if (requestedIds.some((id) => id !== sellerAuth.userId && id !== sellerAuth.sellerId)) return [];
+    userId = sellerAuth.userId;
+    sellerId = sellerAuth.sellerId;
+  }
   return mockSellerRemovalHistory.filter(
     (r) => r.userId === userId || r.sellerId === userId || (sellerId && (r.sellerId === sellerId || r.userId === sellerId))
   );
 }
 
 export async function removeMockSellerInternal(userIdOrSellerId: string, reason: string, adminEmail: string) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
+  adminEmail = auth.email;
   const seller = mockSellers.find((s) => s.userId === userIdOrSellerId || s.id === userIdOrSellerId);
   if (!seller) return;
 
@@ -1150,6 +1211,15 @@ export async function removeMockSellerInternal(userIdOrSellerId: string, reason:
 
 export async function getSellerRemovalHistoryInternal(userId: string, sellerId?: string): Promise<SellerRemovalRecord[]> {
   try {
+    const adminAuth = await verifyAdminAuth();
+    const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth(sellerId || userId, { requireActive: false });
+    if (!adminAuth.authorized) {
+      if (!sellerAuth?.authorized || !sellerAuth.userId || !sellerAuth.sellerId) return [];
+      const requestedIds = [userId, sellerId].filter((id): id is string => Boolean(id));
+      if (requestedIds.some((id) => id !== sellerAuth.userId && id !== sellerAuth.sellerId)) return [];
+      userId = sellerAuth.userId;
+      sellerId = sellerAuth.sellerId;
+    }
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
     if (isMock) {
       return getMockSellerRemovalHistory(userId, sellerId);
@@ -1187,6 +1257,8 @@ export async function getSellerRemovalHistoryInternal(userId: string, sellerId?:
 }
 
 export async function updateMockSellerStatusInternal(userId: string, status: SellerProfile["verificationStatus"], badges: string[], reason?: string) {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) throw new Error("Unauthorized: Super Admin access is required.");
   mockSellers = mockSellers.map((s) => {
     if (s.userId === userId) {
       return {
@@ -1201,6 +1273,12 @@ export async function updateMockSellerStatusInternal(userId: string, status: Sel
 }
 
 export async function getSellerAnalyticsTimeSeries(sellerId: string) {
+  const adminAuth = await verifyAdminAuth();
+  const sellerAuth = adminAuth.authorized ? null : await verifySellerAuth(sellerId);
+  if (!adminAuth.authorized && (!sellerAuth?.authorized || !sellerAuth.sellerId)) {
+    throw new Error("Seller sign-in is required to view seller analytics.");
+  }
+  const requestedSellerId = adminAuth.authorized ? sellerId : sellerAuth!.sellerId!;
   const dailyIncome = [];
   const dailyOrders = [];
   const monthlyIncome = [];
@@ -1255,10 +1333,10 @@ export async function getSellerAnalyticsTimeSeries(sellerId: string) {
   try {
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       const seller = await db.seller.findFirst({
-        where: { OR: [{ id: sellerId }, { userId: sellerId }] }
+        where: { OR: [{ id: requestedSellerId }, { userId: requestedSellerId }] }
       });
       if (seller) {
-        const candidateSellerIds = Array.from(new Set([seller.id, seller.userId, sellerId].filter(Boolean) as string[]));
+        const candidateSellerIds = Array.from(new Set([seller.id, seller.userId, requestedSellerId].filter(Boolean) as string[]));
         const orderItems = await db.orderItem.findMany({
           where: {
             product: { sellerId: { in: candidateSellerIds } },
@@ -1372,11 +1450,15 @@ export async function getSellerAnalyticsTimeSeries(sellerId: string) {
 }
 
 export async function updateSellerLogo(sellerId: string, base64Image: string): Promise<string> {
+  const identity = await verifySellerAuth(sellerId, { requireActive: false });
+  if (!identity.authorized || !identity.sellerId) {
+    throw new Error("An authenticated seller account is required.");
+  }
   const resultJson = await uploadImage(base64Image, "seller-profile");
   
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
     const sellers = await getMockSellersInternal();
-    const existing = sellers.find((s) => s.id === sellerId || s.userId === sellerId);
+    const existing = sellers.find((s) => s.id === identity.sellerId);
     if (existing) {
       existing.logoUrl = resultJson;
     }
@@ -1385,7 +1467,7 @@ export async function updateSellerLogo(sellerId: string, base64Image: string): P
   
   try {
     const existingSeller = await db.seller.findUnique({
-      where: { id: sellerId },
+      where: { id: identity.sellerId, userId: identity.userId },
       select: { logoUrl: true }
     });
     
@@ -1397,7 +1479,7 @@ export async function updateSellerLogo(sellerId: string, base64Image: string): P
     }
     
     await db.seller.update({
-      where: { id: sellerId },
+      where: { id: identity.sellerId, userId: identity.userId },
       data: { logoUrl: resultJson }
     });
   } catch (error) {
@@ -1408,11 +1490,15 @@ export async function updateSellerLogo(sellerId: string, base64Image: string): P
 }
 
 export async function updateSellerBanner(sellerId: string, base64Image: string): Promise<string> {
+  const identity = await verifySellerAuth(sellerId, { requireActive: false });
+  if (!identity.authorized || !identity.sellerId) {
+    throw new Error("An authenticated seller account is required.");
+  }
   const resultJson = await uploadImage(base64Image, "seller-banner");
   
   if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
     const sellers = await getMockSellersInternal();
-    const existing = sellers.find((s) => s.id === sellerId || s.userId === sellerId);
+    const existing = sellers.find((s) => s.id === identity.sellerId);
     if (existing) {
       (existing as any).bannerUrl = resultJson;
     }
@@ -1595,6 +1681,15 @@ export async function submit3StepSellerVerification(data: {
     imageUrls: string[];
   };
 }): Promise<SellerProfile> {
+  const identity = await verifyAuthenticatedUser();
+  if (!identity.authorized || !identity.userId) {
+    throw new Error("Please sign in before submitting a seller application.");
+  }
+  if (identity.role !== "BUYER") {
+    throw new Error("Only buyer accounts can submit a seller application.");
+  }
+  data = { ...data, userId: identity.userId };
+
   // Server-side centralized validation across all 3 steps to prevent API bypass
   const gstDoc = data.documents.find((d) => d.type === "GST");
   const panDoc = data.documents.find((d) => d.type === "PAN");

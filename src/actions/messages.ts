@@ -3,6 +3,7 @@
 import db from "@/lib/db";
 import { getMockSellersInternal } from "@/actions/sellers";
 import { Prisma } from "@prisma/client";
+import { verifyAdminAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
 
 export interface MessageAttachment {
   name: string;
@@ -126,32 +127,29 @@ async function resolveDbUserId(idOrEmail: string): Promise<string> {
   }
 }
 
-async function resolveMockSenderName(idOrEmail: string): Promise<string> {
-  const uid = await resolveMockUserId(idOrEmail);
-  if (uid === "admin-1") return "Super Admin";
-  if (uid === "seller-1") return "Shiva Teja";
-  if (uid === "seller-2") return "Rohan Mehta";
-  return "Seller Partner";
-}
-
 export async function sendMessage(
-  senderEmailOrId: string, 
+  _senderEmailOrId: string,
   receiverId: string, 
   content: string,
   attachments?: MessageAttachment[],
   reference?: MessageReference | null
 ) {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) {
+    return { success: false, error: "Sign in before sending a message." };
+  }
+  const adminAuth = await verifyAdminAuth();
+  const senderId = auth.userId;
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
-  const isAdminSender = senderEmailOrId.includes("admin") || senderEmailOrId === "admin-1" || senderEmailOrId === "admin@earthcentric.com";
+  const isAdminSender = adminAuth.authorized;
 
   if (!isMock) {
     try {
-      const sId = await resolveDbUserId(senderEmailOrId);
       const rId = await resolveDbUserId(receiverId);
 
       const msg = await db.message.create({
         data: {
-          senderId: sId,
+          senderId,
           receiverId: rId,
           content,
           isDelivered: true,
@@ -176,11 +174,11 @@ export async function sendMessage(
         console.error("Notification creation optional error:", notifErr);
       }
 
-      const sender = await db.user.findUnique({ where: { id: sId } });
+      const sender = await db.user.findUnique({ where: { id: senderId } });
 
       const dbFormattedMsg: MessageData = {
         id: msg.id,
-        senderId: sId,
+        senderId,
         receiverId: rId,
         content: msg.content,
         isRead: msg.isRead,
@@ -200,13 +198,12 @@ export async function sendMessage(
 
   // Memory Mock Execution & Fallback
   try {
-    const sId = await resolveMockUserId(senderEmailOrId);
     const rId = await resolveMockUserId(receiverId);
-    const senderName = await resolveMockSenderName(senderEmailOrId);
+    const senderName = auth.email || (isAdminSender ? "Super Admin" : "Seller Partner");
     
     const msg: MessageData = {
       id: `msg-${Date.now()}`,
-      senderId: sId,
+      senderId,
       receiverId: rId,
       content,
       isRead: false,
@@ -226,12 +223,16 @@ export async function sendMessage(
 }
 
 export async function getMessages(user1EmailOrId: string, user2EmailOrId: string): Promise<MessageData[]> {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) return [];
+  const adminAuth = await verifyAdminAuth();
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   if (!isMock) {
     try {
       const id1 = await resolveDbUserId(user1EmailOrId);
       const id2 = await resolveDbUserId(user2EmailOrId);
+      if (!adminAuth.authorized && id1 !== auth.userId && id2 !== auth.userId) return [];
 
       const dbMsgs = await db.message.findMany({
         where: {
@@ -271,16 +272,21 @@ export async function getMessages(user1EmailOrId: string, user2EmailOrId: string
   // Memory Mock Fallback
   const id1 = await resolveMockUserId(user1EmailOrId);
   const id2 = await resolveMockUserId(user2EmailOrId);
+  if (!adminAuth.authorized && id1 !== auth.userId && id2 !== auth.userId) return [];
   return mockMessages.filter(
     (m) => (m.senderId === id1 && m.receiverId === id2) || (m.senderId === id2 && m.receiverId === id1)
   );
 }
 
 export async function markMessagesAsRead(receiverEmailOrId: string, senderEmailOrId: string) {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) return false;
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   if (isMock) {
-    const rId = await resolveMockUserId(receiverEmailOrId);
+    const requestedReceiverId = await resolveMockUserId(receiverEmailOrId);
+    if (requestedReceiverId !== auth.userId) return false;
+    const rId = auth.userId;
     const sId = await resolveMockUserId(senderEmailOrId);
     mockMessages.forEach((m) => {
       if (m.receiverId === rId && m.senderId === sId) {
@@ -292,6 +298,7 @@ export async function markMessagesAsRead(receiverEmailOrId: string, senderEmailO
 
   try {
     const rId = await resolveDbUserId(receiverEmailOrId);
+    if (rId !== auth.userId) return false;
     const sId = await resolveDbUserId(senderEmailOrId);
 
     await db.message.updateMany({
@@ -312,6 +319,8 @@ export async function markMessagesAsRead(receiverEmailOrId: string, senderEmailO
 }
 
 export async function getAllConversationsForAdmin(): Promise<AdminConversationSummary[]> {
+  const auth = await verifyAdminAuth();
+  if (!auth.authorized) return [];
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   if (!isMock) {
@@ -416,15 +425,19 @@ export async function getAllConversationsForAdmin(): Promise<AdminConversationSu
 }
 
 export async function getUnreadMessageCount(userEmailOrId: string): Promise<number> {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) return 0;
   const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
   if (isMock) {
     const uId = await resolveMockUserId(userEmailOrId);
+    if (uId !== auth.userId) return 0;
     return mockMessages.filter((m) => m.receiverId === uId && !m.isRead).length;
   }
 
   try {
     const uId = await resolveDbUserId(userEmailOrId);
+    if (uId !== auth.userId) return 0;
     return await db.message.count({
       where: { receiverId: uId, isRead: false },
     });

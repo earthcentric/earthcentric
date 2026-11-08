@@ -2,7 +2,8 @@
 
 import db from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { createNotification, createAdminNotification } from "@/actions/notifications";
+import { createNotification, createAdminNotification } from "@/lib/notification-service";
+import { verifyAdminAuth, verifySellerAuth } from "@/lib/auth-server";
 
 export type DiscountTypeEnum = "INDIVIDUAL" | "TIER" | "BUY_X_GET_Y";
 export type DiscountActionEnum = "ACTIVATE" | "DEACTIVATE" | "UPDATE";
@@ -155,7 +156,13 @@ export async function closeDiscountImmediately(params: {
   closedBy?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const { productId, sellerId, discountType, closedBy } = params;
+    const identity = await verifySellerAuth(params.sellerId);
+    if (!identity.authorized || !identity.sellerId || !identity.userId) {
+      return { success: false, error: "An authenticated seller account is required." };
+    }
+    const { productId, discountType } = params;
+    const sellerId = identity.sellerId;
+    const closedBy = identity.userId;
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     let product: any = null;
@@ -283,7 +290,13 @@ export async function requestDiscountApproval(params: {
   requestedBy?: string;
 }): Promise<{ success: boolean; error?: string; requestId?: string }> {
   try {
-    const { productId, sellerId, discountType, requestedAction, proposedConfig, requestedBy } = params;
+    const identity = await verifySellerAuth(params.sellerId);
+    if (!identity.authorized || !identity.sellerId || !identity.userId) {
+      return { success: false, error: "An authenticated seller account is required." };
+    }
+    const { productId, discountType, requestedAction, proposedConfig } = params;
+    const sellerId = identity.sellerId;
+    const requestedBy = identity.userId;
 
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
@@ -584,6 +597,11 @@ export async function approveDiscountRequest(
   adminEmail: string = "admin@earthcentric.com"
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const identity = await verifyAdminAuth();
+    if (!identity.authorized) {
+      return { success: false, error: "Unauthorized: Super Admin access is required." };
+    }
+    adminEmail = identity.email;
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     let reqItem: any = null;
@@ -813,6 +831,11 @@ export async function rejectDiscountRequest(
   adminEmail: string = "admin@earthcentric.com"
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const identity = await verifyAdminAuth();
+    if (!identity.authorized) {
+      return { success: false, error: "Unauthorized: Super Admin access is required." };
+    }
+    adminEmail = identity.email;
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     let reqItem: any = null;
@@ -1068,6 +1091,8 @@ export async function getAllDiscountApprovalRequests(filter?: {
   productId?: string;
 }): Promise<DiscountApprovalRequestItem[]> {
   try {
+    const identity = await verifyAdminAuth();
+    if (!identity.authorized) return [];
     const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
 
     if (!isMock) {

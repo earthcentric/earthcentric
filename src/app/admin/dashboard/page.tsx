@@ -44,6 +44,7 @@ import { AdminBuyerDetailModal } from "@/components/ui/admin-buyer-detail-modal"
 import { AdminProductDetailModal } from "@/components/ui/admin-product-detail-modal";
 import { AdminMessagesView } from "@/components/admin/AdminMessagesView";
 import { CategoryManagementView } from "@/components/admin/CategoryManagementView";
+import { AdminShippingView } from "@/components/shipping/ShippingSettings";
 import { OrderCancellationsAdminView } from "@/components/admin/OrderCancellationsAdminView";
 import { SuperAdminFinancialAuditView } from "@/components/admin/SuperAdminFinancialAuditView";
 import { getUnreadMessageCount } from "@/actions/messages";
@@ -101,6 +102,7 @@ import {
   Loader2,
   RotateCcw,
   RefreshCw,
+  Truck,
 } from "lucide-react";
 
 // Mock User Data for User Management View Fallback
@@ -114,6 +116,54 @@ const MOCK_TRANSACTIONS = [
   { id: "TXN-93212", orderId: "EC-ORD-4610", amount: 599, method: "NetBanking", commission: 59.9, status: "Success", date: "11/06/2026" },
   { id: "TXN-93041", orderId: "EC-ORD-4521", amount: 1347, method: "Credit Card", commission: 134.7, status: "Success", date: "10/06/2026" },
 ];
+
+function SidebarLink({
+  icon: Icon,
+  label,
+  value,
+  badge,
+  activeTab,
+  onSelect,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  badge?: number;
+  activeTab: string;
+  onSelect: (value: string) => void;
+}) {
+  const isActive = activeTab === value;
+  return (
+    <button
+      onClick={() => onSelect(value)}
+      className={`w-full flex items-center justify-between px-6 py-2.5 text-xs font-semibold transition-colors duration-200 ${
+        isActive
+          ? "bg-[#2d4a36] text-white border-l-4 border-emerald-400"
+          : "text-[#8ca193] hover:bg-[#25422d] hover:text-white border-l-4 border-transparent"
+      }`}
+    >
+      <div className="flex items-center space-x-3">
+        <Icon className="h-4 w-4" />
+        <span>{label}</span>
+      </div>
+      {badge !== undefined && badge > 0 && (
+        <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function isPendingDiscount(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const discount = value as Record<string, unknown>;
+  const nested = discount.discount;
+  const nestedStatus = typeof nested === "object" && nested !== null
+    ? (nested as Record<string, unknown>).status
+    : undefined;
+  return (discount.status || nestedStatus) === "PENDING";
+}
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -257,33 +307,10 @@ export default function AdminDashboard() {
     );
   }
 
-  // Helper for Sidebar links
-  const SidebarLink = ({ icon: Icon, label, value, badge }: any) => {
-    const isActive = activeTab === value;
-    return (
-      <button
-        onClick={() => {
-          setActiveTab(value);
-          setIsSidebarOpen(false);
-          void loadAdminData();
-        }}
-        className={`w-full flex items-center justify-between px-6 py-2.5 text-xs font-semibold transition-colors duration-200 ${
-          isActive
-            ? "bg-[#2d4a36] text-white border-l-4 border-emerald-400"
-            : "text-[#8ca193] hover:bg-[#25422d] hover:text-white border-l-4 border-transparent"
-        }`}
-      >
-        <div className="flex items-center space-x-3">
-          <Icon className="h-4 w-4" />
-          <span>{label}</span>
-        </div>
-        {badge !== undefined && badge > 0 && (
-          <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
-            {badge}
-          </span>
-        )}
-      </button>
-    );
+  const selectTab = (value: string) => {
+    setActiveTab(value);
+    setIsSidebarOpen(false);
+    void loadAdminData();
   };
 
   return (
@@ -323,28 +350,29 @@ export default function AdminDashboard() {
           
           <div className="space-y-1">
             <p className="px-6 text-[10px] font-bold text-[#627d6a] uppercase tracking-wider mb-2">Overview</p>
-            <SidebarLink icon={LayoutDashboard} label="Dashboard" value="dashboard" />
-            <SidebarLink icon={BarChart4} label="Analytics" value="analytics" />
+            <SidebarLink icon={LayoutDashboard} label="Dashboard" value="dashboard" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={BarChart4} label="Analytics" value="analytics" activeTab={activeTab} onSelect={selectTab} />
           </div>
 
           <div className="space-y-1">
             <p className="px-6 text-[10px] font-bold text-[#627d6a] uppercase tracking-wider mb-2">Management</p>
-            <SidebarLink icon={ShieldAlert} label="Seller Verification" value="sellers" />
-            <SidebarLink icon={Users} label="User Management" value="users" />
-            <SidebarLink icon={PackageCheck} label="Product Approval" value="products" />
-            <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" badge={pendingDiscounts.filter((d: any) => (d.status || d.discount?.status) === "PENDING").length} />
-            <SidebarLink icon={Mail} label="Messages" value="messages" badge={messagesUnreadCount} />
-            <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" />
-            <SidebarLink icon={RotateCcw} label="Cancellation Requests" value="cancellations" badge={stats?.cancellationStats?.pending || 0} />
-            <SidebarLink icon={Wallet} label="Payments" value="payments" />
-            <SidebarLink icon={Coins} label="Financial Audit" value="financials" />
-            <SidebarLink icon={AlertCircle} label="Disputes" value="disputes" />
-            <SidebarLink icon={Layers} label="Category Manager" value="categories" />
+            <SidebarLink icon={ShieldAlert} label="Seller Verification" value="sellers" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={Users} label="User Management" value="users" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={PackageCheck} label="Product Approval" value="products" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" activeTab={activeTab} onSelect={selectTab} badge={pendingDiscounts.filter(isPendingDiscount).length} />
+            <SidebarLink icon={Mail} label="Messages" value="messages" activeTab={activeTab} onSelect={selectTab} badge={messagesUnreadCount} />
+            <SidebarLink icon={ShoppingBag} label="Order Management" value="orders" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={RotateCcw} label="Cancellation Requests" value="cancellations" activeTab={activeTab} onSelect={selectTab} badge={stats?.cancellationStats?.pending || 0} />
+            <SidebarLink icon={Wallet} label="Payments" value="payments" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={Coins} label="Financial Audit" value="financials" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={AlertCircle} label="Disputes" value="disputes" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={Layers} label="Category Manager" value="categories" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={Truck} label="Shipping & Logistics" value="shipping" activeTab={activeTab} onSelect={selectTab} />
           </div>
 
           <div className="space-y-1">
             <p className="px-6 text-[10px] font-bold text-[#627d6a] uppercase tracking-wider mb-2">System Config</p>
-            <SidebarLink icon={Key} label="Credentials Manager" value="credentials" />
+            <SidebarLink icon={Key} label="Credentials Manager" value="credentials" activeTab={activeTab} onSelect={selectTab} />
           </div>
 
         </div>
@@ -525,6 +553,7 @@ export default function AdminDashboard() {
             )}
             {activeTab === "credentials" && <CredentialsManagerView credentials={credentials} reload={loadAdminData} globalSearch={globalSearch} />}
             {activeTab === "categories" && <CategoryManagementView adminEmail={user?.email} globalSearch={globalSearch} />}
+            {activeTab === "shipping" && <AdminShippingView />}
           </FadeIn>
         </main>
       </div>
