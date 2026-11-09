@@ -10,7 +10,7 @@ import {
   SUSTAINABLE_CATEGORIES,
 } from "@/lib/categories";
 
-export type { CategoryInfo, CategoryAttribute };
+// Types are available from @/lib/categories directly
 
 export async function seedCategories(): Promise<void> {
   try {

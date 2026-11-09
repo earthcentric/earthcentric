@@ -160,9 +160,11 @@ function AnimatedCounter({ value, isDecimal = false, suffix = "" }: { value: num
 
 export default function Homepage() {
   const { addToCart } = useCart();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isBuyerVerified = Boolean(user && (user.role !== "BUYER" || user.buyerOnboardingCompleted));
   const marketplaceHref = isBuyerVerified ? "/marketplace" : "/auth/buyer-login?redirect_url=/marketplace";
+  // Strictly enforce login completion: user must exist and have an id
+  const isLoggedIn = !authLoading && Boolean(user && user.id);
 
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
   const [selectedWowItemId, setSelectedWowItemId] = useState<string | null>(null);
@@ -170,6 +172,10 @@ export default function Homepage() {
   const [homeCategories, setHomeCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
+  const [activeCatalogCategory, setActiveCatalogCategory] = useState<string>("all");
+  const [productPageOffset, setProductPageOffset] = useState<number>(0);
+  const [isRotating, setIsRotating] = useState(false);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/categories")
@@ -183,9 +189,17 @@ export default function Homepage() {
     async function loadData() {
       try {
         setLoadingProducts(true);
-        const fetchedProducts = await getProducts({ includeUnapproved: false });
+        // Fetch products ordered by latest updated first
+        const fetchedProducts = await getProducts({ includeUnapproved: false, sortBy: "newest" });
         if (isMounted) {
-          setProducts(Array.isArray(fetchedProducts) ? fetchedProducts : []);
+          const list = Array.isArray(fetchedProducts) ? fetchedProducts : [];
+          setProducts(list);
+          const uniqueCats = Array.from(new Set(list.map((p) => p.category).filter(Boolean)));
+          setAvailableCategories(uniqueCats.slice(0, 5));
+          // Start with a non-constant offset so products rotate dynamically across sessions
+          if (list.length > 4) {
+            setProductPageOffset(Math.floor(Math.random() * Math.max(1, Math.floor(list.length / 4))));
+          }
         }
       } catch (err) {
         console.error("Failed to load products on homepage:", err);
@@ -200,6 +214,34 @@ export default function Homepage() {
       isMounted = false;
     };
   }, []);
+
+  // Filter products by selected category
+  const filteredProducts = React.useMemo(() => {
+    if (activeCatalogCategory === "all") return products;
+    return products.filter((p) => 
+      p.category?.toLowerCase() === activeCatalogCategory.toLowerCase() ||
+      p.categoryId?.toLowerCase() === activeCatalogCategory.toLowerCase()
+    );
+  }, [products, activeCatalogCategory]);
+
+  // Rotate products so there is no constant static list
+  const pageSize = 8;
+  const displayedProducts = React.useMemo(() => {
+    if (filteredProducts.length === 0) return [];
+    if (filteredProducts.length <= pageSize) return filteredProducts;
+    const startIndex = (productPageOffset * pageSize) % filteredProducts.length;
+    const result: ProductItem[] = [];
+    for (let i = 0; i < Math.min(pageSize, filteredProducts.length); i++) {
+      result.push(filteredProducts[(startIndex + i) % filteredProducts.length]);
+    }
+    return result;
+  }, [filteredProducts, productPageOffset, pageSize]);
+
+  const handleRotateProducts = () => {
+    setIsRotating(true);
+    setProductPageOffset((prev) => prev + 1);
+    setTimeout(() => setIsRotating(false), 450);
+  };
 
   const handleAddToCart = (e: React.MouseEvent | null, item: ProductItem) => {
     if (e) {
@@ -371,11 +413,7 @@ export default function Homepage() {
                   </Link>
                 </div>
 
-                <div className="pt-6 border-t border-[#d0c6b8]/30 max-w-xl grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs text-muted-foreground font-semibold">
-                  <div>
-                    <span className="block text-lg font-black text-primary">{products.length > 0 ? `${products.length}+` : '100+'}</span>
-                    <span>Audited Products</span>
-                  </div>
+                <div className="pt-6 border-t border-[#d0c6b8]/30 max-w-xl grid grid-cols-2 gap-6 text-xs text-muted-foreground font-semibold">
                   <div>
                     <span className="block text-lg font-black text-primary">5-Stage</span>
                     <span>Audit Process</span>
@@ -394,14 +432,81 @@ export default function Homepage() {
 
 
           {/* Floating Product Showcase Preview */}
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20 md:mt-36 space-y-8">
-            <div className="text-center md:text-left space-y-2 max-w-xl">
-              <div className="inline-flex items-center space-x-1.5 rounded-full bg-accent/20 border border-accent/30 px-3 py-1 text-[10px] font-bold text-primary uppercase tracking-wider">
-                <span>Featured Catalog Preview</span>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20 md:mt-36 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div className="text-center md:text-left space-y-2 max-w-xl">
+                <div className="inline-flex items-center space-x-1.5 rounded-full bg-accent/20 border border-accent/30 px-3 py-1 text-[10px] font-bold text-primary uppercase tracking-wider">
+                  <span>Featured Catalog Preview</span>
+                </div>
+                <h2 className="text-3xl font-extrabold text-primary tracking-tight">Eco Essentials</h2>
+                <p className="text-sm text-muted-foreground">Handpicked items from verified manufacturers featuring lifetime carbon offsetting.</p>
+                {!isLoggedIn && (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-semibold text-emerald-800">
+                    <span>🔒</span>
+                    <span>Wholesale and bulk pricing locked for guests.</span>
+                    <Link href="/auth/buyer-login" className="text-emerald-700 underline font-bold hover:text-emerald-900 ml-0.5">
+                      Sign in to view prices
+                    </Link>
+                  </div>
+                )}
               </div>
-              <h2 className="text-3xl font-extrabold text-primary tracking-tight">Eco Essentials</h2>
-              <p className="text-sm text-muted-foreground">Handpicked items from verified manufacturers featuring lifetime carbon offsetting.</p>
+
+              {/* Dynamic Controls: Rotate / Refresh picks and Explore all */}
+              <div className="flex items-center gap-2.5 self-center md:self-end flex-wrap justify-center">
+                {products.length > pageSize && (
+                  <button
+                    onClick={handleRotateProducts}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-slate-200 hover:border-emerald-500 text-xs font-bold text-slate-700 hover:text-emerald-700 transition-all shadow-xs cursor-pointer active:scale-95"
+                    title="Rotate products from our latest catalog"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 text-emerald-600 transition-transform ${isRotating ? "animate-spin" : ""}`} />
+                    <span>Rotate Picks</span>
+                  </button>
+                )}
+                <Link
+                  href="/marketplace"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#0F6E56] hover:bg-[#0c5844] text-xs font-bold text-white transition-all shadow-xs"
+                >
+                  <span>Explore Marketplace</span>
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
             </div>
+
+            {/* Dynamic category filter pills */}
+            {availableCategories.length > 0 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none pt-2">
+                <button
+                  onClick={() => {
+                    setActiveCatalogCategory("all");
+                    setProductPageOffset(0);
+                  }}
+                  className={`text-xs px-3 py-1 rounded-full font-bold transition-all border whitespace-nowrap cursor-pointer ${
+                    activeCatalogCategory === "all"
+                      ? "bg-[#0F6E56] text-white border-[#0F6E56] shadow-xs"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-800"
+                  }`}
+                >
+                  ✨ Latest Updates
+                </button>
+                {availableCategories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      setActiveCatalogCategory(cat);
+                      setProductPageOffset(0);
+                    }}
+                    className={`text-xs px-3 py-1 rounded-full font-semibold transition-all border whitespace-nowrap cursor-pointer ${
+                      activeCatalogCategory === cat
+                        ? "bg-[#0F6E56] text-white border-[#0F6E56] shadow-xs"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-800"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {loadingProducts ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -414,12 +519,13 @@ export default function Homepage() {
                   </div>
                 ))}
               </div>
-            ) : products.length > 0 ? (
+            ) : displayedProducts.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                {products.slice(0, 12).map((item) => (
+                {displayedProducts.map((item) => (
                   <ProductCard
                     key={item.id}
                     product={item}
+                    isLoggedIn={isLoggedIn}
                     onAddToCart={(e, p) => handleAddToCart(e, p)}
                   />
                 ))}

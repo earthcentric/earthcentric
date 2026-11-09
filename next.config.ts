@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["cloudinary"],
+  turbopack: {
+    root: __dirname,
+  },
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve = {

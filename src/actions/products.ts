@@ -112,6 +112,7 @@ export interface ProductItem {
   rejectionReason?: string | null;
   productDate?: Date | string;
   createdAt?: Date;
+  updatedAt?: Date | string;
 }
 
 export interface ProductReviewItem {
@@ -2332,11 +2333,12 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
       whereClause.AND = andConditions;
     }
 
-    // Sorting options mapping
-    let orderBy: any = { createdAt: "desc" };
+    // Sorting options mapping: default to latest updated products first
+    let orderBy: any = [{ updatedAt: "desc" }, { createdAt: "desc" }];
     if (resolvedFilters.sortBy === "price-asc") orderBy = { price: "asc" };
     if (resolvedFilters.sortBy === "price-desc") orderBy = { price: "desc" };
     if (resolvedFilters.sortBy === "rating") orderBy = { reviews: { _count: "desc" } }; // Simplified sorting
+    if (resolvedFilters.sortBy === "newest") orderBy = [{ updatedAt: "desc" }, { createdAt: "desc" }];
 
     const dbProducts = await db.product.findMany({
       where: whereClause,
@@ -2447,6 +2449,7 @@ export async function getProducts(filters: ProductFilter = {}): Promise<ProductI
         technicalSpecs: (p as any).technicalSpecs || [],
         productDate: (p as any).productDate ? new Date((p as any).productDate).toISOString().split("T")[0] : p.createdAt.toISOString().split("T")[0],
         createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
       };
     });
 
@@ -3649,7 +3652,20 @@ function getMockProductsFiltered(filters: ProductFilter): ProductItem[] {
       list.sort((a, b) => b.rating - a.rating);
     } else if (filters.sortBy === "popular") {
       list.sort((a, b) => b.reviewsCount - a.reviewsCount);
+    } else if (filters.sortBy === "newest") {
+      list.sort((a, b) => {
+        const timeA = new Date((a as any).updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date((b as any).updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
     }
+  } else {
+    // Default to latest updated products first
+    list.sort((a, b) => {
+      const timeA = new Date((a as any).updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date((b as any).updatedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
   }
 
   return list.map(p => ({

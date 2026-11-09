@@ -16,17 +16,30 @@ interface ProductCardProps {
   onAddToCart: (e: React.MouseEvent, p: ProductItem) => void;
   onQuickView?: (p: ProductItem) => void;
   initialWishlisted?: boolean;
+  isLoggedIn?: boolean;
 }
 
-export default function ProductCard({ product, onAddToCart, onQuickView }: ProductCardProps) {
+export default function ProductCard({
+  product,
+  onAddToCart,
+  onQuickView,
+  isLoggedIn: isLoggedInProp,
+}: ProductCardProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isBuyerVerified = Boolean(user && (user.role !== "BUYER" || user.buyerOnboardingCompleted));
   const productDetailHref = isBuyerVerified 
     ? `/products/${product.id}` 
     : `/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${product.id}`)}`;
 
   const { isInWishlist, toggleWishlist } = useWishlist();
+
+  // Strict enforcement: A user is only logged in after their authentication completes
+  const isUserAuthenticated = !authLoading && Boolean(user && user.id);
+  const isLoggedIn = isLoggedInProp !== undefined
+    ? (Boolean(isLoggedInProp) && isUserAuthenticated)
+    : isUserAuthenticated;
+
   const isWishlisted = isInWishlist(product.id);
 
   const handleToggleWishlist = async (e: React.MouseEvent) => {
@@ -85,14 +98,14 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
           </div>
 
           {/* Discount Pill Tag (Top-Left) matching orange-red pill design */}
-          {discountPercent && discountPercent > 0 && (
+          {isLoggedIn && discountPercent && discountPercent > 0 && (
             <span className="absolute top-3 left-3 bg-[#FF5225] text-white text-[11px] font-black px-3.5 py-1 rounded-full shadow-md z-10 uppercase tracking-wide">
               -{discountPercent}% OFF
             </span>
           )}
 
           {/* Bulk Deal Tag */}
-          {hasBulkDeal && (
+          {isLoggedIn && hasBulkDeal && (
             <span className={`absolute top-3 bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg shadow-sm z-10 flex items-center gap-0.5 ${discountPercent ? "left-24" : "left-3"}`}>
               🏷️ Bulk Deal
             </span>
@@ -140,7 +153,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
           </Link>
 
           {/* Buy X Get Y Offer Promo Badge */}
-          {isBuyXGetYActive(product.buyXGetYOffer) && (
+          {isLoggedIn && isBuyXGetYActive(product.buyXGetYOffer) && (
             <div className="bg-[#e8f3ec] text-[#2d4a36] text-[10px] font-black rounded-lg px-2.5 py-1.5 border border-[#c3decb] flex items-center justify-between shadow-xs select-none">
               <span className="flex items-center gap-1 font-extrabold">
                 <span>🎁</span>
@@ -153,7 +166,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
           )}
 
           {/* Tier Discounts Promo Badge */}
-          {isTierDiscountActive(product.tierDiscounts) && (() => {
+          {isLoggedIn && isTierDiscountActive(product.tierDiscounts) && (() => {
             const tiers = getProductTiers(product.tierDiscounts).slice().sort((a, b) => Number(a.minQuantity) - Number(b.minQuantity));
             if (tiers.length === 0) return null;
             const firstTier = tiers[0];
@@ -172,7 +185,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
           })()}
 
           {/* Bundle Deal Promo */}
-          {product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (() => {
+          {isLoggedIn && product.bulkPriceSlabs && (product.bulkPriceSlabs as any[]).length > 0 && (() => {
             const slabs = product.bulkPriceSlabs as any[];
             const bundleDeal = slabs.find(s => s.min > 1);
             if (bundleDeal) {
@@ -195,7 +208,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
           })()}
 
           {/* Wholesale Bulk Order Highlight */}
-          {hasWholesaleBulk && product.bulkOrderQuantity && product.bulkOrderPrice && (
+          {isLoggedIn && hasWholesaleBulk && product.bulkOrderQuantity && product.bulkOrderPrice && (
             <div className="bg-amber-50/90 text-amber-900 text-[10px] font-bold rounded-lg px-2 py-1 border border-amber-200/80 flex items-center justify-between select-none">
               <span className="flex items-center gap-1">
                 <span>📦</span>
@@ -240,33 +253,48 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
 
       {/* Footer / Pricing & Cart */}
       <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-4 text-left">
-        <div>
-          <div className="flex items-baseline space-x-1 flex-wrap">
-            <span className="text-base font-black text-slate-900">
-              ₹{product.price ?? 2}
-            </span>
-            <span className="text-xs text-slate-700 font-extrabold">/ Box</span>
-            {effective.originalPrice > (product.price ?? 2) && (
-              <span className="text-xs text-slate-400 font-semibold line-through ml-1">
-                ₹{effective.originalPrice.toLocaleString()}
-              </span>
-            )}
+        {isLoggedIn ? (
+          <>
+            <div>
+              <div className="flex items-baseline space-x-1 flex-wrap">
+                <span className="text-base font-black text-slate-900">
+                  ₹{product.price ?? 2}
+                </span>
+                <span className="text-xs text-slate-700 font-extrabold">/ Box</span>
+                {effective.originalPrice > (product.price ?? 2) && (
+                  <span className="text-xs text-slate-400 font-semibold line-through ml-1">
+                    ₹{effective.originalPrice.toLocaleString()}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-[#0F6E56] font-extrabold mt-0.5 tracking-wide">
+                {unitsPerBox} Pieces per Box
+              </p>
+            </div>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAddToCart(e, product);
+              }}
+              className="h-8 w-8 rounded-full bg-[#0F6E56] hover:bg-[#0c5a46] text-white flex items-center justify-center transition-colors cursor-pointer border-none shadow-sm shrink-0"
+              title={`Add 1 Box (${unitsPerBox} Units) to Cart`}
+            >
+              <ShoppingBag className="h-4 w-4" />
+            </button>
+          </>
+        ) : (
+          <div className="w-full">
+            <Link
+              href={productDetailHref}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6E56] text-xs font-bold transition-all border border-emerald-200/60 shadow-2xs hover:shadow-xs"
+            >
+              <span>🔒</span>
+              <span>Login to View Price</span>
+            </Link>
           </div>
-          <p className="text-[10px] text-[#0F6E56] font-extrabold mt-0.5 tracking-wide">
-            {unitsPerBox} Pieces per Box
-          </p>
-        </div>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onAddToCart(e, product);
-          }}
-          className="h-8 w-8 rounded-full bg-[#0F6E56] hover:bg-[#0c5a46] text-white flex items-center justify-center transition-colors cursor-pointer border-none shadow-sm shrink-0"
-          title={`Add 1 Box (${unitsPerBox} Units) to Cart`}
-        >
-          <ShoppingBag className="h-4 w-4" />
-        </button>
+        )}
       </div>
     </div>
   );

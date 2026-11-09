@@ -636,6 +636,7 @@ export default function MarketplaceClient({ initialCategoryProp }: { initialCate
                     <div key={p.id} className="min-w-[200px] sm:min-w-[240px]">
                       <ProductCard
                         product={p}
+                        isLoggedIn={Boolean(user)}
                         onAddToCart={handleAddToCartAction}
                         onQuickView={handleOpenQuickView}
                       />
@@ -980,6 +981,7 @@ export default function MarketplaceClient({ initialCategoryProp }: { initialCate
                       <FadeInStaggerItem key={p.id}>
                         <ProductCard
                           product={p}
+                          isLoggedIn={Boolean(user)}
                           onAddToCart={handleAddToCartAction}
                           onQuickView={handleOpenQuickView}
                         />
