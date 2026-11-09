@@ -3,11 +3,13 @@
 import React, { useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { X, ShoppingBag, Heart, ShieldCheck, Leaf } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { X, ShoppingBag, Heart, ShieldCheck, Leaf, Lock } from "lucide-react";
 import { Button, Badge } from "@/components/ui/shared";
 import { ProductItem } from "@/actions/products";
 import { getEffectiveUnitPrice } from "@/lib/offers";
 import { useWishlist } from "@/context/WishlistContext";
+import { useAuth } from "@/context/AuthContext";
 
 interface QuickViewModalProps {
   product: ProductItem | null;
@@ -26,11 +28,23 @@ export default function QuickViewModal({
   onToggleWishlist,
   isWishlisted: propIsWishlisted,
 }: QuickViewModalProps) {
+  const router = useRouter();
+  const { user } = useAuth();
+  const isVerified = Boolean(
+    user && (user.role === "ADMIN" || (Boolean(user.buyerOnboardingCompleted) && Boolean(user.mobileNumberSubmitted)))
+  );
+  const hasValidPrice = isVerified && Boolean(product && typeof product.price === "number" && product.price > 0);
+
   const { isInWishlist, toggleWishlist: contextToggleWishlist } = useWishlist();
   const isWishlisted = product ? isInWishlist(product.id) : (propIsWishlisted ?? false);
 
   const handleToggleWishlist = async () => {
     if (!product) return;
+    if (!isVerified) {
+      onClose();
+      router.push(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${product.id}`)}`);
+      return;
+    }
     if (onToggleWishlist) {
       onToggleWishlist(product);
     } else {
@@ -94,11 +108,11 @@ export default function QuickViewModal({
             </Badge>
           </div>
 
-          {discountPercent && discountPercent > 0 && (
+          {hasValidPrice && discountPercent && discountPercent > 0 ? (
             <div className="absolute top-4 right-14 bg-[#FF5225] text-white text-[10px] font-black rounded-full py-1 px-3 uppercase tracking-wide shadow-md z-10">
               -{discountPercent}% OFF
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Right Column: Information Panel */}
@@ -126,10 +140,19 @@ export default function QuickViewModal({
 
             {/* Pricing Section */}
             <div className="flex items-baseline space-x-3 border-b border-[#d0c6b8]/20 pb-4">
-              <span className="text-2xl font-black text-primary">₹{effective.unitPrice.toLocaleString()}</span>
-              {isDiscountActive && (
-                <span className="text-sm font-semibold text-muted-foreground line-through">
-                  ₹{effective.originalPrice.toLocaleString()}
+              {hasValidPrice ? (
+                <>
+                  <span className="text-2xl font-black text-primary">₹{effective.unitPrice.toLocaleString()}</span>
+                  {isDiscountActive && (
+                    <span className="text-sm font-semibold text-muted-foreground line-through">
+                      ₹{effective.originalPrice.toLocaleString()}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 text-[#0F6E56]" />
+                  <span>Login to View Price</span>
                 </span>
               )}
             </div>
@@ -161,13 +184,26 @@ export default function QuickViewModal({
           {/* Action Bar */}
           <div className="pt-6 border-t border-[#d0c6b8]/20 mt-6 space-y-3.5">
             <div className="flex gap-3">
-              <Button
-                onClick={() => onAddToCart(product)}
-                className="flex-1 bg-primary text-primary-foreground hover:bg-emerald-700 text-xs py-2 flex items-center justify-center space-x-2 rounded-xl"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                <span>Add to Cart</span>
-              </Button>
+              {hasValidPrice ? (
+                <Button
+                  onClick={() => onAddToCart(product)}
+                  className="flex-1 bg-primary text-primary-foreground hover:bg-emerald-700 text-xs py-2 flex items-center justify-center space-x-2 rounded-xl"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  <span>Add to Cart</span>
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    onClose();
+                    router.push(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${product.id}`)}`);
+                  }}
+                  className="flex-1 bg-[#0F6E56] text-white hover:bg-[#0c5a46] text-xs py-2 flex items-center justify-center space-x-2 rounded-xl"
+                >
+                  <Lock className="h-4 w-4" />
+                  <span>Login to View Price</span>
+                </Button>
+              )}
               <Button
                 onClick={handleToggleWishlist}
                 variant="outline"

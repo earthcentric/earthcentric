@@ -3,7 +3,7 @@
 import React, { useState, useEffect, startTransition } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { getProducts, ProductItem, ProductFilter } from "@/actions/products";
 import { getAllBrands } from "@/actions/sellers";
 import { useAuth } from "@/context/AuthContext";
@@ -45,21 +45,21 @@ const CAROUSEL_SLIDES = [
   {
     image: "https://images.unsplash.com/photo-1473448912268-2022ce9509d8?w=1600&auto=format&fit=crop&q=80",
     title: "SUSTAINABLE TABLEWARE COLLECTION",
-    tagline: "100% Biodegradable & Compostable Sugarcane Bagasse | Prices starting at ₹1",
+    tagline: "100% Biodegradable & Compostable Sugarcane Bagasse | Direct Sustainable Marketplace",
     buttonText: "Shop Tableware",
     category: "tableware"
   },
   {
     image: "https://images.unsplash.com/photo-1544816155-12df9643f363?w=1600&auto=format&fit=crop&q=80",
     title: "ECO-FRIENDLY PLATES & PLATTERS",
-    tagline: "Heavy-duty microwave & freezer safe dinnerware | Only ₹1 or ₹2",
+    tagline: "Heavy-duty microwave & freezer safe dinnerware | Commercial Bulk Certified",
     buttonText: "Explore Plates",
     category: "plates"
   },
   {
     image: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=1600&auto=format&fit=crop&q=80",
     title: "COMPOSTABLE BOWLS & CLAMSHELLS",
-    tagline: "Oil & water proof natural fiber bowls & meal boxes | Only ₹1 or ₹2",
+    tagline: "Oil & water proof natural fiber bowls & meal boxes | Premium Eco Packaging",
     buttonText: "Browse Bowls",
     category: "bowls"
   }
@@ -67,46 +67,46 @@ const CAROUSEL_SLIDES = [
 
 const GRID_CARDS = [
   {
-    title: "Eco Bowls & Cups | ₹1 & ₹2",
+    title: "Eco Bowls & Cups",
     category: "bowls",
     items: [
-      { name: "Sauce Dip Bowl", slug: "sauce-dip-bowl", image: "/images/products/product_p1_1.png", price: "₹1" },
-      { name: "100 ml Round Bowl", slug: "100-ml-round-bowl", image: "/images/products/product_p1_7.png", price: "₹1" },
-      { name: "120 ml Square Bowl", slug: "120-ml-square-bowl", image: "/images/products/product_p1_8.png", price: "₹2" },
-      { name: "Glass", slug: "glass", image: "/images/products/product_p1_3.png", price: "₹1" }
+      { name: "Sauce Dip Bowl", slug: "sauce-dip-bowl", image: "/images/products/product_p1_1.png" },
+      { name: "100 ml Round Bowl", slug: "100-ml-round-bowl", image: "/images/products/product_p1_7.png" },
+      { name: "120 ml Square Bowl", slug: "120-ml-square-bowl", image: "/images/products/product_p1_8.png" },
+      { name: "Glass", slug: "glass", image: "/images/products/product_p1_3.png" }
     ],
     linkText: "Shop Eco Bowls"
   },
   {
-    title: "Dining & Snack Plates | ₹1 & ₹2",
+    title: "Dining & Snack Plates",
     category: "plates",
     items: [
-      { name: "Snack Plate", slug: "snack-plate", image: "/images/products/product_p1_2.png", price: "₹2" },
-      { name: "6\" Deep Round Plate", slug: "6-deep-round-plate", image: "/images/products/product_p2_5.png", price: "₹1" },
-      { name: "7\" Round Plate", slug: "7-round-plate", image: "/images/products/product_p2_7.png", price: "₹1" },
-      { name: "9\" Square Plate", slug: "9-square-plate", image: "/images/products/product_p2_12.png", price: "₹2" }
+      { name: "Snack Plate", slug: "snack-plate", image: "/images/products/product_p1_2.png" },
+      { name: "6\" Deep Round Plate", slug: "6-deep-round-plate", image: "/images/products/product_p2_5.png" },
+      { name: "7\" Round Plate", slug: "7-round-plate", image: "/images/products/product_p2_7.png" },
+      { name: "9\" Square Plate", slug: "9-square-plate", image: "/images/products/product_p2_12.png" }
     ],
     linkText: "Shop Eco Plates"
   },
   {
-    title: "Compartment Plates & Thalis | ₹1 & ₹2",
+    title: "Compartment Plates & Thalis",
     category: "plates",
     items: [
-      { name: "2 CP Plate", slug: "2-cp-plate", image: "/images/products/product_p2_6.png", price: "₹2" },
-      { name: "3CP Rectangular Plate", slug: "3cp-rectangular-plate", image: "/images/products/product_p2_9.png", price: "₹1" },
-      { name: "9\" 3 CP Round Plate", slug: "9-3-cp-round-plate", image: "/images/products/product_p2_11.png", price: "₹1" },
-      { name: "11\" 4CP Round Plate", slug: "11-4cp-round-plate", image: "/images/products/product_p3_6.png", price: "₹2" }
+      { name: "2 CP Plate", slug: "2-cp-plate", image: "/images/products/product_p2_6.png" },
+      { name: "3CP Rectangular Plate", slug: "3cp-rectangular-plate", image: "/images/products/product_p2_9.png" },
+      { name: "9\" 3 CP Round Plate", slug: "9-3-cp-round-plate", image: "/images/products/product_p2_11.png" },
+      { name: "11\" 4CP Round Plate", slug: "11-4cp-round-plate", image: "/images/products/product_p3_6.png" }
     ],
     linkText: "Explore Compartment Plates"
   },
   {
-    title: "Clamshells & Meal Trays | ₹1 & ₹2",
+    title: "Clamshells & Meal Trays",
     category: "clamshells",
     items: [
-      { name: "6\" x 6\" Clamshell", slug: "6x6-clamshell-box", image: "/images/products/product_p1_5.png", price: "₹1" },
-      { name: "9\" x 9\" Clamshell", slug: "9x9-clamshell-box", image: "/images/products/product_p1_6.png", price: "₹2" },
-      { name: "1D Tray", slug: "1d-tray", image: "/images/products/product_p1_4.png", price: "₹2" },
-      { name: "5 CP Meal Tray & Lid", slug: "5-cp-meal-tray-and-lid", image: "/images/products/product_p3_10.png", price: "₹2" }
+      { name: "6\" x 6\" Clamshell", slug: "6x6-clamshell-box", image: "/images/products/product_p1_5.png" },
+      { name: "9\" x 9\" Clamshell", slug: "9x9-clamshell-box", image: "/images/products/product_p1_6.png" },
+      { name: "1D Tray", slug: "1d-tray", image: "/images/products/product_p1_4.png" },
+      { name: "5 CP Meal Tray & Lid", slug: "5-cp-meal-tray-and-lid", image: "/images/products/product_p3_10.png" }
     ],
     linkText: "Shop Clamshells & Trays"
   }
@@ -158,7 +158,18 @@ function EmptyState({ onClear }: { onClear: () => void }) {
 }
 
 export default function MarketplaceClient({ initialCategoryProp }: { initialCategoryProp?: string } = {}) {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, isLoading } = useAuth();
+  const isVerified = Boolean(
+    user && (user.role === "ADMIN" || (Boolean(user.buyerOnboardingCompleted) && Boolean(user.mobileNumberSubmitted)))
+  );
+
+  useEffect(() => {
+    if (!isLoading && !isVerified) {
+      router.replace("/auth/buyer-login?redirect_url=/marketplace");
+    }
+  }, [isLoading, isVerified, router]);
   
   // Read initial states from URL parameters or props
   const initialCategory = initialCategoryProp || searchParams.get("category") || "all";
@@ -255,8 +266,6 @@ export default function MarketplaceClient({ initialCategoryProp }: { initialCate
     const url = `/marketplace?${params.toString()}`;
     window.history.pushState({ path: url }, "", url);
   }, [category, search, selectedBrand, pricePreset, minPrice, maxPrice, sortBy, dealsOnly, newArrivalsOnly]);
-
-  const { user } = useAuth();
 
   // Fetch products from Prisma DB (or mock fallback) based on filters
   useEffect(() => {
@@ -578,8 +587,8 @@ export default function MarketplaceClient({ initialCategoryProp }: { initialCate
                           <span className="text-[10px] font-bold text-foreground truncate group-hover:text-primary transition-colors">
                             {item.name}
                           </span>
-                          <span className="text-[9px] text-emerald-600 font-semibold">
-                            {item.price}
+                          <span className="text-[9px] text-[#0F6E56] font-semibold">
+                            Eco Certified
                           </span>
                         </Link>
                       ))}

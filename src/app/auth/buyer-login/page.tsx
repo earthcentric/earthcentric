@@ -4,13 +4,14 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth as useClerkAuth, useSignIn, useUser } from "@clerk/nextjs";
+import { useAuth as useClerkAuth, useSignIn, useSignUp, useUser } from "@clerk/nextjs";
 import { useAuth } from "@/context/AuthContext";
 import {
   getBuyerAuthState,
   submitBuyerMobileNumber,
   verifyBuyerOtpAction,
   resendBuyerOtpAction,
+  initiateBuyerGoogleEmailAuth,
 } from "@/actions/buyer-auth";
 import {
   ShieldCheck,
@@ -47,8 +48,10 @@ function BuyerLoginContent() {
   const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
   const { user: clerkUser, isLoaded: userLoaded } = useUser();
   const clerkSignIn = useSignIn();
+  const clerkSignUp = useSignUp();
   const signInLoaded = Boolean((clerkSignIn as any)?.isLoaded ?? true);
   const signIn = (clerkSignIn as any)?.signIn ?? clerkSignIn;
+  const signUp = (clerkSignUp as any)?.signUp ?? clerkSignUp;
   const { user: appUser, logout } = useAuth();
 
   // Wizard state: 1: GOOGLE_LOGIN, 2: MOBILE_NUMBER, 3: OTP_VERIFICATION, 4: SUCCESS
@@ -59,6 +62,7 @@ function BuyerLoginContent() {
   // Form states
   const [buyerEmail, setBuyerEmail] = useState("");
   const [buyerName, setBuyerName] = useState("");
+  const [inputGoogleEmail, setInputGoogleEmail] = useState("");
   const [countryCode, setCountryCode] = useState("+91");
   const [mobileNumber, setMobileNumber] = useState("");
   const [otpInput, setOtpInput] = useState(["", "", "", "", "", ""]);
@@ -93,13 +97,9 @@ function BuyerLoginContent() {
           return;
         }
 
-        // Sellers and Admins don't need buyer onboarding
+        // Super Admin is exempt
         if (state.role === "ADMIN") {
           router.replace("/admin/dashboard");
-          return;
-        }
-        if (state.role === "SELLER") {
-          router.replace("/seller/dashboard");
           return;
         }
 
@@ -111,7 +111,11 @@ function BuyerLoginContent() {
         if (state.step === "COMPLETED") {
           setStep("SUCCESS");
           setTimeout(() => {
-            router.replace(redirectTarget);
+            if (state.role === "SELLER") {
+              router.replace("/seller/dashboard");
+            } else {
+              router.replace(redirectTarget);
+            }
           }, 1200);
         } else if (state.step === "OTP_VERIFICATION") {
           setStep("OTP_VERIFICATION");
@@ -139,18 +143,76 @@ function BuyerLoginContent() {
     try {
       setActionLoading(true);
       setErrorMessage(null);
-      if (signIn && typeof (signIn as any).authenticateWithRedirect === "function") {
-        await (signIn as any).authenticateWithRedirect({
+
+      const authObj = (signIn && typeof (signIn as any).authenticateWithRedirect === "function") 
+        ? signIn 
+        : (signUp && typeof (signUp as any).authenticateWithRedirect === "function" ? signUp : null);
+
+      if (authObj) {
+        await (authObj as any).authenticateWithRedirect({
           strategy: "oauth_google",
-          redirectUrl: "/sign-in/sso-callback",
+          redirectUrl: "/sso-callback",
           redirectUrlComplete: `/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`,
         });
         return;
       }
       router.push(`/sign-in?redirect_url=${encodeURIComponent(`/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`)}`);
     } catch (err: any) {
-      console.warn("Clerk Google auth redirect, falling back:", err);
+      console.warn("Clerk Google auth redirect, trying signUp fallback:", err);
+      try {
+        if (signUp && typeof (signUp as any).authenticateWithRedirect === "function") {
+          await (signUp as any).authenticateWithRedirect({
+            strategy: "oauth_google",
+            redirectUrl: "/sso-callback",
+            redirectUrlComplete: `/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`,
+          });
+          return;
+        }
+      } catch (signupErr) {
+        console.warn("signUp fallback error:", signupErr);
+      }
       router.push(`/sign-in?redirect_url=${encodeURIComponent(`/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`)}`);
+    }
+  };
+
+  // Step 1: Handle Direct Google Email Submit
+  const handleDirectGoogleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputGoogleEmail.trim()) {
+      setErrorMessage("Please enter your Google account email address.");
+      return;
+    }
+    try {
+      setActionLoading(true);
+      setErrorMessage(null);
+      const res = await initiateBuyerGoogleEmailAuth(inputGoogleEmail.trim());
+      if (!res.success) {
+        setErrorMessage(res.error || "Failed to authenticate with Google email.");
+        return;
+      }
+
+      if (res.email) setBuyerEmail(res.email);
+      if (res.name) setBuyerName(res.name);
+
+      if (res.step === "COMPLETED") {
+        setStep("SUCCESS");
+        setTimeout(() => {
+          if (res.role === "SELLER") {
+            router.replace("/seller/dashboard");
+          } else {
+            router.replace(redirectTarget);
+          }
+        }, 1200);
+      } else if (res.step === "OTP_VERIFICATION") {
+        setStep("OTP_VERIFICATION");
+      } else {
+        setStep("MOBILE_NUMBER");
+      }
+    } catch (err: any) {
+      console.error("Direct Google email auth error:", err);
+      setErrorMessage("An unexpected error occurred. Please try again.");
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -432,6 +494,44 @@ function BuyerLoginContent() {
                 </svg>
                 <span>{actionLoading ? "Redirecting to Google..." : "Continue with Google"}</span>
               </button>
+
+              {/* Or Direct Gmail Option */}
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-400">
+                  <span className="bg-white px-3">Or continue with your Gmail address</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleDirectGoogleEmailSubmit} className="space-y-3 text-left">
+                <div>
+                  <label htmlFor="google-email-input" className="block text-xs font-bold text-slate-700 mb-1">
+                    Google / Gmail Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <input
+                      id="google-email-input"
+                      type="email"
+                      value={inputGoogleEmail}
+                      onChange={(e) => setInputGoogleEmail(e.target.value)}
+                      placeholder="your.name@gmail.com"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <span>{actionLoading ? "Verifying..." : "Continue with Gmail"}</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </form>
 
               <div className="pt-2 text-center">
                 <Link

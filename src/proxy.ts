@@ -30,7 +30,8 @@ export default clerkMiddleware(async (auth, request) => {
     pathname.startsWith("/verified-sellers/") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/sign-in") ||
-    pathname.startsWith("/sign-up");
+    pathname.startsWith("/sign-up") ||
+    pathname.startsWith("/sso-callback");
 
   // Protected route definitions
   const isMarketplaceRoute =

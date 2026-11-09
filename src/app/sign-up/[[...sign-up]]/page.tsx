@@ -2,8 +2,13 @@ import { SignUp } from "@clerk/nextjs";
 
 export default function SignUpPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <SignUp fallbackRedirectUrl="/account?tab=profile&onboarding=true" />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <SignUp 
+        fallbackRedirectUrl="/auth/buyer-login"
+        signInFallbackRedirectUrl="/auth/buyer-login"
+        forceRedirectUrl="/auth/buyer-login"
+        signInForceRedirectUrl="/auth/buyer-login"
+      />
     </div>
   );
 }

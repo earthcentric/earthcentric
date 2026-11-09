@@ -76,8 +76,8 @@ export async function getBuyerAuthState(): Promise<{
       };
     }
 
-    // Admins and Sellers are exempt from the mandatory buyer verification flow
-    if (authUser.role === "ADMIN" || authUser.role === "SELLER") {
+    // Admins are exempt from the mandatory verification flow
+    if (authUser.role === "ADMIN") {
       return {
         authenticated: true,
         step: "COMPLETED",
@@ -161,6 +161,100 @@ export async function getBuyerAuthState(): Promise<{
       isVerified: false,
       error: "Error checking authentication status.",
     };
+  }
+}
+
+/**
+ * Step 1: Initiates Google/Gmail authentication for a buyer or seller.
+ * Validates the email address, retrieves or creates the user record without duplicating,
+ * establishes the earthcentric session, and returns the next step.
+ */
+export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
+  success: boolean;
+  error?: string;
+  step?: "MOBILE_NUMBER" | "OTP_VERIFICATION" | "COMPLETED";
+  email?: string;
+  name?: string;
+  role?: string;
+}> {
+  try {
+    const normalizedEmail = (email || "").trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes("@") || !normalizedEmail.includes(".")) {
+      return { success: false, error: "Please enter a valid Google/Gmail email address." };
+    }
+
+    // Lookup existing user or create a new buyer account
+    let user = await db.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      user = await db.user.create({
+        data: {
+          email: normalizedEmail,
+          name: normalizedEmail.split("@")[0],
+          role: "BUYER",
+          mobileNumberSubmitted: false,
+          buyerOnboardingCompleted: false,
+        },
+      });
+    }
+
+    // Super Admin exemption
+    if (user.role === "ADMIN") {
+      await setEarthcentricSessionCookie({
+        id: user.id,
+        role: "ADMIN",
+        buyerOnboardingCompleted: true,
+        mobileNumberSubmitted: true,
+      });
+      return {
+        success: true,
+        step: "COMPLETED",
+        email: user.email,
+        name: user.name || "",
+        role: "ADMIN",
+      };
+    }
+
+    // Set session cookie for buyer/seller
+    await setEarthcentricSessionCookie({
+      id: user.id,
+      role: user.role,
+      buyerOnboardingCompleted: user.buyerOnboardingCompleted,
+      mobileNumberSubmitted: user.mobileNumberSubmitted,
+    });
+
+    if (user.buyerOnboardingCompleted && user.mobileNumberSubmitted) {
+      return {
+        success: true,
+        step: "COMPLETED",
+        email: user.email,
+        name: user.name || "",
+        role: user.role,
+      };
+    }
+
+    if (user.mobileNumberSubmitted && !user.buyerOnboardingCompleted) {
+      return {
+        success: true,
+        step: "OTP_VERIFICATION",
+        email: user.email,
+        name: user.name || "",
+        role: user.role,
+      };
+    }
+
+    return {
+      success: true,
+      step: "MOBILE_NUMBER",
+      email: user.email,
+      name: user.name || "",
+      role: user.role,
+    };
+  } catch (err: any) {
+    console.error("initiateBuyerGoogleEmailAuth error:", err);
+    return { success: false, error: "Failed to initialize authentication." };
   }
 }
 
