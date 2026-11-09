@@ -7,6 +7,7 @@ export interface EarthcentricSession {
   role: string;
   sellerStatus?: string;
   buyerOnboardingCompleted?: boolean;
+  mobileNumberSubmitted?: boolean;
   issuedAt: number;
   expiresAt: number;
 }
@@ -16,6 +17,7 @@ interface SessionClaims {
   role: string;
   sellerStatus?: string;
   buyerOnboardingCompleted?: boolean;
+  mobileNumberSubmitted?: boolean;
 }
 
 function getSessionSecret(): string {
@@ -118,7 +120,8 @@ export async function verifyEarthcentricSession(token: string): Promise<Earthcen
     session.expiresAt <= now ||
     session.expiresAt - session.issuedAt !== SESSION_TTL_SECONDS ||
     (session.sellerStatus !== undefined && typeof session.sellerStatus !== "string") ||
-    (session.buyerOnboardingCompleted !== undefined && typeof session.buyerOnboardingCompleted !== "boolean")
+    (session.buyerOnboardingCompleted !== undefined && typeof session.buyerOnboardingCompleted !== "boolean") ||
+    (session.mobileNumberSubmitted !== undefined && typeof session.mobileNumberSubmitted !== "boolean")
   ) {
     return null;
   }
@@ -128,6 +131,9 @@ export async function verifyEarthcentricSession(token: string): Promise<Earthcen
     ...(typeof session.sellerStatus === "string" ? { sellerStatus: session.sellerStatus } : {}),
     ...(typeof session.buyerOnboardingCompleted === "boolean"
       ? { buyerOnboardingCompleted: session.buyerOnboardingCompleted }
+      : {}),
+    ...(typeof session.mobileNumberSubmitted === "boolean"
+      ? { mobileNumberSubmitted: session.mobileNumberSubmitted }
       : {}),
     issuedAt: session.issuedAt,
     expiresAt: session.expiresAt,

@@ -6,6 +6,7 @@ import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import { verifyAuthenticatedUser } from "@/lib/auth-server";
 import { sendEmailWithSendGrid, buildBuyerOtpEmailHtml } from "@/lib/sendgrid";
 import { setEarthcentricSessionCookie } from "@/lib/session";
+import { isSuperAdminEmail, isConfiguredSellerEmail } from "@/lib/account-roles";
 
 const OTP_EXPIRY_MINUTES = 5;
 const MAX_OTP_ATTEMPTS = 5;
@@ -114,13 +115,16 @@ export async function getBuyerAuthState(): Promise<{
 
     const countryCode = user.mobileNumberCountryCode || "+91";
 
-    // 1. If buyer already completed onboarding:
+    const isSuperAdmin = isSuperAdminEmail(user.email);
+    const effectiveRole = isSuperAdmin ? "ADMIN" : user.role;
+
+    // 1. If buyer/seller already completed onboarding:
     if (user.buyerOnboardingCompleted) {
       return {
         authenticated: true,
         step: "COMPLETED",
         isVerified: true,
-        role: "BUYER",
+        role: effectiveRole,
         email: user.email,
         name: user.name || "",
         mobileNumber: user.mobileNumber,
@@ -134,7 +138,7 @@ export async function getBuyerAuthState(): Promise<{
         authenticated: true,
         step: "MOBILE_NUMBER",
         isVerified: false,
-        role: "BUYER",
+        role: effectiveRole,
         email: user.email,
         name: user.name || "",
         mobileNumber: user.mobileNumber,
@@ -147,7 +151,7 @@ export async function getBuyerAuthState(): Promise<{
       authenticated: true,
       step: "OTP_VERIFICATION",
       isVerified: false,
-      role: "BUYER",
+      role: effectiveRole,
       email: user.email,
       name: user.name || "",
       mobileNumber: user.mobileNumber,
@@ -188,20 +192,35 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
       where: { email: normalizedEmail },
     });
 
+    const isSuperAdmin = isSuperAdminEmail(normalizedEmail);
+    const isConfiguredSeller = isConfiguredSellerEmail(normalizedEmail);
+
     if (!user) {
       user = await db.user.create({
         data: {
           email: normalizedEmail,
           name: normalizedEmail.split("@")[0],
-          role: "BUYER",
+          role: isSuperAdmin ? "ADMIN" : (isConfiguredSeller ? "SELLER" : "BUYER"),
           mobileNumberSubmitted: false,
           buyerOnboardingCompleted: false,
         },
       });
+    } else {
+      if (isSuperAdmin && user.role !== "ADMIN") {
+        user = await db.user.update({
+          where: { id: user.id },
+          data: { role: "ADMIN" },
+        });
+      } else if (isConfiguredSeller && user.role !== "SELLER" && user.role !== "ADMIN") {
+        user = await db.user.update({
+          where: { id: user.id },
+          data: { role: "SELLER" },
+        });
+      }
     }
 
     // Super Admin exemption
-    if (user.role === "ADMIN") {
+    if (user.role === "ADMIN" || isSuperAdmin) {
       await setEarthcentricSessionCookie({
         id: user.id,
         role: "ADMIN",
@@ -395,6 +414,7 @@ export async function verifyBuyerOtpAction(otpInput: string): Promise<{
   isBlocked?: boolean;
   blockedMinutes?: number;
   remainingAttempts?: number;
+  role?: string;
 }> {
   try {
     const authUser = await verifyAuthenticatedUser();
@@ -506,10 +526,12 @@ export async function verifyBuyerOtpAction(otpInput: string): Promise<{
       id: authUser.userId,
       role: authUser.role || "BUYER",
       buyerOnboardingCompleted: true,
+      mobileNumberSubmitted: true,
     });
 
     return {
       success: true,
+      role: authUser.role || "BUYER",
     };
   } catch (err: any) {
     console.error("verifyBuyerOtpAction error:", err);

@@ -159,9 +159,16 @@ export function buildBuyerOtpEmailHtml(otpCode: string, recipientName?: string):
           </div>
         </div>
 
-        <p style="color: #666666; font-size: 12px; text-align: center; margin: 0 0 24px 0;">
+        <p style="color: #666666; font-size: 13px; text-align: center; margin: 0 0 20px 0;">
           ⏱️ This one-time code expires in <strong>5 minutes</strong>. Do not share it with anyone.
         </p>
+
+        <!-- Direct Return Button -->
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="https://earthcentric-2ug9.vercel.app/auth/buyer-login" style="display: inline-block; background-color: #0F6E56; color: #FFFFFF; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 10px; text-decoration: none; box-shadow: 0 4px 12px rgba(15,110,86,0.25);">
+            Enter Code on EarthCentric →
+          </a>
+        </div>
 
         <!-- Informational Callout -->
         <div style="background: #F5F1EA; border: 1px solid #E4DDD2; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">

@@ -1,14 +1,11 @@
-import { SignIn } from "@clerk/nextjs";
+import { redirect } from "next/navigation";
 
-export default function SignInPage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <SignIn 
-        fallbackRedirectUrl="/auth/buyer-login"
-        signUpFallbackRedirectUrl="/auth/buyer-login"
-        forceRedirectUrl="/auth/buyer-login"
-        signUpForceRedirectUrl="/auth/buyer-login"
-      />
-    </div>
-  );
+interface PageProps {
+  searchParams: Promise<{ redirect_url?: string }>;
+}
+
+export default async function SignInPage(props: PageProps) {
+  const searchParams = await props.searchParams;
+  const redirectUrl = searchParams?.redirect_url || "/marketplace";
+  redirect(`/auth/buyer-login?redirect_url=${encodeURIComponent(redirectUrl)}`);
 }

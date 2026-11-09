@@ -73,7 +73,14 @@ export default clerkMiddleware(async (auth, request) => {
   // 4. Handle Seller routes
   if (isSellerRoute) {
     if (!isAuthenticated) {
-      const loginUrl = new URL("/sign-in", request.url);
+      const loginUrl = new URL("/auth/buyer-login", request.url);
+      loginUrl.searchParams.set("redirect_url", fullPath);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Seller must complete mobile and OTP verification (Admin exempt)
+    if (session?.role === "SELLER" && (!session?.buyerOnboardingCompleted || !session?.mobileNumberSubmitted)) {
+      const loginUrl = new URL("/auth/buyer-login", request.url);
       loginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(loginUrl);
     }
@@ -101,7 +108,7 @@ export default clerkMiddleware(async (auth, request) => {
   // 5. Handle Admin routes
   if (isAdminRoute) {
     if (!isAuthenticated) {
-      const loginUrl = new URL("/sign-in", request.url);
+      const loginUrl = new URL("/auth/buyer-login", request.url);
       loginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(loginUrl);
     }
@@ -116,27 +123,26 @@ export default clerkMiddleware(async (auth, request) => {
     return NextResponse.next();
   }
 
-  // 7. Enforce Buyer Mandatory Multi-Step Verification
+  // 7. Enforce Buyer/Seller Mandatory Multi-Step Verification
   if (isBuyerProtectedRoute) {
-    // A. Not logged in at all -> redirect to Step 1: Buyer Google Login
+    // A. Not logged in at all -> redirect to Step 1: Google Login
     if (!isAuthenticated) {
       const buyerLoginUrl = new URL("/auth/buyer-login", request.url);
       buyerLoginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(buyerLoginUrl);
     }
 
-    // B. If logged in as ADMIN or SELLER, grant access
-    if (session?.role === "ADMIN" || session?.role === "SELLER") {
+    // B. Super Admin is completely exempt
+    if (session?.role === "ADMIN") {
       return NextResponse.next();
     }
 
-    // C. Logged in as BUYER: Verify completed onboarding
-    // If session explicitly has buyerOnboardingCompleted === true, allow access
-    if (session?.buyerOnboardingCompleted === true) {
+    // C. Logged in as BUYER or SELLER: Verify completed onboarding
+    if (session?.buyerOnboardingCompleted === true && session?.mobileNumberSubmitted === true) {
       return NextResponse.next();
     }
 
-    // Otherwise, redirect buyer to the dedicated multi-step login flow
+    // Otherwise, redirect to the dedicated multi-step login flow
     const buyerLoginUrl = new URL("/auth/buyer-login", request.url);
     buyerLoginUrl.searchParams.set("redirect_url", fullPath);
     return NextResponse.redirect(buyerLoginUrl);
