@@ -8,6 +8,7 @@ interface SessionClaims {
   id: string;
   role: string;
   sellerStatus?: string;
+  buyerOnboardingCompleted?: boolean;
 }
 
 const SESSION_TTL_SECONDS = 8 * 60 * 60;

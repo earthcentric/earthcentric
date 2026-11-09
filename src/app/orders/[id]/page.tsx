@@ -1,9 +1,10 @@
 import React from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getOrderById } from "@/actions/orders";
 import { Card, Badge, Button } from "@/components/ui/shared";
 import { OrderCancellationAction } from "@/components/orders/OrderCancellationAction";
+import { verifyBuyerAuth } from "@/lib/auth-server";
 import { CheckCircle2, Package, Truck, Calendar, ShoppingBag, Leaf, HelpCircle, MapPin, Clock, XCircle, RotateCcw, AlertCircle, Zap, Loader2 } from "lucide-react";
 
 interface PageProps {
@@ -12,6 +13,13 @@ interface PageProps {
 
 export default async function OrderTrackingPage({ params }: PageProps) {
   const { id } = await params;
+
+  // Server-side buyer route protection
+  const buyerAuth = await verifyBuyerAuth();
+  if (!buyerAuth.isVerified) {
+    redirect(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/orders/${id}`)}`);
+  }
+
   const order = await getOrderById(id);
 
   if (!order) {

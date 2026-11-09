@@ -9,6 +9,7 @@ import { ShieldCheck, Award, Leaf, ArrowRight, ArrowUpRight, RefreshCw, ChevronR
 import DisplayCards from "@/components/ui/display-cards";
 import ScrollGlobe from "@/components/ui/scroll-globe";
 import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
 import { getProducts, ProductItem } from "@/actions/products";
 import ProductCard from "@/components/marketplace/ProductCard";
 import TestimonialsSection from "@/components/marketplace/TestimonialsSection";
@@ -159,6 +160,10 @@ function AnimatedCounter({ value, isDecimal = false, suffix = "" }: { value: num
 
 export default function Homepage() {
   const { addToCart } = useCart();
+  const { user } = useAuth();
+  const isBuyerVerified = Boolean(user && (user.role !== "BUYER" || user.buyerOnboardingCompleted));
+  const marketplaceHref = isBuyerVerified ? "/marketplace" : "/auth/buyer-login?redirect_url=/marketplace";
+
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
   const [selectedWowItemId, setSelectedWowItemId] = useState<string | null>(null);
   const [purchaseQuantity, setPurchaseQuantity] = useState(50);
@@ -200,6 +205,12 @@ export default function Homepage() {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
+    }
+    if (!isBuyerVerified) {
+      if (typeof window !== "undefined") {
+        window.location.href = `/auth/buyer-login?redirect_url=${encodeURIComponent("/marketplace")}`;
+      }
+      return;
     }
     const units = item.unitsPerBox || item.bulkOrderQuantity || 100;
     addToCart({
@@ -352,7 +363,7 @@ export default function Homepage() {
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
-                  <Link href="/marketplace" className="w-full sm:w-auto">
+                  <Link href={marketplaceHref} className="w-full sm:w-auto">
                     <LiquidButton size="lg" className="w-full sm:w-auto flex items-center justify-center space-x-2">
                       <span>Explore Marketplace</span>
                       <ArrowRight className="h-4 w-4" />
@@ -420,7 +431,7 @@ export default function Homepage() {
                 <p className="text-xs text-muted-foreground max-w-md mx-auto">
                   Approved products will appear here automatically. Visit the marketplace to explore all live sustainable categories.
                 </p>
-                <Link href="/marketplace">
+                <Link href={marketplaceHref}>
                   <Button variant="cool" size="sm" className="mt-2 text-xs">Explore Marketplace</Button>
                 </Link>
               </div>
@@ -566,7 +577,7 @@ export default function Homepage() {
                 Explore our curated sustainable product categories — from organic clothing to biodegradable tableware.
               </p>
             </div>
-            <Link href="/marketplace" className="flex items-center text-sm font-bold text-emerald-600 hover:text-emerald-700 hover:underline space-x-1 shrink-0">
+            <Link href={marketplaceHref} className="flex items-center text-sm font-bold text-emerald-600 hover:text-emerald-700 hover:underline space-x-1 shrink-0">
               <span>View all products</span>
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -584,7 +595,7 @@ export default function Homepage() {
               return (
                 <Link
                   key={cat.id}
-                  href={`/marketplace?category=${cat.slug}`}
+                  href={isBuyerVerified ? `/marketplace?category=${cat.slug}` : `/auth/buyer-login?redirect_url=${encodeURIComponent(`/marketplace?category=${cat.slug}`)}`}
                   className="group flex flex-col items-center justify-center text-center p-4 rounded-2xl border border-border/40 bg-white hover:bg-emerald-50 hover:border-emerald-300 hover:shadow-md transition-all duration-200 space-y-2 cursor-pointer"
                 >
                   <div className="text-3xl">{emoji}</div>
@@ -642,7 +653,7 @@ export default function Homepage() {
                 Shop by Sustainable Focus
               </h2>
             </div>
-            <Link href="/marketplace" className="text-sm font-semibold text-primary hover:underline flex items-center space-x-1">
+            <Link href={marketplaceHref} className="text-sm font-semibold text-primary hover:underline flex items-center space-x-1">
               <span>View all products</span>
               <ArrowUpRight className="h-4 w-4" />
             </Link>
@@ -671,7 +682,7 @@ export default function Homepage() {
                         {cat.description}
                       </p>
                       <div className="pt-2">
-                        <Link href={`/marketplace?category=${cat.id}`}>
+                        <Link href={isBuyerVerified ? `/marketplace?category=${cat.id}` : `/auth/buyer-login?redirect_url=${encodeURIComponent(`/marketplace?category=${cat.id}`)}`}>
                           <Button variant="secondary" size="sm" className="bg-white text-primary hover:bg-gray-100 flex items-center space-x-1.5 border-none">
                             <span>Browse Products</span>
                             <ArrowRight className="h-3 w-3" />
@@ -764,7 +775,7 @@ export default function Homepage() {
                 Product reviews are shown only after a verified delivery.
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
-                <Link href="/marketplace">
+                <Link href={marketplaceHref}>
                   <LiquidButton size="lg" className="w-full sm:w-auto">
                     Explore Marketplace
                   </LiquidButton>

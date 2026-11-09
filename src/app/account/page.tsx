@@ -845,8 +845,18 @@ function AccountPageContent() {
   }, [tabParam]);
 
   useEffect(() => {
-    if (!authLoading && !user) router.push("/auth/login");
-  }, [user, authLoading, router]);
+    if (!authLoading) {
+      if (!user) {
+        if (tabParam === "seller") {
+          router.push("/auth/login?redirect_url=/account?tab=seller");
+        } else {
+          router.push("/auth/buyer-login?redirect_url=/account");
+        }
+      } else if (user.role === "BUYER" && !user.buyerOnboardingCompleted && tabParam !== "seller") {
+        router.push("/auth/buyer-login?redirect_url=/account");
+      }
+    }
+  }, [user, authLoading, router, tabParam]);
 
   useEffect(() => {
     if (user) {

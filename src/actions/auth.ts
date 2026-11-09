@@ -274,11 +274,18 @@ export async function syncUserInDb(userData: {
       );
     }
 
+    const isBuyerCompleted = targetRole === "BUYER" ? !!user.buyerOnboardingCompleted : true;
+
     const finalUser = {
       id: user.id,
       name: user.name || "",
       email: user.email,
-      phone: user.phone || null,
+      phone: user.phone || user.mobileNumber || null,
+      mobileNumber: user.mobileNumber || null,
+      mobileNumberCountryCode: user.mobileNumberCountryCode || "+91",
+      mobileNumberSubmitted: !!user.mobileNumberSubmitted,
+      buyerOnboardingCompleted: isBuyerCompleted,
+      buyerVerifiedAt: user.buyerVerifiedAt || null,
       role: user.role as any,
       sellerStatus: user.seller?.verificationStatus as any,
       sellerId: user.seller?.id,
@@ -290,6 +297,7 @@ export async function syncUserInDb(userData: {
       id: user.id,
       role: user.role,
       sellerStatus: user.seller?.verificationStatus,
+      buyerOnboardingCompleted: isBuyerCompleted,
     });
 
     return { success: true as const, user: finalUser };

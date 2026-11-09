@@ -59,16 +59,21 @@ enum PaymentStatus {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  password      String? // Hashed password for credentials login
-  emailVerified DateTime?
-  image         String?
-  phone         String? // Buyer phone number collected during registration
-  role          Role      @default(BUYER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                       String    @id @default(cuid())
+  name                     String?
+  email                    String    @unique
+  password                 String? // Hashed password for credentials login
+  emailVerified            DateTime?
+  image                    String?
+  phone                    String? // Buyer phone number collected during registration
+  mobileNumber             String? // Mandatory buyer mobile number
+  mobileNumberCountryCode  String?   @default("+91")
+  mobileNumberSubmitted    Boolean   @default(false)
+  buyerOnboardingCompleted Boolean   @default(false)
+  buyerVerifiedAt          DateTime?
+  role                     Role      @default(BUYER)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   seller           Seller?
   addresses        Address[]
@@ -92,6 +97,7 @@ model OtpVerification {
   verified     Boolean   @default(false)
   attempts     Int       @default(0)
   blockedUntil DateTime?
+  lastSentAt   DateTime?
   createdAt    DateTime  @default(now())
 }
 

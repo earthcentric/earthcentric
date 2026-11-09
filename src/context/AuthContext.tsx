@@ -17,6 +17,11 @@ export interface User {
   sellerId?: string;
   badges?: string[];
   phone?: string | null;
+  mobileNumber?: string | null;
+  mobileNumberCountryCode?: string | null;
+  mobileNumberSubmitted?: boolean;
+  buyerOnboardingCompleted?: boolean;
+  buyerVerifiedAt?: Date | string | null;
   isNewUser?: boolean;
 }
 

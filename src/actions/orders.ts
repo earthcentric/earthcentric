@@ -218,6 +218,9 @@ export async function createOrder(data: {
   if (!auth.authorized || !auth.userId || !auth.email) {
     return { success: false, error: "Please sign in with a verified buyer account before checking out." };
   }
+  if (auth.role === "BUYER" && !auth.buyerOnboardingCompleted) {
+    return { success: false, error: "Mandatory mobile and OTP verification required before checking out." };
+  }
   if (typeof data.checkoutRequestId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.checkoutRequestId)) {
     return { success: false, error: "This checkout request is invalid. Refresh checkout and try again." };

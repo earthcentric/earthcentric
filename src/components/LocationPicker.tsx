@@ -28,8 +28,8 @@ const TILE_URL =
 
 export function LocationPicker({ latitude, longitude, onSelect, className = "" }: LocationPickerProps) {
   const mapElement = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<import("leaflet").Map | null>(null);
-  const markerRef = useRef<import("leaflet").CircleMarker | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
   const onSelectRef = useRef(onSelect);
   const initialLocation = useRef({ latitude, longitude });
   const [query, setQuery] = useState("");
@@ -44,10 +44,10 @@ export function LocationPicker({ latitude, longitude, onSelect, className = "" }
   useEffect(() => {
     if (!providerConsent) return;
     let disposed = false;
-    let map: import("leaflet").Map | null = null;
-    let marker: import("leaflet").CircleMarker | null = null;
+    let map: any = null;
+    let marker: any = null;
 
-    void import("leaflet").then((L) => {
+    void import("leaflet").then((L: any) => {
       if (disposed || !mapElement.current) return;
       const { latitude: initialLatitude, longitude: initialLongitude } = initialLocation.current;
       const start = initialLatitude !== null && initialLatitude !== undefined &&
@@ -78,7 +78,7 @@ export function LocationPicker({ latitude, longitude, onSelect, className = "" }
         placeMarker(initialLatitude, initialLongitude);
       }
 
-      map.on("click", async (event) => {
+      map.on("click", async (event: any) => {
         const lat = Number(event.latlng.lat.toFixed(6));
         const lon = Number(event.latlng.lng.toFixed(6));
         placeMarker(lat, lon);
@@ -152,7 +152,7 @@ export function LocationPicker({ latitude, longitude, onSelect, className = "" }
 
   useEffect(() => {
     if (latitude == null || longitude == null || !mapRef.current) return;
-    void import("leaflet").then((L) => {
+    void import("leaflet").then((L: any) => {
       const map = mapRef.current;
       if (!map) return;
       map.setView([latitude, longitude], 14);
@@ -192,7 +192,7 @@ export function LocationPicker({ latitude, longitude, onSelect, className = "" }
       const map = mapRef.current;
       if (map) {
         map.setView([result.latitude, result.longitude], 15);
-        const L = await import("leaflet");
+        const L: any = await import("leaflet");
         markerRef.current?.remove();
         markerRef.current = L.circleMarker([result.latitude, result.longitude], {
           radius: 8,

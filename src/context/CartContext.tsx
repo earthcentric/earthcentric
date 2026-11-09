@@ -7,6 +7,7 @@ import { getBoxPricingBreakdown, BoxPricingBreakdown } from "@/lib/box-pricing";
 import { GstVerificationModal } from "@/components/gst/GstVerificationModal";
 import { Button } from "@/components/ui/shared";
 import { X, Sparkles, Gift } from "lucide-react";
+import { toast } from "sonner";
 
 export interface CartItem {
   id: string;
@@ -61,9 +62,23 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isCartOpen, setIsCartOpenInternal] = useState(false);
+
+  const isVerifiedBuyer = Boolean(user && (user.role !== "BUYER" || user.buyerOnboardingCompleted));
+
+  const setIsCartOpen = (open: boolean) => {
+    if (open && !isVerifiedBuyer) {
+      toast.error("Please sign in with Google to access your cart.");
+      if (typeof window !== "undefined") {
+        window.location.href = `/auth/buyer-login?redirect_url=${encodeURIComponent(window.location.pathname || "/cart")}`;
+      }
+      return;
+    }
+    setIsCartOpenInternal(open);
+  };
+
   const openCart = () => setIsCartOpen(true);
-  const closeCart = () => setIsCartOpen(false);
+  const closeCart = () => setIsCartOpenInternal(false);
 
   // GST Verification state (Requirement 2 & 3: unlocked upon valid GSTIN and Mobile)
   const [isGstVerified, setIsGstVerified] = useState(false);
@@ -241,6 +256,14 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const addToCart = (product: Omit<CartItem, "quantity">, quantity = 1) => {
+    if (!isVerifiedBuyer) {
+      toast.error("Please sign in with Google to add products to your cart.");
+      if (typeof window !== "undefined") {
+        window.location.href = `/auth/buyer-login?redirect_url=${encodeURIComponent(window.location.pathname || "/marketplace")}`;
+      }
+      return;
+    }
+
     const boxQty = Math.max(1, Math.round(quantity));
     const existing = cart.find((item) => item.id === product.id);
     const existingQty = existing ? existing.quantity : 0;

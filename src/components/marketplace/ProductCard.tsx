@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Star, Leaf } from "lucide-react";
 import { ProductItem } from "@/actions/products";
 import { useWishlist } from "@/context/WishlistContext";
+import { useAuth } from "@/context/AuthContext";
 import { isBuyXGetYActive, getEffectiveUnitPrice, isTierDiscountActive, getProductTiers } from "@/lib/offers";
 import { SellerLogo } from "@/components/SellerLogo";
 
@@ -19,12 +20,22 @@ interface ProductCardProps {
 
 export default function ProductCard({ product, onAddToCart, onQuickView }: ProductCardProps) {
   const router = useRouter();
+  const { user } = useAuth();
+  const isBuyerVerified = Boolean(user && (user.role !== "BUYER" || user.buyerOnboardingCompleted));
+  const productDetailHref = isBuyerVerified 
+    ? `/products/${product.id}` 
+    : `/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${product.id}`)}`;
+
   const { isInWishlist, toggleWishlist } = useWishlist();
   const isWishlisted = isInWishlist(product.id);
 
   const handleToggleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!isBuyerVerified) {
+      router.push(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${product.id}`)}`);
+      return;
+    }
     await toggleWishlist(product.id);
   };
 
@@ -56,7 +67,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
 
   return (
     <div 
-      onClick={() => router.push(`/products/${product.id}`)}
+      onClick={() => router.push(productDetailHref)}
       className="group bg-white border border-slate-100 rounded-3xl p-4 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_12px_24px_rgba(15,110,86,0.08)] flex flex-col justify-between h-full cursor-pointer select-none"
     >
       <div className="space-y-4">
@@ -122,7 +133,7 @@ export default function ProductCard({ product, onAddToCart, onQuickView }: Produ
           </div>
 
           {/* Product Title */}
-          <Link href={`/products/${product.id}`} className="block" onClick={(e) => e.stopPropagation()}>
+          <Link href={productDetailHref} className="block" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-sm font-black text-slate-800 leading-snug line-clamp-2 hover:text-[#0F6E56] transition-colors min-h-[40px]">
               {product.name}
             </h4>

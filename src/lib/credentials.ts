@@ -17,6 +17,9 @@ export const CREDENTIAL_DESCRIPTIONS: Record<string, string> = {
   CASHFREE_PAYOUT_ENV: "Cashfree Payouts API Environment (SANDBOX or PRODUCTION)",
   RAZORPAY_KEY_ID: "Razorpay integration Key ID",
   RAZORPAY_KEY_SECRET: "Razorpay integration Key Secret",
+  SENDGRID_API_KEY: "SendGrid API key for transactional buyer verification emails",
+  SENDGRID_FROM_EMAIL: "SendGrid verified sender email address (e.g. auth@earthcentric.com)",
+  SENDGRID_FROM_NAME: "SendGrid sender display name (default: EarthCentric)",
 };
 
 /**

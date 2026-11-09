@@ -19,9 +19,18 @@ import { LocationPicker, type SelectedLocation } from "@/components/LocationPick
 
 export default function CheckoutPage() {
   const { cart, cartTotal, clearCart, verifiedGstin, verifiedPhone, isGstVerified, openGstModal } = useCart();
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Enforce mandatory buyer authentication
+  useEffect(() => {
+    if (!isAuthLoading) {
+      if (!user || (user.role === "BUYER" && !user.buyerOnboardingCompleted)) {
+        router.replace("/auth/buyer-login?redirect_url=/checkout");
+      }
+    }
+  }, [user, isAuthLoading, router]);
 
   // GSTIN state for mandatory commercial bulk checkout
   const [gstin, setGstin] = useState(verifiedGstin || "");

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { cancelOrder, getOrdersByUser, OrderDetail } from "@/actions/orders";
 import { addProductReview, getReviewedProductIds } from "@/actions/products";
@@ -29,11 +30,20 @@ import {
 } from "lucide-react";
 
 export default function UserOrdersPage() {
+  const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const [orders, setOrders] = useState<OrderDetail[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user || (user.role === "BUYER" && !user.buyerOnboardingCompleted)) {
+        router.replace("/auth/buyer-login?redirect_url=/orders");
+      }
+    }
+  }, [user, authLoading, router]);
 
   // Product Review Modal State
   const [reviewModalProduct, setReviewModalProduct] = useState<{ id: string; name: string; image: string } | null>(null);

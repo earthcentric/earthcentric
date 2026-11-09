@@ -1,8 +1,10 @@
 import { getProductById, getProducts } from "@/actions/products";
 import ProductClientView from "@/components/ProductClientView";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Package, ArrowLeft, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/shared";
+import { verifyBuyerAuth } from "@/lib/auth-server";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -11,6 +13,12 @@ interface PageProps {
 export default async function ProductDetailsPage({ params }: PageProps) {
   const resolvedParams = await params;
   const rawId = (resolvedParams?.id || "").trim();
+
+  // Server-side buyer route protection
+  const buyerAuth = await verifyBuyerAuth();
+  if (!buyerAuth.isVerified) {
+    redirect(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${rawId}`)}`);
+  }
 
   let decodedId = rawId;
   try {

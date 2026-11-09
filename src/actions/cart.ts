@@ -1,6 +1,7 @@
 "use server";
 
 import db from "@/lib/db";
+import { verifyBuyerAuth } from "@/lib/auth-server";
 import { getProductById, BuyXGetYOffer, IndividualDiscount, TierDiscount } from "./products";
 
 export interface CartItem {
@@ -115,6 +116,11 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
  */
 export async function addToDbCart(userId: string, productId: string, quantity: number): Promise<boolean> {
   try {
+    const buyerAuth = await verifyBuyerAuth();
+    if (!buyerAuth.isVerified) {
+      return false;
+    }
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return false;
     }

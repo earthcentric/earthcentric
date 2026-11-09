@@ -279,6 +279,11 @@ export default function Navbar() {
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
 
+  const isBuyerVerified = Boolean(user && (user.role !== "BUYER" || user.buyerOnboardingCompleted));
+  const marketplaceHref = isBuyerVerified ? "/marketplace" : "/auth/buyer-login?redirect_url=/marketplace";
+  const dealsHref = isBuyerVerified ? "/marketplace?deals=true" : "/auth/buyer-login?redirect_url=/marketplace?deals=true";
+  const newArrivalsHref = isBuyerVerified ? "/marketplace?newArrivals=true" : "/auth/buyer-login?redirect_url=/marketplace?newArrivals=true";
+
   // Set mounted flag after first client-side render (prevents hydration mismatch on cart/wishlist badges)
   useEffect(() => {
     setMounted(true);
@@ -313,13 +318,26 @@ export default function Navbar() {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isBuyerVerified) {
+      router.push(`/auth/buyer-login?redirect_url=${encodeURIComponent(searchTerm.trim() ? `/marketplace?search=${encodeURIComponent(searchTerm.trim())}` : "/marketplace")}`);
+      setIsSpotlightOpen(false);
+      return;
+    }
     if (searchTerm.trim()) {
       router.push(`/marketplace?search=${encodeURIComponent(searchTerm.trim())}`);
+      setIsSpotlightOpen(false);
+    } else {
+      router.push("/marketplace");
       setIsSpotlightOpen(false);
     }
   };
 
   const handleSuggestionClick = (val: string) => {
+    if (!isBuyerVerified) {
+      router.push(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/marketplace?search=${encodeURIComponent(val)}`)}`);
+      setIsSpotlightOpen(false);
+      return;
+    }
     setSearchTerm(val);
     router.push(`/marketplace?search=${encodeURIComponent(val)}`);
     setIsSpotlightOpen(false);
@@ -570,7 +588,7 @@ export default function Navbar() {
                     </div>
                     <div className="max-h-80 overflow-y-auto overscroll-contain py-1 rounded-b-2xl">
                       <Link
-                        href="/marketplace"
+                        href={marketplaceHref}
                         onClick={() => setIsCategoriesOpen(false)}
                         className="flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 transition-colors group"
                       >
@@ -579,7 +597,7 @@ export default function Navbar() {
                       {navCategories.map(cat => (
                         <Link
                           key={cat.id}
-                          href={`/marketplace?category=${cat.slug}`}
+                          href={isBuyerVerified ? `/marketplace?category=${cat.slug}` : `/auth/buyer-login?redirect_url=${encodeURIComponent(`/marketplace?category=${cat.slug}`)}`}
                           onClick={() => setIsCategoriesOpen(false)}
                           className="flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 transition-colors group"
                         >
@@ -597,16 +615,16 @@ export default function Navbar() {
 
             {/* Nav links */}
             <nav className="flex items-center space-x-6 text-xs font-semibold">
-              <Link href="/marketplace" className="text-white hover:text-emerald-400 transition-colors">
+              <Link href={marketplaceHref} className="text-white hover:text-emerald-400 transition-colors">
                 Marketplace
               </Link>
               <Link href="/verified-sellers" className="text-slate-200 hover:text-emerald-400 transition-colors">
                 Verified Sellers
               </Link>
-              <Link href="/marketplace?deals=true" className="text-slate-200 hover:text-emerald-400 transition-colors">
+              <Link href={dealsHref} className="text-slate-200 hover:text-emerald-400 transition-colors">
                 Deals
               </Link>
-              <Link href="/marketplace?newArrivals=true" className="text-slate-200 hover:text-emerald-400 transition-colors">
+              <Link href={newArrivalsHref} className="text-slate-200 hover:text-emerald-400 transition-colors">
                 New Arrivals
               </Link>
               <Link href="/#sustainability-mission" className="text-slate-200 hover:text-emerald-400 transition-colors">
@@ -638,7 +656,7 @@ export default function Navbar() {
               />
             </form>
             <Link
-              href="/marketplace"
+              href={marketplaceHref}
               className="block text-base font-medium py-2 border-b border-slate-50 text-slate-800 hover:text-[#0F6E56]"
               onClick={() => setIsMobileMenuOpen(false)}
             >
@@ -846,7 +864,11 @@ export default function Navbar() {
                     <button suppressHydrationWarning
                       key={cat.slug}
                       onClick={() => {
-                        router.push(`/marketplace?category=${cat.slug}`);
+                        if (!isBuyerVerified) {
+                          router.push(`/auth/buyer-login?redirect_url=${encodeURIComponent(`/marketplace?category=${cat.slug}`)}`);
+                        } else {
+                          router.push(`/marketplace?category=${cat.slug}`);
+                        }
                         setIsSpotlightOpen(false);
                       }}
                       className="flex items-center space-x-2 p-2 hover:bg-muted/40 rounded-xl transition-all border border-transparent hover:border-border/20 text-[11px] font-medium text-foreground text-left cursor-pointer"

@@ -39,6 +39,10 @@ export interface AuthenticatedUserResult {
   email?: string;
   role?: string;
   sellerId?: string;
+  mobileNumber?: string | null;
+  mobileNumberCountryCode?: string | null;
+  mobileNumberSubmitted?: boolean;
+  buyerOnboardingCompleted?: boolean;
 }
 
 export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult> {
@@ -60,7 +64,16 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
     if (clerkAuth?.userId) {
       let user = await db.user.findUnique({
         where: { id: clerkAuth.userId },
-        select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          mobileNumber: true,
+          mobileNumberCountryCode: true,
+          mobileNumberSubmitted: true,
+          buyerOnboardingCompleted: true,
+          seller: { select: { id: true } },
+        },
       });
 
       if (!user) {
@@ -77,7 +90,16 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           if (primaryEmail) {
             user = await db.user.findUnique({
               where: { email: primaryEmail },
-              select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                mobileNumber: true,
+                mobileNumberCountryCode: true,
+                mobileNumberSubmitted: true,
+                buyerOnboardingCompleted: true,
+                seller: { select: { id: true } },
+              },
             });
           }
         } catch (e) {
@@ -92,6 +114,10 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           email: user.email,
           role: user.role,
           sellerId: user.seller?.id,
+          mobileNumber: user.mobileNumber,
+          mobileNumberCountryCode: user.mobileNumberCountryCode,
+          mobileNumberSubmitted: user.mobileNumberSubmitted,
+          buyerOnboardingCompleted: user.buyerOnboardingCompleted,
         };
       }
 
@@ -105,7 +131,16 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
       if (session) {
         const user = await db.user.findUnique({
           where: { id: session.id },
-          select: { id: true, email: true, role: true, seller: { select: { id: true } } },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            mobileNumber: true,
+            mobileNumberCountryCode: true,
+            mobileNumberSubmitted: true,
+            buyerOnboardingCompleted: true,
+            seller: { select: { id: true } },
+          },
         });
         if (user) {
           return {
@@ -114,6 +149,10 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
             email: user.email,
             role: user.role,
             sellerId: user.seller?.id,
+            mobileNumber: user.mobileNumber,
+            mobileNumberCountryCode: user.mobileNumberCountryCode,
+            mobileNumberSubmitted: user.mobileNumberSubmitted,
+            buyerOnboardingCompleted: user.buyerOnboardingCompleted,
           };
         }
       }
@@ -123,6 +162,92 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
   } catch (error) {
     console.error("verifyAuthenticatedUser error:", error);
     return { authorized: false };
+  }
+}
+
+/**
+ * Strict server-side verification for buyer marketplace access.
+ * Checks:
+ * 1. Authenticated via Google (Clerk) or valid EarthCentric session
+ * 2. Mobile number submitted and recorded
+ * 3. Gmail OTP verified and onboarding marked complete
+ * 
+ * Sellers and Admins are granted immediate access.
+ */
+export async function verifyBuyerAuth(): Promise<{
+  authorized: boolean;
+  userId?: string;
+  email?: string;
+  role?: string;
+  step?: "GOOGLE_LOGIN" | "MOBILE_NUMBER" | "OTP_VERIFICATION" | "COMPLETED";
+  isVerified?: boolean;
+  error?: string;
+}> {
+  try {
+    const user = await verifyAuthenticatedUser();
+    if (!user.authorized || !user.userId) {
+      return {
+        authorized: false,
+        step: "GOOGLE_LOGIN",
+        isVerified: false,
+        error: "Sign in with your Google account to access the marketplace.",
+      };
+    }
+
+    // Admins and Sellers are exempt from buyer mobile/OTP verification flow
+    if (user.role === "ADMIN" || user.role === "SELLER") {
+      return {
+        authorized: true,
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        step: "COMPLETED",
+        isVerified: true,
+      };
+    }
+
+    // Check step 2: mobile number submitted
+    if (!user.mobileNumberSubmitted || !user.mobileNumber) {
+      return {
+        authorized: false,
+        userId: user.userId,
+        email: user.email,
+        role: "BUYER",
+        step: "MOBILE_NUMBER",
+        isVerified: false,
+        error: "Please enter and confirm your mobile number to proceed.",
+      };
+    }
+
+    // Check step 3 & 4: OTP verified and buyer onboarding completed
+    if (!user.buyerOnboardingCompleted) {
+      return {
+        authorized: false,
+        userId: user.userId,
+        email: user.email,
+        role: "BUYER",
+        step: "OTP_VERIFICATION",
+        isVerified: false,
+        error: "Please complete OTP verification to access the marketplace.",
+      };
+    }
+
+    return {
+      authorized: true,
+      userId: user.userId,
+      email: user.email,
+      role: "BUYER",
+      step: "COMPLETED",
+      isVerified: true,
+    };
+  } catch (error) {
+    console.error("verifyBuyerAuth error:", error);
+    return {
+      authorized: false,
+      step: "GOOGLE_LOGIN",
+      isVerified: false,
+      error: "Error verifying buyer authorization status.",
+    };
   }
 }
 

@@ -1,6 +1,8 @@
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import MarketplaceClient from "@/components/marketplace/MarketplaceClient";
+import { verifyBuyerAuth } from "@/lib/auth-server";
 
 export const metadata: Metadata = {
   title: "Sustainable Marketplace India | Verified Eco Products | EarthCentric",
@@ -29,7 +31,12 @@ export const metadata: Metadata = {
   },
 };
 
-export default function MarketplacePage() {
+export default async function MarketplacePage() {
+  const auth = await verifyBuyerAuth();
+  if (!auth.isVerified) {
+    redirect("/auth/buyer-login?redirect_url=/marketplace");
+  }
+
   return (
     <Suspense fallback={<div className="mx-auto max-w-xl py-32 text-center text-xs text-muted-foreground animate-pulse">Loading Marketplace...</div>}>
       <MarketplaceClient />

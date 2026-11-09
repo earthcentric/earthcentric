@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useWishlist } from "@/context/WishlistContext";
 import { getWishlist, getWishlistProductsByIds, WishlistItemData } from "@/actions/wishlist";
@@ -12,11 +13,20 @@ import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 
 export default function WishlistPage() {
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
   const { wishlistIds, removeFromWishlist, clearWishlist, isGuestWishlist, isLoading: wishlistLoading } = useWishlist();
   const { addToCart } = useCart();
   const [items, setItems] = useState<WishlistItemData[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user || (user.role === "BUYER" && !user.buyerOnboardingCompleted)) {
+        router.replace("/auth/buyer-login?redirect_url=/wishlist");
+      }
+    }
+  }, [user, authLoading, router]);
 
   const loadWishlistItems = useCallback(async () => {
     setLoading(true);

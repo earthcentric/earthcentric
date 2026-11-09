@@ -74,14 +74,7 @@ export async function sendBuyerOtp(
     const otpHash = hashOtp(otp);
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-    // Send OTP email — log plaintext OTP to terminal console
-    console.log("\n╔══════════════════════════════════════╗");
-    console.log("║        🔐  DEV MODE OTP CODE          ║");
-    console.log(`║   Email : ${normalizedEmail.padEnd(26)}║`);
-    console.log(`║   OTP   : ${otp}                        ║`);
-    console.log("╚══════════════════════════════════════╝\n");
-
-    // Always save the new OTP to DB so verification works in dev/test mode even if email delivery fails
+    // Save the new OTP to DB
     try {
       await db.otpVerification.upsert({
         where: { email: normalizedEmail },
@@ -123,9 +116,8 @@ export async function sendBuyerOtp(
     return {
       success: true,
       emailFailed: isMockOrFailed,
-      otp: process.env.NODE_ENV === "development" ? otp : undefined,
       error: isMockOrFailed
-        ? `SMTP delivery failed (${(emailResult as any).error || "BadCredentials"}). Dev Mode: Exposing OTP directly.`
+        ? "Email delivery failed. Please check SMTP/SendGrid configuration."
         : undefined
     };
   } catch (error) {

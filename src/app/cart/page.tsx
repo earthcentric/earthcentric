@@ -1,15 +1,27 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
 import { Button, Card, Badge, LiquidButton } from "@/components/ui/shared";
 import { FadeIn, ScaleHover } from "@/components/FramerComponents";
 import { Trash2, ShoppingBag, ArrowLeft, ArrowRight, Minus, Plus, Leaf, Shield } from "lucide-react";
 import { isBuyXGetYActive, calculateBuyXGetYFreeItems, getEffectiveUnitPrice } from "@/lib/offers";
 
 export default function CartPage() {
+  const router = useRouter();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const { cart, removeFromCart, updateQuantity, cartTotal, cartCount, isGstVerified, openGstModal, getItemPricing } = useCart();
+
+  useEffect(() => {
+    if (!isAuthLoading) {
+      if (!user || (user.role === "BUYER" && !user.buyerOnboardingCompleted)) {
+        router.replace("/auth/buyer-login?redirect_url=/cart");
+      }
+    }
+  }, [user, isAuthLoading, router]);
 
   // Total boxes & total units calculation
   const totalBoxes = cart.reduce((total, item) => total + item.quantity, 0);
