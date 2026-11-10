@@ -136,11 +136,25 @@ export async function addToDbCart(userId: string, productId: string, quantity: n
       return false;
     }
 
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { role: true, gstStatus: true },
+    });
+    const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED";
+
     const cart = await db.cart.upsert({
       where: { userId },
       update: {},
       create: { userId },
     });
+
+    const existingItem = await db.cartItem.findUnique({
+      where: { cartId_productId: { cartId: cart.id, productId } },
+      select: { quantity: true },
+    });
+
+    const targetQuantity = (existingItem?.quantity || 0) + quantity;
+    const finalQuantity = (!isApprovedGst && targetQuantity > 1) ? 1 : targetQuantity;
 
     await db.cartItem.upsert({
       where: {
@@ -150,12 +164,12 @@ export async function addToDbCart(userId: string, productId: string, quantity: n
         },
       },
       update: {
-        quantity: { increment: quantity },
+        quantity: finalQuantity,
       },
       create: {
         cartId: cart.id,
         productId,
-        quantity,
+        quantity: (!isApprovedGst && quantity > 1) ? 1 : quantity,
       },
     });
 
@@ -181,6 +195,13 @@ export async function updateDbCartQuantity(userId: string, productId: string, qu
 
     if (!cart) return false;
 
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { role: true, gstStatus: true },
+    });
+    const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED";
+    const allowedQty = (!isApprovedGst && quantity > 1) ? 1 : quantity;
+
     if (quantity <= 0) {
       await db.cartItem.deleteMany({
         where: {
@@ -196,11 +217,11 @@ export async function updateDbCartQuantity(userId: string, productId: string, qu
             productId,
           },
         },
-        update: { quantity },
+        update: { quantity: allowedQty },
         create: {
           cartId: cart.id,
           productId,
-          quantity,
+          quantity: allowedQty,
         },
       });
     }

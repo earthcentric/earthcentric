@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth as useClerkAuth, useUser } from "@clerk/nextjs";
+import { useAuth as useClerkAuth, useSignIn, useUser } from "@clerk/nextjs";
 import { useAuth } from "@/context/AuthContext";
 import {
   getBuyerAuthState,
@@ -12,6 +12,7 @@ import {
   verifyBuyerOtpAction,
   resendBuyerOtpAction,
   initiateBuyerGoogleEmailAuth,
+  completeBuyerProfileAction,
 } from "@/actions/buyer-auth";
 import {
   ShieldCheck,
@@ -23,8 +24,11 @@ import {
   LogOut,
   AlertCircle,
   Lock,
-  Sparkles,
   ChevronLeft,
+  MapPin,
+  User,
+  Home,
+  Building,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,10 +51,14 @@ function BuyerLoginContent() {
 
   const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
   const { user: clerkUser, isLoaded: userLoaded } = useUser();
+  const clerkSignIn = useSignIn();
+  const signIn = (clerkSignIn as any)?.signIn ?? clerkSignIn;
   const { user: appUser, logout } = useAuth();
 
-  // Wizard state: 1: GOOGLE_LOGIN, 2: MOBILE_NUMBER, 3: OTP_VERIFICATION, 4: SUCCESS
-  const [step, setStep] = useState<"GOOGLE_LOGIN" | "MOBILE_NUMBER" | "OTP_VERIFICATION" | "SUCCESS">("GOOGLE_LOGIN");
+  // Wizard state: 1: GOOGLE_LOGIN, 2: MOBILE_NUMBER, 3: OTP_VERIFICATION, 4: PROFILE_COMPLETION, 5: SUCCESS
+  const [step, setStep] = useState<
+    "GOOGLE_LOGIN" | "MOBILE_NUMBER" | "OTP_VERIFICATION" | "PROFILE_COMPLETION" | "SUCCESS"
+  >("GOOGLE_LOGIN");
   const [loadingState, setLoadingState] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -62,6 +70,15 @@ function BuyerLoginContent() {
   const [mobileNumber, setMobileNumber] = useState("");
   const [otpInput, setOtpInput] = useState(["", "", "", "", "", ""]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Profile completion address fields
+  const [deliveryName, setDeliveryName] = useState("");
+  const [deliveryBuilding, setDeliveryBuilding] = useState("");
+  const [deliveryStreet, setDeliveryStreet] = useState("");
+  const [deliveryCity, setDeliveryCity] = useState("");
+  const [deliveryState, setDeliveryState] = useState("");
+  const [deliveryPostalCode, setDeliveryPostalCode] = useState("");
+  const [deliveryCountry, setDeliveryCountry] = useState("India");
 
   // Resend cooldown timer
   const [cooldown, setCooldown] = useState(0);
@@ -103,11 +120,19 @@ function BuyerLoginContent() {
           setBuyerEmail(state.email);
           setInputGoogleEmail(state.email);
         }
-        if (state.name) setBuyerName(state.name);
+        if (state.name) {
+          setBuyerName(state.name);
+          setDeliveryName((prev) => prev || state.name || "");
+        } else if (clerkUser?.fullName) {
+          setDeliveryName((prev) => prev || clerkUser.fullName || "");
+        }
         if (state.mobileNumber) setMobileNumber(state.mobileNumber);
         if (state.countryCode) setCountryCode(state.countryCode);
 
-        if (state.step === "COMPLETED") {
+        const stepParam = searchParams.get("step");
+        if (stepParam === "otp" && (state.email || state.step === "OTP_VERIFICATION")) {
+          setStep("OTP_VERIFICATION");
+        } else if (state.step === "COMPLETED") {
           setStep("SUCCESS");
           setTimeout(() => {
             if (state.role === "SELLER") {
@@ -116,6 +141,8 @@ function BuyerLoginContent() {
               router.replace(redirectTarget);
             }
           }, 1200);
+        } else if (state.step === "PROFILE_COMPLETION") {
+          setStep("PROFILE_COMPLETION");
         } else if (state.step === "OTP_VERIFICATION") {
           setStep("OTP_VERIFICATION");
         } else if (state.step === "MOBILE_NUMBER") {
@@ -137,7 +164,66 @@ function BuyerLoginContent() {
     };
   }, [isSignedIn, clerkLoaded, userLoaded, clerkUser, redirectTarget, router]);
 
-  // Step 1: Handle Google Email Submit
+  // Step 1A: Handle Google Authentication cleanly without unhandled domain failures
+  const handleGoogleOAuth = async () => {
+    try {
+      setActionLoading(true);
+      setErrorMessage(null);
+
+      // 1. If email is already typed or pre-filled from Clerk user, proceed directly
+      const emailToUse = (inputGoogleEmail || clerkUser?.primaryEmailAddress?.emailAddress || "").trim();
+      if (emailToUse && emailToUse.includes("@")) {
+        await handleGoogleSubmit();
+        return;
+      }
+
+      // 2. Attempt Clerk OAuth creation safely (inspecting redirect URL before blindly redirecting)
+      if (signIn && typeof (signIn as any).create === "function") {
+        try {
+          const res = await (signIn as any).create({
+            strategy: "oauth_google",
+            redirectUrl: window.location.origin + "/sso-callback",
+          });
+          const redirectUrl =
+            res?.firstFactorVerification?.externalVerificationRedirectURL?.href ||
+            res?.firstFactorVerification?.externalVerificationRedirectURL;
+
+          if (redirectUrl) {
+            // Guard against unreachable Vercel custom subdomain (accounts.earthcentric-2ug9.vercel.app has no DNS)
+            if (
+              redirectUrl.includes("accounts.earthcentric-2ug9.vercel.app") ||
+              redirectUrl.includes("accounts.earthcentric")
+            ) {
+              console.warn("Clerk OAuth returned unreachable accounts.earthcentric domain. Directing to Gmail input.");
+              setErrorMessage("Please enter your Google / Gmail account address below to continue with SendGrid verification.");
+              document.getElementById("google-email-input")?.focus();
+              setActionLoading(false);
+              return;
+            }
+
+            // Valid OAuth URL (e.g. accounts.google.com or clerk.accounts.dev)
+            window.location.href = redirectUrl;
+            return;
+          }
+        } catch (oauthErr: any) {
+          console.warn("Clerk OAuth initialization error:", oauthErr);
+          // Catch authorization_invalid or Clerk origin errors safely
+          setErrorMessage("Please enter your Google / Gmail account address below to receive your SendGrid verification OTP.");
+          document.getElementById("google-email-input")?.focus();
+          setActionLoading(false);
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.warn("Google OAuth handler error:", err);
+    }
+
+    setErrorMessage("Please enter your Google account email address below to continue.");
+    document.getElementById("google-email-input")?.focus();
+    setActionLoading(false);
+  };
+
+  // Step 1B: Handle Google / Gmail Email Submit
   const handleGoogleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const emailToUse = (inputGoogleEmail || clerkUser?.primaryEmailAddress?.emailAddress || "").trim();
@@ -162,7 +248,10 @@ function BuyerLoginContent() {
       }
 
       if (res.email) setBuyerEmail(res.email);
-      if (res.name) setBuyerName(res.name);
+      if (res.name) {
+        setBuyerName(res.name);
+        setDeliveryName((prev) => prev || res.name || "");
+      }
 
       if (res.step === "COMPLETED") {
         setStep("SUCCESS");
@@ -175,6 +264,8 @@ function BuyerLoginContent() {
             router.replace(redirectTarget);
           }
         }, 1200);
+      } else if (res.step === "PROFILE_COMPLETION") {
+        setStep("PROFILE_COMPLETION");
       } else if (res.step === "OTP_VERIFICATION") {
         setStep("OTP_VERIFICATION");
       } else {
@@ -233,14 +324,13 @@ function BuyerLoginContent() {
     }
   };
 
-  // Step 3/4: Handle OTP Input change
+  // Step 3: Handle OTP Input change
   const handleOtpChange = (index: number, val: string) => {
     const clean = val.replace(/\D/g, "").slice(-1);
     const updated = [...otpInput];
     updated[index] = clean;
     setOtpInput(updated);
 
-    // Auto-advance cursor to next box
     if (clean && index < 5) {
       const nextInput = document.getElementById(`otp-input-${index + 1}`);
       nextInput?.focus();
@@ -270,7 +360,7 @@ function BuyerLoginContent() {
     input?.focus();
   };
 
-  // Step 4: Submit OTP Verification
+  // Step 3: Submit OTP Verification
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const otp = otpInput.join("");
@@ -291,7 +381,64 @@ function BuyerLoginContent() {
         return;
       }
 
-      toast.success("Account successfully verified! Welcome to EarthCentric Marketplace.");
+      toast.success("Email verified successfully! Please enter your delivery details to complete onboarding.");
+      setStep("PROFILE_COMPLETION");
+    } catch (err: any) {
+      setErrorMessage(err?.message || "An unexpected error occurred during verification.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Step 4: Submit Mandatory Profile & Delivery Address Completion
+  const handleProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+
+    if (!deliveryName.trim() || deliveryName.trim().length < 2) {
+      setErrorMessage("Please enter your full name.");
+      return;
+    }
+    if (!deliveryBuilding.trim()) {
+      setErrorMessage("Please enter your House / Flat / Building No.");
+      return;
+    }
+    if (!deliveryStreet.trim() || deliveryStreet.trim().length < 2) {
+      setErrorMessage("Please enter your Street / Road / Area.");
+      return;
+    }
+    if (!deliveryCity.trim() || deliveryCity.trim().length < 2) {
+      setErrorMessage("Please enter your City.");
+      return;
+    }
+    if (!deliveryState.trim() || deliveryState.trim().length < 2) {
+      setErrorMessage("Please enter your State.");
+      return;
+    }
+    if (!/^\d{6}$/.test(deliveryPostalCode.trim())) {
+      setErrorMessage("Please enter a valid 6-digit Indian PIN code.");
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const res = await completeBuyerProfileAction({
+        name: deliveryName.trim(),
+        building: deliveryBuilding.trim(),
+        street: deliveryStreet.trim(),
+        city: deliveryCity.trim(),
+        state: deliveryState.trim(),
+        postalCode: deliveryPostalCode.trim(),
+        country: deliveryCountry.trim() || "India",
+      });
+
+      if (!res.success) {
+        setErrorMessage(res.error || "Failed to complete profile.");
+        setActionLoading(false);
+        return;
+      }
+
+      toast.success("Profile saved! Welcome to EarthCentric Marketplace.");
       setStep("SUCCESS");
 
       setTimeout(() => {
@@ -302,9 +449,10 @@ function BuyerLoginContent() {
         } else {
           router.replace(redirectTarget);
         }
-      }, 1500);
+      }, 1200);
     } catch (err: any) {
-      setErrorMessage(err?.message || "An unexpected error occurred during verification.");
+      setErrorMessage(err?.message || "An unexpected error occurred while saving profile.");
+    } finally {
       setActionLoading(false);
     }
   };
@@ -368,7 +516,7 @@ function BuyerLoginContent() {
 
   return (
     <div className="min-h-screen bg-[#FBF9F4] flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="sm:mx-auto sm:w-full sm:max-w-lg">
         
         {/* Brand Header */}
         <div className="text-center space-y-2 mb-8">
@@ -385,37 +533,46 @@ function BuyerLoginContent() {
             {step === "GOOGLE_LOGIN" && "Marketplace Buyer Sign In"}
             {step === "MOBILE_NUMBER" && "Buyer Mobile Verification"}
             {step === "OTP_VERIFICATION" && "Confirm Your Identity"}
+            {step === "PROFILE_COMPLETION" && "Complete Delivery Profile"}
             {step === "SUCCESS" && "Verification Complete"}
           </h1>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
             {step === "GOOGLE_LOGIN" && "Authenticating with Google ensures authentic buyer identities across EarthCentric."}
             {step === "MOBILE_NUMBER" && "Enter your active mobile number for order delivery coordination."}
             {step === "OTP_VERIFICATION" && "Enter the 6-digit OTP code sent to your verified Gmail account."}
-            {step === "SUCCESS" && "Granting full marketplace access with wholesale pricing and carbon-neutral checkout."}
+            {step === "PROFILE_COMPLETION" && "Provide your delivery address to activate full marketplace access and wholesale pricing."}
+            {step === "SUCCESS" && "Granting full marketplace access with verified pricing and carbon-neutral checkout."}
           </p>
         </div>
 
-        {/* Progress Stepper */}
-        <div className="flex items-center justify-center space-x-3 mb-8">
-          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "GOOGLE_LOGIN" ? "text-[#0F6E56]" : "text-slate-400"}`}>
+        {/* Progress Stepper (4 Steps) */}
+        <div className="flex items-center justify-center space-x-2 sm:space-x-3 mb-8">
+          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "GOOGLE_LOGIN" ? "text-[#0F6E56]" : "text-emerald-700"}`}>
             <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${step === "GOOGLE_LOGIN" ? "bg-[#0F6E56] text-white" : "bg-emerald-100 text-[#0F6E56]"}`}>
               {step !== "GOOGLE_LOGIN" ? "✓" : "1"}
             </span>
             <span className="hidden sm:inline">Google</span>
           </div>
-          <div className="h-0.5 w-6 bg-slate-200" />
-          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "MOBILE_NUMBER" ? "text-[#0F6E56]" : step === "OTP_VERIFICATION" || step === "SUCCESS" ? "text-emerald-700" : "text-slate-400"}`}>
-            <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${step === "MOBILE_NUMBER" ? "bg-[#0F6E56] text-white" : step === "OTP_VERIFICATION" || step === "SUCCESS" ? "bg-emerald-100 text-[#0F6E56]" : "bg-slate-200 text-slate-600"}`}>
-              {step === "OTP_VERIFICATION" || step === "SUCCESS" ? "✓" : "2"}
+          <div className="h-0.5 w-4 sm:w-6 bg-slate-200" />
+          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "MOBILE_NUMBER" ? "text-[#0F6E56]" : ["OTP_VERIFICATION", "PROFILE_COMPLETION", "SUCCESS"].includes(step) ? "text-emerald-700" : "text-slate-400"}`}>
+            <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${step === "MOBILE_NUMBER" ? "bg-[#0F6E56] text-white" : ["OTP_VERIFICATION", "PROFILE_COMPLETION", "SUCCESS"].includes(step) ? "bg-emerald-100 text-[#0F6E56]" : "bg-slate-200 text-slate-600"}`}>
+              {["OTP_VERIFICATION", "PROFILE_COMPLETION", "SUCCESS"].includes(step) ? "✓" : "2"}
             </span>
             <span className="hidden sm:inline">Mobile</span>
           </div>
-          <div className="h-0.5 w-6 bg-slate-200" />
-          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "OTP_VERIFICATION" ? "text-[#0F6E56]" : step === "SUCCESS" ? "text-emerald-700" : "text-slate-400"}`}>
-            <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${step === "OTP_VERIFICATION" ? "bg-[#0F6E56] text-white" : step === "SUCCESS" ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"}`}>
-              {step === "SUCCESS" ? "✓" : "3"}
+          <div className="h-0.5 w-4 sm:w-6 bg-slate-200" />
+          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "OTP_VERIFICATION" ? "text-[#0F6E56]" : ["PROFILE_COMPLETION", "SUCCESS"].includes(step) ? "text-emerald-700" : "text-slate-400"}`}>
+            <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${step === "OTP_VERIFICATION" ? "bg-[#0F6E56] text-white" : ["PROFILE_COMPLETION", "SUCCESS"].includes(step) ? "bg-emerald-100 text-[#0F6E56]" : "bg-slate-200 text-slate-600"}`}>
+              {["PROFILE_COMPLETION", "SUCCESS"].includes(step) ? "✓" : "3"}
             </span>
             <span className="hidden sm:inline">OTP</span>
+          </div>
+          <div className="h-0.5 w-4 sm:w-6 bg-slate-200" />
+          <div className={`flex items-center space-x-1 text-xs font-bold ${step === "PROFILE_COMPLETION" ? "text-[#0F6E56]" : step === "SUCCESS" ? "text-emerald-700" : "text-slate-400"}`}>
+            <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] ${step === "PROFILE_COMPLETION" ? "bg-[#0F6E56] text-white" : step === "SUCCESS" ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"}`}>
+              {step === "SUCCESS" ? "✓" : "4"}
+            </span>
+            <span className="hidden sm:inline">Profile</span>
           </div>
         </div>
 
@@ -445,6 +602,45 @@ function BuyerLoginContent() {
                 </p>
               </div>
 
+              {/* Continue with Google (OAuth Primary) */}
+              <button
+                type="button"
+                onClick={handleGoogleOAuth}
+                disabled={actionLoading}
+                className="w-full flex items-center justify-center space-x-3 py-3.5 px-4 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-800 font-bold text-sm rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 hover:shadow"
+              >
+                <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                <span>{actionLoading ? "Connecting with Google..." : "Continue with Google"}</span>
+                <ArrowRight className="h-4 w-4 text-slate-400" />
+              </button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-400">
+                  <span className="bg-white px-3">Or sign in with Google account address</span>
+                </div>
+              </div>
+
+              {/* Direct Google Account Email form */}
               <form onSubmit={handleGoogleSubmit} className="space-y-4 text-left">
                 <div>
                   <label htmlFor="google-email-input" className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -471,32 +667,13 @@ function BuyerLoginContent() {
                   </p>
                 </div>
 
-                {/* Continue with Google Button */}
                 <button
                   type="submit"
                   disabled={actionLoading}
-                  className="w-full flex items-center justify-center space-x-3 py-3.5 px-4 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-800 font-bold text-sm rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 hover:shadow"
+                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>{actionLoading ? "Authenticating with Google..." : "Continue with Google"}</span>
-                  <ArrowRight className="h-4 w-4 text-slate-400" />
+                  <span>{actionLoading ? "Verifying..." : "Continue with Google Email"}</span>
+                  <ArrowRight className="h-4 w-4" />
                 </button>
               </form>
 
@@ -544,7 +721,6 @@ function BuyerLoginContent() {
                   Enter Your Mobile Number <span className="text-red-500">*</span>
                 </label>
                 <div className="flex rounded-xl border border-slate-200 shadow-sm overflow-hidden focus-within:ring-1 focus-within:ring-[#0F6E56] focus-within:border-[#0F6E56]">
-                  {/* Country Code Select */}
                   <label htmlFor="buyer-country-code" className="sr-only">Country Code</label>
                   <select
                     id="buyer-country-code"
@@ -559,7 +735,6 @@ function BuyerLoginContent() {
                     ))}
                   </select>
 
-                  {/* Number Input */}
                   <input
                     id="buyer-mobile-input"
                     type="tel"
@@ -573,7 +748,7 @@ function BuyerLoginContent() {
                   />
                 </div>
                 <p className="text-[10px] text-slate-400">
-                  Default is India (+91). We will send a one-time verification code to your verified Gmail account.
+                  Default is India (+91). We will send a 6-digit verification code to your verified Gmail account.
                 </p>
               </div>
 
@@ -609,12 +784,11 @@ function BuyerLoginContent() {
           )}
 
           {/* ══════════════════════════════════════════════════════════════
-              STEP 3 / 4: OTP VERIFICATION SCREEN
+              STEP 3: OTP VERIFICATION SCREEN
              ══════════════════════════════════════════════════════════════ */}
           {step === "OTP_VERIFICATION" && (
             <form onSubmit={handleVerifyOtp} className="space-y-6 text-left">
               
-              {/* Notice */}
               <div className="p-3.5 bg-emerald-50/60 border border-emerald-100 rounded-2xl space-y-1">
                 <div className="flex items-center space-x-1.5 text-xs font-bold text-[#0F6E56]">
                   <Mail className="h-4 w-4" />
@@ -654,7 +828,7 @@ function BuyerLoginContent() {
                 </div>
               </div>
 
-              {/* Verify & Access Button */}
+              {/* Verify Button */}
               <button
                 type="submit"
                 disabled={actionLoading || otpInput.join("").length !== 6}
@@ -667,7 +841,7 @@ function BuyerLoginContent() {
                   </>
                 ) : (
                   <>
-                    <span>Verify & Access Marketplace</span>
+                    <span>Verify Code & Continue</span>
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
@@ -713,6 +887,181 @@ function BuyerLoginContent() {
                   <span>Log Out & Cancel</span>
                 </button>
               </div>
+            </form>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════
+              STEP 4: MANDATORY PROFILE & DELIVERY ADDRESS COMPLETION CARD
+             ══════════════════════════════════════════════════════════════ */}
+          {step === "PROFILE_COMPLETION" && (
+            <form onSubmit={handleProfileSubmit} className="space-y-4 text-left">
+              
+              <div className="bg-[#F5F1EA] rounded-2xl p-4 border border-[#E8E2D9] space-y-1.5">
+                <p className="text-xs font-bold text-[#1F3A2E] flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-[#0F6E56]" />
+                  <span>Mandatory Delivery Details Before Marketplace Access</span>
+                </p>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Please complete your full name and delivery address to enable verified buyer shipping and wholesale pricing.
+                </p>
+              </div>
+
+              {/* Verified Account Badges (Read-Only) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="p-2.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl">
+                  <div className="flex items-center space-x-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span className="text-[10px] uppercase font-bold text-slate-500">Verified Email</span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-800 truncate mt-0.5">{buyerEmail}</p>
+                </div>
+                <div className="p-2.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl">
+                  <div className="flex items-center space-x-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span className="text-[10px] uppercase font-bold text-slate-500">Verified Mobile</span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-800 truncate mt-0.5">
+                    {countryCode} {mobileNumber}
+                  </p>
+                </div>
+              </div>
+
+              {/* Full Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={deliveryName}
+                    onChange={(e) => setDeliveryName(e.target.value)}
+                    placeholder="Enter your full legal or business name"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Building & Street */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    House / Building No. <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Home className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={deliveryBuilding}
+                      onChange={(e) => setDeliveryBuilding(e.target.value)}
+                      placeholder="Flat 402, Lotus Tower"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Street / Road / Area <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Building className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={deliveryStreet}
+                      onChange={(e) => setDeliveryStreet(e.target.value)}
+                      placeholder="MG Road, Sector 14"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* City & State */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    City <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryCity}
+                    onChange={(e) => setDeliveryCity(e.target.value)}
+                    placeholder="e.g. Hyderabad"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    State <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryState}
+                    onChange={(e) => setDeliveryState(e.target.value)}
+                    placeholder="e.g. Telangana"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* PIN Code & Country */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    PIN Code (6 digits) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={deliveryPostalCode}
+                    onChange={(e) => setDeliveryPostalCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="e.g. 500081"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Country <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryCountry}
+                    onChange={(e) => setDeliveryCountry(e.target.value)}
+                    placeholder="India"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0F6E56] focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Save & Complete Button */}
+              <button
+                type="submit"
+                disabled={actionLoading}
+                className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 mt-2"
+              >
+                {actionLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Saving Profile & Activating Account...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Save & Continue to Marketplace</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
             </form>
           )}
 

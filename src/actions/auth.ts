@@ -290,6 +290,9 @@ export async function syncUserInDb(userData: {
       sellerStatus: user.seller?.verificationStatus as any,
       sellerId: user.seller?.id,
       badges: user.seller?.badges || [],
+      gstStatus: (user as any).gstStatus || "NOT_SUBMITTED",
+      gstin: (user as any).gstin || null,
+      gstBusinessName: (user as any).gstBusinessName || null,
       isNewUser: !existingUser,
     };
     

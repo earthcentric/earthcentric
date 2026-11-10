@@ -72,6 +72,13 @@ model User {
   buyerOnboardingCompleted Boolean   @default(false)
   buyerVerifiedAt          DateTime?
   role                     Role      @default(BUYER)
+  // GST verification for B2B commercial bulk purchasing
+  gstin                    String?
+  gstStatus                String    @default("NOT_SUBMITTED") // NOT_SUBMITTED, PENDING, APPROVED, REJECTED
+  gstBusinessName          String?
+  gstSubmittedAt           DateTime?
+  gstVerifiedAt            DateTime?
+  gstRejectionReason       String?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 

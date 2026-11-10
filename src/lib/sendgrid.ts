@@ -108,9 +108,12 @@ export async function sendEmailWithSendGrid(options: SendGridEmailOptions): Prom
  * Builds the EarthCentric professional branded email template for Buyer OTP verification.
  * Does NOT log or expose the OTP code.
  */
-export function buildBuyerOtpEmailHtml(otpCode: string, recipientName?: string): string {
+export function buildBuyerOtpEmailHtml(otpCode: string, recipientName?: string, customReturnUrl?: string): string {
   const safeName = recipientName ? recipientName.trim() : "";
   const year = new Date().getFullYear();
+  const rawBaseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "https://earthcentric-2ug9.vercel.app";
+  const baseUrl = rawBaseUrl.replace(/\/+$/, "");
+  const returnUrl = customReturnUrl || `${baseUrl}/auth/buyer-login?step=otp`;
 
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 0; border-radius: 16px; overflow: hidden; border: 1px solid #D8CEBE; background-color: #FFFFFF;">
@@ -165,7 +168,7 @@ export function buildBuyerOtpEmailHtml(otpCode: string, recipientName?: string):
 
         <!-- Direct Return Button -->
         <div style="text-align: center; margin: 24px 0;">
-          <a href="https://earthcentric-2ug9.vercel.app/auth/buyer-login" style="display: inline-block; background-color: #0F6E56; color: #FFFFFF; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 10px; text-decoration: none; box-shadow: 0 4px 12px rgba(15,110,86,0.25);">
+          <a href="${returnUrl}" style="display: inline-block; background-color: #0F6E56; color: #FFFFFF; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 10px; text-decoration: none; box-shadow: 0 4px 12px rgba(15,110,86,0.25);">
             Enter Code on EarthCentric →
           </a>
         </div>

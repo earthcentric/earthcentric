@@ -22,6 +22,9 @@ export interface User {
   mobileNumberSubmitted?: boolean;
   buyerOnboardingCompleted?: boolean;
   buyerVerifiedAt?: Date | string | null;
+  gstStatus?: string;
+  gstin?: string | null;
+  gstBusinessName?: string | null;
   isNewUser?: boolean;
 }
 
@@ -147,16 +150,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ? "/seller/dashboard"
               : "/seller/verification"
           );
-        } else if (
-          finalUser.role === "BUYER" &&
-          finalUser.isNewUser &&
-          isAuthLanding
-        ) {
-          const isProfileDone =
-            localStorage.getItem(`earthcentric_profile_done_${finalUser.id}`) === "true";
-          if (!isProfileDone) {
-            router.replace("/account?tab=profile&onboarding=true");
-          }
         }
       } catch (err) {
         if (cancelled) return;

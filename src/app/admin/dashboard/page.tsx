@@ -48,6 +48,7 @@ import { AdminShippingView } from "@/components/shipping/ShippingSettings";
 import { OrderCancellationsAdminView } from "@/components/admin/OrderCancellationsAdminView";
 import { SuperAdminFinancialAuditView } from "@/components/admin/SuperAdminFinancialAuditView";
 import { getUnreadMessageCount } from "@/actions/messages";
+import { adminGetPendingGstBuyersAction, adminApproveBuyerGstAction, adminRejectBuyerGstAction } from "@/actions/gst";
 import { isGrandfatheredSeller } from "@/lib/seller-verification-constants";
 import { Logo } from "@/components/Logo";
 import {
@@ -195,6 +196,7 @@ export default function AdminDashboard() {
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [credentials, setCredentials] = useState<CredentialItem[]>([]);
   const [messagesUnreadCount, setMessagesUnreadCount] = useState<number>(0);
+  const [gstBuyers, setGstBuyers] = useState<any[]>([]);
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -215,6 +217,7 @@ export default function AdminDashboard() {
         notifsRes,
         credsRes,
         unreadRes,
+        gstRes,
       ] = await Promise.allSettled([
         getPlatformStats(filterType, selectedDate, selectedMonth, selectedYear),
         getAdminAnalyticsTimeSeries(),
@@ -231,6 +234,7 @@ export default function AdminDashboard() {
         getAdminNotifications(),
         getIntegrationCredentials(),
         getUnreadMessageCount("admin-1"),
+        adminGetPendingGstBuyersAction(),
       ]);
 
       if (sRes.status === "fulfilled") setStats(sRes.value);
@@ -248,6 +252,9 @@ export default function AdminDashboard() {
       if (notifsRes.status === "fulfilled") setNotifications(notifsRes.value);
       if (credsRes.status === "fulfilled") setCredentials(credsRes.value);
       if (unreadRes.status === "fulfilled") setMessagesUnreadCount(unreadRes.value);
+      if (gstRes.status === "fulfilled" && (gstRes.value as any)?.success) {
+        setGstBuyers((gstRes.value as any).buyers || []);
+      }
     } catch (err) {
       console.error("loadAdminData caught an unexpected error:", err);
     } finally {
@@ -357,6 +364,7 @@ export default function AdminDashboard() {
           <div className="space-y-1">
             <p className="px-6 text-[10px] font-bold text-[#627d6a] uppercase tracking-wider mb-2">Management</p>
             <SidebarLink icon={ShieldAlert} label="Seller Verification" value="sellers" activeTab={activeTab} onSelect={selectTab} />
+            <SidebarLink icon={Building2} label="Buyer GST Approvals" value="gst-approvals" activeTab={activeTab} onSelect={selectTab} badge={gstBuyers.filter((b) => b.gstStatus === "PENDING").length} />
             <SidebarLink icon={Users} label="User Management" value="users" activeTab={activeTab} onSelect={selectTab} />
             <SidebarLink icon={PackageCheck} label="Product Approval" value="products" activeTab={activeTab} onSelect={selectTab} />
             <SidebarLink icon={Tag} label="Promotions & Discounts" value="discounts" activeTab={activeTab} onSelect={selectTab} badge={pendingDiscounts.filter(isPendingDiscount).length} />
@@ -515,6 +523,7 @@ export default function AdminDashboard() {
                 setSelectedYear={setSelectedYear}
               />}
             {activeTab === "sellers" && <SellerApprovalsView pendingSellers={pendingSellers} reload={loadAdminData} onInspectSeller={setSelectedSellerId} globalSearch={globalSearch} adminEmail={user?.email} />}
+            {activeTab === "gst-approvals" && <BuyerGstApprovalsView gstBuyers={gstBuyers} reload={loadAdminData} globalSearch={globalSearch} />}
             {activeTab === "users" && <UserManagementView usersData={usersData} onInspectSeller={setSelectedSellerId} onInspectBuyer={setSelectedBuyerId} globalSearch={globalSearch} />}
             {activeTab === "products" && (
               <ProductApprovalView
@@ -888,6 +897,201 @@ function DashboardView({
         </Card>
       </div>
 
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// BUYER GST APPROVALS VIEW
+// --------------------------------------------------------------------------
+function BuyerGstApprovalsView({
+  gstBuyers,
+  reload,
+  globalSearch,
+}: {
+  gstBuyers: any[];
+  reload: () => void;
+  globalSearch: string;
+}) {
+  const [filter, setFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  const filtered = (gstBuyers || []).filter((b) => {
+    if (filter !== "ALL" && b.gstStatus !== filter) return false;
+    if (globalSearch) {
+      const q = globalSearch.toLowerCase();
+      const matchName = b.name?.toLowerCase().includes(q);
+      const matchEmail = b.email?.toLowerCase().includes(q);
+      const matchGstin = b.gstin?.toLowerCase().includes(q);
+      const matchBiz = b.gstBusinessName?.toLowerCase().includes(q);
+      if (!matchName && !matchEmail && !matchGstin && !matchBiz) return false;
+    }
+    return true;
+  });
+
+  const pendingCount = (gstBuyers || []).filter((b) => b.gstStatus === "PENDING").length;
+  const approvedCount = (gstBuyers || []).filter((b) => b.gstStatus === "APPROVED").length;
+  const rejectedCount = (gstBuyers || []).filter((b) => b.gstStatus === "REJECTED").length;
+
+  const handleApprove = async (userId: string) => {
+    setActionLoadingId(userId);
+    try {
+      const res = await adminApproveBuyerGstAction(userId);
+      if (res.success) {
+        toast.success("Buyer GST approved successfully! Commercial bulk pricing is unlocked.");
+        reload();
+      } else {
+        toast.error(res.error || "Failed to approve GST.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to approve GST.");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleReject = async (userId: string) => {
+    const reason = window.prompt("Reason for rejecting GST application:", "Invalid or unverified GSTIN details");
+    if (reason === null) return;
+    setActionLoadingId(userId);
+    try {
+      const res = await adminRejectBuyerGstAction(userId, reason);
+      if (res.success) {
+        toast.success("Buyer GST rejected.");
+        reload();
+      } else {
+        toast.error(res.error || "Failed to reject GST.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to reject GST.");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6 text-left">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-[#1a3321]">Buyer GST Verifications</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Review B2B commercial buyer GSTIN submissions for wholesale pricing and bulk box access (2+ boxes).
+          </p>
+        </div>
+        <Button onClick={reload} variant="outline" className="text-xs font-bold gap-1 self-start sm:self-auto cursor-pointer">
+          Refresh Applications
+        </Button>
+      </div>
+
+      {/* Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="p-4 border-l-4 border-l-amber-500 bg-white">
+          <p className="text-[11px] font-bold text-muted-foreground uppercase">Pending Review</p>
+          <p className="text-2xl font-black text-amber-600 mt-1">{pendingCount}</p>
+        </Card>
+        <Card className="p-4 border-l-4 border-l-emerald-600 bg-white">
+          <p className="text-[11px] font-bold text-muted-foreground uppercase">Approved Businesses</p>
+          <p className="text-2xl font-black text-emerald-700 mt-1">{approvedCount}</p>
+        </Card>
+        <Card className="p-4 border-l-4 border-l-rose-500 bg-white">
+          <p className="text-[11px] font-bold text-muted-foreground uppercase">Rejected Applications</p>
+          <p className="text-2xl font-black text-rose-600 mt-1">{rejectedCount}</p>
+        </Card>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex space-x-2 border-b border-border/60 pb-2">
+        {(["ALL", "PENDING", "APPROVED", "REJECTED"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setFilter(t)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              filter === t ? "bg-[#1a3321] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            {t === "ALL" ? `All (${gstBuyers?.length || 0})` : `${t} (${(gstBuyers || []).filter((b) => b.gstStatus === t).length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      {filtered.length === 0 ? (
+        <Card className="p-12 text-center bg-white">
+          <p className="text-xs text-muted-foreground">No GST submissions found under current filter.</p>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((buyer) => (
+            <Card key={buyer.id} className="p-5 bg-white border border-border/70 hover:shadow-sm transition-shadow">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-sm text-slate-900">{buyer.gstBusinessName || "Business Name Not Provided"}</span>
+                    <span
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                        buyer.gstStatus === "APPROVED"
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                          : buyer.gstStatus === "REJECTED"
+                          ? "bg-rose-100 text-rose-800 border border-rose-300"
+                          : "bg-amber-100 text-amber-800 border border-amber-300 animate-pulse"
+                      }`}
+                    >
+                      {buyer.gstStatus}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-600 flex items-center gap-3 flex-wrap">
+                    <span>Contact: <strong>{buyer.name || "Buyer"}</strong></span>
+                    <span>•</span>
+                    <span>Email: <strong>{buyer.email}</strong></span>
+                    <span>•</span>
+                    <span>Phone: <strong>{buyer.mobileNumber || buyer.phone || "N/A"}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 flex-wrap">
+                    <span className="text-[11px] font-bold text-slate-400">GSTIN:</span>
+                    <span className="font-mono text-xs font-black bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-slate-800">
+                      {buyer.gstin || "NOT PROVIDED"}
+                    </span>
+                    {buyer.gstSubmittedAt && (
+                      <span className="text-[10px] text-slate-400">
+                        Submitted: {new Date(buyer.gstSubmittedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  {buyer.gstRejectionReason && (
+                    <p className="text-[11px] text-rose-600 font-semibold pt-1">
+                      Reason: {buyer.gstRejectionReason}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {buyer.gstStatus !== "APPROVED" && (
+                    <Button
+                      size="sm"
+                      disabled={actionLoadingId === buyer.id}
+                      onClick={() => handleApprove(buyer.id)}
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold h-9 px-3.5 cursor-pointer"
+                    >
+                      {actionLoadingId === buyer.id ? "Saving..." : "Approve GST"}
+                    </Button>
+                  )}
+                  {buyer.gstStatus !== "REJECTED" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={actionLoadingId === buyer.id}
+                      onClick={() => handleReject(buyer.id)}
+                      className="text-rose-700 border-rose-200 hover:bg-rose-50 text-xs font-bold h-9 px-3.5 cursor-pointer"
+                    >
+                      Reject
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

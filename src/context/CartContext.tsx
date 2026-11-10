@@ -101,8 +101,15 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
     pendingActionRef.current = null;
   };
 
-  // Restore GST verification session across page refreshes and checkout
+  // Restore GST verification session across page refreshes and user profile
   useEffect(() => {
+    if (user?.role === "ADMIN" || user?.gstStatus === "APPROVED") {
+      setIsGstVerified(true);
+      if (user.gstin) setVerifiedGstin(user.gstin || null);
+      if (user.mobileNumber || user.phone) setVerifiedPhone(user.mobileNumber || user.phone || null);
+      return;
+    }
+
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("earthcentric_gst_verification");
@@ -118,7 +125,7 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
         console.warn("Failed to restore GST verification state:", e);
       }
     }
-  }, []);
+  }, [user]);
 
   const [activeOfferPopup, setActiveOfferPopup] = useState<{
     productName: string;

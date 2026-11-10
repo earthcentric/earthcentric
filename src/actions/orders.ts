@@ -234,7 +234,7 @@ export async function createOrder(data: {
 
   const buyer = await db.user.findUnique({
     where: { id: auth.userId },
-    select: { id: true, email: true, name: true, phone: true },
+    select: { id: true, email: true, name: true, phone: true, role: true, gstStatus: true, gstin: true },
   });
   if (!buyer) {
     return { success: false, error: "Your account could not be verified. Please sign in again." };
@@ -270,6 +270,13 @@ export async function createOrder(data: {
   const validatedGstin = gstinCheck.normalizedGstin!;
 
   if (hasBulkBoxes) {
+    const isGstApproved = buyer?.role === "ADMIN" || buyer?.gstStatus === "APPROVED";
+    if (!isGstApproved) {
+      return {
+        success: false,
+        error: `Commercial bulk orders of 2 or more boxes require approved GST verification by EarthCentric Super Admin. Your current status is ${buyer?.gstStatus || "PENDING"}. Please order single boxes or wait for review.`,
+      };
+    }
     const phoneCheck = validateIndianMobile(data.userPhone);
     if (!phoneCheck.isValid) {
       return {

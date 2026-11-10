@@ -57,7 +57,7 @@ function validatePhoneNumber(countryCode: string, mobileNumber: string): { valid
  */
 export async function getBuyerAuthState(): Promise<{
   authenticated: boolean;
-  step: "GOOGLE_LOGIN" | "MOBILE_NUMBER" | "OTP_VERIFICATION" | "COMPLETED";
+  step: "GOOGLE_LOGIN" | "MOBILE_NUMBER" | "OTP_VERIFICATION" | "PROFILE_COMPLETION" | "COMPLETED";
   isVerified: boolean;
   role?: string;
   email?: string;
@@ -99,6 +99,7 @@ export async function getBuyerAuthState(): Promise<{
         mobileNumber: true,
         mobileNumberCountryCode: true,
         mobileNumberSubmitted: true,
+        emailVerified: true,
         buyerOnboardingCompleted: true,
         buyerVerifiedAt: true,
       },
@@ -147,9 +148,23 @@ export async function getBuyerAuthState(): Promise<{
     }
 
     // 3. Mobile number is submitted, but OTP verification pending:
+    if (!user.emailVerified) {
+      return {
+        authenticated: true,
+        step: "OTP_VERIFICATION",
+        isVerified: false,
+        role: effectiveRole,
+        email: user.email,
+        name: user.name || "",
+        mobileNumber: user.mobileNumber,
+        countryCode,
+      };
+    }
+
+    // 4. OTP verified, but profile and delivery address completion pending:
     return {
       authenticated: true,
-      step: "OTP_VERIFICATION",
+      step: "PROFILE_COMPLETION",
       isVerified: false,
       role: effectiveRole,
       email: user.email,
@@ -176,7 +191,7 @@ export async function getBuyerAuthState(): Promise<{
 export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
   success: boolean;
   error?: string;
-  step?: "MOBILE_NUMBER" | "OTP_VERIFICATION" | "COMPLETED";
+  step?: "MOBILE_NUMBER" | "OTP_VERIFICATION" | "PROFILE_COMPLETION" | "COMPLETED";
   email?: string;
   name?: string;
   role?: string;
@@ -255,6 +270,15 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
     }
 
     if (user.mobileNumberSubmitted && !user.buyerOnboardingCompleted) {
+      if (user.emailVerified) {
+        return {
+          success: true,
+          step: "PROFILE_COMPLETION",
+          email: user.email,
+          name: user.name || "",
+          role: user.role,
+        };
+      }
       return {
         success: true,
         step: "OTP_VERIFICATION",
@@ -414,6 +438,7 @@ export async function verifyBuyerOtpAction(otpInput: string): Promise<{
   isBlocked?: boolean;
   blockedMinutes?: number;
   remainingAttempts?: number;
+  step?: "PROFILE_COMPLETION" | "COMPLETED";
   role?: string;
 }> {
   try {
@@ -511,31 +536,143 @@ export async function verifyBuyerOtpAction(otpInput: string): Promise<{
       },
     });
 
-    // Update buyer's User profile
+    // Mark email verified (buyer profile/address completion is next mandatory step)
     await db.user.update({
       where: { id: authUser.userId },
       data: {
-        buyerOnboardingCompleted: true,
-        buyerVerifiedAt: now,
         emailVerified: now,
       },
     });
 
-    // Update session cookie with verified status
+    // Update session cookie
     await setEarthcentricSessionCookie({
       id: authUser.userId,
       role: authUser.role || "BUYER",
+      buyerOnboardingCompleted: false,
+      mobileNumberSubmitted: true,
+    });
+
+    return {
+      success: true,
+      step: "PROFILE_COMPLETION",
+      role: authUser.role || "BUYER",
+    };
+  } catch (err: any) {
+    console.error("verifyBuyerOtpAction error:", err);
+    return { success: false, error: "An unexpected error occurred during OTP verification." };
+  }
+}
+
+/**
+ * Step 5: Save Mandatory Buyer Profile & Delivery Address after OTP verification.
+ * Creates default Address and marks buyer onboarding as completed.
+ */
+export async function completeBuyerProfileAction(data: {
+  name: string;
+  building: string;
+  street: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  role?: string;
+}> {
+  try {
+    const authUser = await verifyAuthenticatedUser();
+    if (!authUser.authorized || !authUser.userId || !authUser.email) {
+      return { success: false, error: "Please sign in with Google first." };
+    }
+
+    const name = (data.name || "").trim();
+    const building = (data.building || "").trim();
+    const street = (data.street || "").trim();
+    const city = (data.city || "").trim();
+    const state = (data.state || "").trim();
+    const postalCode = (data.postalCode || "").trim();
+    const country = (data.country || "India").trim();
+
+    if (!name || name.length < 2) {
+      return { success: false, error: "Please enter your full name." };
+    }
+    if (!building) {
+      return { success: false, error: "Please enter your House / Flat / Building No." };
+    }
+    if (!street || street.length < 2) {
+      return { success: false, error: "Please enter your Street / Road / Area." };
+    }
+    if (!city || city.length < 2) {
+      return { success: false, error: "Please enter your City." };
+    }
+    if (!state || state.length < 2) {
+      return { success: false, error: "Please enter your State." };
+    }
+    if (!postalCode || !/^\d{6}$/.test(postalCode)) {
+      return { success: false, error: "Please enter a valid 6-digit Indian PIN code." };
+    }
+
+    const fullStreet = `${building}, ${street}`;
+
+    // Upsert default Address
+    const existingAddress = await db.address.findFirst({
+      where: { userId: authUser.userId, isDefault: true },
+    });
+
+    if (existingAddress) {
+      await db.address.update({
+        where: { id: existingAddress.id },
+        data: {
+          street: fullStreet,
+          city,
+          state,
+          postalCode,
+          country,
+          label: "Home",
+          isDefault: true,
+        },
+      });
+    } else {
+      await db.address.create({
+        data: {
+          userId: authUser.userId,
+          street: fullStreet,
+          city,
+          state,
+          postalCode,
+          country,
+          label: "Home",
+          isDefault: true,
+        },
+      });
+    }
+
+    const now = new Date();
+    const updatedUser = await db.user.update({
+      where: { id: authUser.userId },
+      data: {
+        name,
+        buyerOnboardingCompleted: true,
+        buyerVerifiedAt: now,
+      },
+    });
+
+    // Update session cookie with verified & completed status
+    await setEarthcentricSessionCookie({
+      id: updatedUser.id,
+      role: updatedUser.role,
       buyerOnboardingCompleted: true,
       mobileNumberSubmitted: true,
     });
 
     return {
       success: true,
-      role: authUser.role || "BUYER",
+      role: updatedUser.role,
     };
   } catch (err: any) {
-    console.error("verifyBuyerOtpAction error:", err);
-    return { success: false, error: "An unexpected error occurred during OTP verification." };
+    console.error("completeBuyerProfileAction error:", err);
+    return { success: false, error: "Failed to save profile. Please try again." };
   }
 }
 
