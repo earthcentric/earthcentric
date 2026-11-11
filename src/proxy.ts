@@ -123,26 +123,26 @@ export default clerkMiddleware(async (auth, request) => {
     return NextResponse.next();
   }
 
-  // 7. Enforce Buyer/Seller Mandatory Multi-Step Verification
+  // 7. Enforce Buyer/Seller Authentication
   if (isBuyerProtectedRoute) {
-    // A. Not logged in at all -> redirect to Step 1: Google Login
+    // A. Not logged in at all -> redirect to Login
     if (!isAuthenticated) {
       const buyerLoginUrl = new URL("/auth/buyer-login", request.url);
       buyerLoginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(buyerLoginUrl);
     }
 
-    // B. Super Admin is completely exempt
-    if (session?.role === "ADMIN") {
+    // B. Super Admin & Sellers are completely exempt
+    if (session?.role === "ADMIN" || session?.role === "SELLER") {
       return NextResponse.next();
     }
 
-    // C. Logged in as BUYER or SELLER: Verify completed onboarding
-    if (session?.buyerOnboardingCompleted === true && session?.mobileNumberSubmitted === true) {
+    // C. Authenticated users (via Clerk or active session) are granted access
+    if (isClerkAuthenticated || session?.buyerOnboardingCompleted === true || !!session?.id) {
       return NextResponse.next();
     }
 
-    // Otherwise, redirect to the dedicated multi-step login flow
+    // Otherwise, redirect to login flow
     const buyerLoginUrl = new URL("/auth/buyer-login", request.url);
     buyerLoginUrl.searchParams.set("redirect_url", fullPath);
     return NextResponse.redirect(buyerLoginUrl);

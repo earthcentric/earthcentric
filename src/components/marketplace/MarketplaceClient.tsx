@@ -161,9 +161,7 @@ export default function MarketplaceClient({ initialCategoryProp }: { initialCate
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading } = useAuth();
-  const isVerified = Boolean(
-    user && (user.role === "ADMIN" || (Boolean(user.buyerOnboardingCompleted) && Boolean(user.mobileNumberSubmitted)))
-  );
+  const isVerified = Boolean(user && user.id);
 
   useEffect(() => {
     if (!isLoading && !isVerified) {

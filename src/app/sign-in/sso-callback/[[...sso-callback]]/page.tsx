@@ -1,24 +1,52 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AuthenticateWithRedirectCallback } from "@clerk/nextjs";
 
-export default function SignInSSOCallbackPage() {
+function SignInSSOCallbackContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTarget = searchParams.get("redirect_url") || "/marketplace";
 
   useEffect(() => {
-    router.replace("/auth/buyer-login");
-  }, [router]);
+    const timer = setTimeout(() => {
+      router.replace(redirectTarget);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [router, redirectTarget]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FBF9F4]">
+    <div className="min-h-screen flex items-center justify-center bg-[#FBF9F4] px-4">
       <div className="p-8 text-center space-y-4 max-w-sm mx-auto bg-white rounded-3xl shadow-sm border border-slate-200">
-        <div className="animate-spin h-10 w-10 border-3 border-[#0F6E56] border-t-transparent rounded-full mx-auto" />
-        <h3 className="font-extrabold text-slate-800 text-base">Continuing to EarthCentric</h3>
-        <p className="text-xs text-slate-500">
-          Redirecting to verification...
-        </p>
+        <AuthenticateWithRedirectCallback
+          signInForceRedirectUrl={redirectTarget}
+          signUpForceRedirectUrl={redirectTarget}
+          continueSignUpUrl={redirectTarget}
+        />
+        <div className="pt-4">
+          <div className="animate-spin h-8 w-8 border-3 border-[#0F6E56] border-t-transparent rounded-full mx-auto" />
+          <h3 className="font-extrabold text-slate-800 text-sm mt-3">Continuing to EarthCentric</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Opening Marketplace...
+          </p>
+        </div>
       </div>
     </div>
+  );
+}
+
+export default function SignInSSOCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-[#FBF9F4]">
+          <div className="animate-spin h-8 w-8 border-3 border-[#0F6E56] border-t-transparent rounded-full mx-auto" />
+        </div>
+      }
+    >
+      <SignInSSOCallbackContent />
+    </Suspense>
   );
 }

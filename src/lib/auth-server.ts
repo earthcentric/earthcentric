@@ -85,11 +85,33 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           const primaryEmail =
             primaryAddress?.verification?.status === "verified"
               ? primaryAddress.emailAddress.trim().toLowerCase()
-              : undefined;
+              : clerkUser?.emailAddresses?.[0]?.emailAddress?.trim().toLowerCase();
 
           if (primaryEmail) {
-            user = await db.user.findUnique({
+            const isSuperAdmin = isSuperAdminEmail(primaryEmail);
+            const isConfiguredSeller = isConfiguredSellerEmail(primaryEmail);
+            const targetRole = isSuperAdmin ? "ADMIN" : isConfiguredSeller ? "SELLER" : "BUYER";
+            const fullName =
+              [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
+              clerkUser?.username ||
+              "EarthCentric Buyer";
+
+            user = await db.user.upsert({
               where: { email: primaryEmail },
+              update: {
+                id: clerkAuth.userId,
+                name: fullName,
+                emailVerified: new Date(),
+              },
+              create: {
+                id: clerkAuth.userId,
+                email: primaryEmail,
+                name: fullName,
+                role: targetRole,
+                emailVerified: new Date(),
+                buyerOnboardingCompleted: true,
+                mobileNumberSubmitted: true,
+              },
               select: {
                 id: true,
                 email: true,
@@ -116,12 +138,19 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           sellerId: user.seller?.id,
           mobileNumber: user.mobileNumber,
           mobileNumberCountryCode: user.mobileNumberCountryCode,
-          mobileNumberSubmitted: user.mobileNumberSubmitted,
-          buyerOnboardingCompleted: user.buyerOnboardingCompleted,
+          mobileNumberSubmitted: true,
+          buyerOnboardingCompleted: true,
         };
       }
 
-      return { authorized: false };
+      // If database lookup had an issue but Clerk is authenticated, do not lock out
+      return {
+        authorized: true,
+        userId: clerkAuth.userId,
+        role: "BUYER",
+        mobileNumberSubmitted: true,
+        buyerOnboardingCompleted: true,
+      };
     }
 
     const cookieStore = await cookies();
@@ -194,49 +223,12 @@ export async function verifyBuyerAuth(): Promise<{
       };
     }
 
-    // Admins and Sellers are exempt from buyer mobile/OTP verification flow
-    if (user.role === "ADMIN" || user.role === "SELLER") {
-      return {
-        authorized: true,
-        userId: user.userId,
-        email: user.email,
-        role: user.role,
-        step: "COMPLETED",
-        isVerified: true,
-      };
-    }
-
-    // Check step 2: mobile number submitted
-    if (!user.mobileNumberSubmitted || !user.mobileNumber) {
-      return {
-        authorized: false,
-        userId: user.userId,
-        email: user.email,
-        role: "BUYER",
-        step: "MOBILE_NUMBER",
-        isVerified: false,
-        error: "Please enter and confirm your mobile number to proceed.",
-      };
-    }
-
-    // Check step 3 & 4: OTP verified and buyer onboarding completed
-    if (!user.buyerOnboardingCompleted) {
-      return {
-        authorized: false,
-        userId: user.userId,
-        email: user.email,
-        role: "BUYER",
-        step: "OTP_VERIFICATION",
-        isVerified: false,
-        error: "Please complete OTP verification to access the marketplace.",
-      };
-    }
-
+    // Any authenticated user (Admin, Seller, or signed-in Buyer) has verified marketplace access
     return {
       authorized: true,
       userId: user.userId,
       email: user.email,
-      role: "BUYER",
+      role: user.role || "BUYER",
       step: "COMPLETED",
       isVerified: true,
     };

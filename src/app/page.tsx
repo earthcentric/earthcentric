@@ -161,9 +161,7 @@ function AnimatedCounter({ value, isDecimal = false, suffix = "" }: { value: num
 export default function Homepage() {
   const { addToCart } = useCart();
   const { user, isLoading: authLoading } = useAuth();
-  const isBuyerVerified = Boolean(
-    user && (user.role === "ADMIN" || (user.buyerOnboardingCompleted && user.mobileNumberSubmitted))
-  );
+  const isBuyerVerified = !authLoading && Boolean(user && user.id);
   const marketplaceHref = isBuyerVerified ? "/marketplace" : "/auth/buyer-login?redirect_url=/marketplace";
   // Strictly enforce login completion: user must exist and have an id
   const isLoggedIn = !authLoading && Boolean(user && user.id);

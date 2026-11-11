@@ -77,8 +77,8 @@ export async function getBuyerAuthState(): Promise<{
       };
     }
 
-    // Admins are exempt from the mandatory verification flow
-    if (authUser.role === "ADMIN") {
+    // Admins and Sellers are exempt from the mandatory buyer verification flow
+    if (authUser.role === "ADMIN" || authUser.role === "SELLER") {
       return {
         authenticated: true,
         step: "COMPLETED",
@@ -248,6 +248,23 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
         email: user.email,
         name: user.name || "",
         role: "ADMIN",
+      };
+    }
+
+    // Seller exemption
+    if (user.role === "SELLER" || isConfiguredSeller) {
+      await setEarthcentricSessionCookie({
+        id: user.id,
+        role: "SELLER",
+        buyerOnboardingCompleted: true,
+        mobileNumberSubmitted: true,
+      });
+      return {
+        success: true,
+        step: "COMPLETED",
+        email: user.email,
+        name: user.name || "",
+        role: "SELLER",
       };
     }
 

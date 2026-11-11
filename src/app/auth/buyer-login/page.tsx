@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth as useClerkAuth, useSignIn, useUser } from "@clerk/nextjs";
+import { useAuth as useClerkAuth, useSignIn, useSignUp, useUser, SignInButton } from "@clerk/nextjs";
 import { useAuth } from "@/context/AuthContext";
 import {
   getBuyerAuthState,
@@ -53,6 +53,8 @@ function BuyerLoginContent() {
   const { user: clerkUser, isLoaded: userLoaded } = useUser();
   const clerkSignIn = useSignIn();
   const signIn = (clerkSignIn as any)?.signIn ?? clerkSignIn;
+  const clerkSignUp = useSignUp();
+  const signUp = (clerkSignUp as any)?.signUp ?? clerkSignUp;
   const { user: appUser, logout } = useAuth();
 
   // Wizard state: 1: GOOGLE_LOGIN, 2: MOBILE_NUMBER, 3: OTP_VERIFICATION, 4: PROFILE_COMPLETION, 5: SUCCESS
@@ -98,6 +100,30 @@ function BuyerLoginContent() {
 
     async function checkState() {
       try {
+        // Fast-path: If user is signed in with Clerk, detect identity immediately
+        if (isSignedIn && clerkUser) {
+          const clerkEmail = clerkUser.primaryEmailAddress?.emailAddress?.trim().toLowerCase();
+          if (clerkEmail) {
+            setInputGoogleEmail(clerkEmail);
+            setBuyerEmail(clerkEmail);
+            
+            const state = await getBuyerAuthState();
+            if (state.authenticated && state.step === "COMPLETED") {
+              setStep("SUCCESS");
+              setTimeout(() => {
+                if (state.role === "ADMIN") {
+                  router.replace("/admin/dashboard");
+                } else if (state.role === "SELLER") {
+                  router.replace("/seller/dashboard");
+                } else {
+                  router.replace(redirectTarget);
+                }
+              }, 400);
+              return;
+            }
+          }
+        }
+
         const state = await getBuyerAuthState();
         if (!active) return;
 
@@ -140,7 +166,7 @@ function BuyerLoginContent() {
             } else {
               router.replace(redirectTarget);
             }
-          }, 1200);
+          }, 600);
         } else if (state.step === "PROFILE_COMPLETION") {
           setStep("PROFILE_COMPLETION");
         } else if (state.step === "OTP_VERIFICATION") {
@@ -177,41 +203,27 @@ function BuyerLoginContent() {
         return;
       }
 
-      // 2. Attempt Clerk OAuth creation safely (inspecting redirect URL before blindly redirecting)
-      if (signIn && typeof (signIn as any).create === "function") {
+      // 2. Standard Clerk OAuth authentication with Google
+      const ssoCallbackUrl = `${window.location.origin}/sso-callback?redirect_url=${encodeURIComponent(redirectTarget)}`;
+
+      if (signIn && typeof signIn.authenticateWithRedirect === "function") {
         try {
-          const res = await (signIn as any).create({
+          await signIn.authenticateWithRedirect({
             strategy: "oauth_google",
-            redirectUrl: window.location.origin + "/sso-callback",
+            redirectUrl: ssoCallbackUrl,
+            redirectUrlComplete: redirectTarget,
           });
-          const redirectUrl =
-            res?.firstFactorVerification?.externalVerificationRedirectURL?.href ||
-            res?.firstFactorVerification?.externalVerificationRedirectURL;
-
-          if (redirectUrl) {
-            // Guard against unreachable Vercel custom subdomain (accounts.earthcentric-2ug9.vercel.app has no DNS)
-            if (
-              redirectUrl.includes("accounts.earthcentric-2ug9.vercel.app") ||
-              redirectUrl.includes("accounts.earthcentric")
-            ) {
-              console.warn("Clerk OAuth returned unreachable accounts.earthcentric domain. Directing to Gmail input.");
-              setErrorMessage("Please enter your Google / Gmail account address below to continue with SendGrid verification.");
-              document.getElementById("google-email-input")?.focus();
-              setActionLoading(false);
-              return;
-            }
-
-            // Valid OAuth URL (e.g. accounts.google.com or clerk.accounts.dev)
-            window.location.href = redirectUrl;
+          return;
+        } catch (oauthErr: any) {
+          console.warn("Clerk signIn.authenticateWithRedirect error, trying signUp:", oauthErr);
+          if (signUp && typeof signUp.authenticateWithRedirect === "function") {
+            await signUp.authenticateWithRedirect({
+              strategy: "oauth_google",
+              redirectUrl: ssoCallbackUrl,
+              redirectUrlComplete: redirectTarget,
+            });
             return;
           }
-        } catch (oauthErr: any) {
-          console.warn("Clerk OAuth initialization error:", oauthErr);
-          // Catch authorization_invalid or Clerk origin errors safely
-          setErrorMessage("Please enter your Google / Gmail account address below to receive your SendGrid verification OTP.");
-          document.getElementById("google-email-input")?.focus();
-          setActionLoading(false);
-          return;
         }
       }
     } catch (err: any) {

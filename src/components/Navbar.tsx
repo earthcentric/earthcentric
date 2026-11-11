@@ -279,9 +279,7 @@ export default function Navbar() {
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [navCategories, setNavCategories] = useState<{id: string; name: string; slug: string; productCount: number}[]>([]);
 
-  const isBuyerVerified = Boolean(
-    user && (user.role === "ADMIN" || (user.buyerOnboardingCompleted && user.mobileNumberSubmitted))
-  );
+  const isBuyerVerified = Boolean(user && user.id);
   const marketplaceHref = isBuyerVerified ? "/marketplace" : "/auth/buyer-login?redirect_url=/marketplace";
   const dealsHref = isBuyerVerified ? "/marketplace?deals=true" : "/auth/buyer-login?redirect_url=/marketplace?deals=true";
   const newArrivalsHref = isBuyerVerified ? "/marketplace?newArrivals=true" : "/auth/buyer-login?redirect_url=/marketplace?newArrivals=true";
