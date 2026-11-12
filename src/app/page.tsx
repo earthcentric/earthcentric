@@ -466,7 +466,7 @@ export default function Homepage() {
                   </button>
                 )}
                 <Link
-                  href="/marketplace"
+                  href={marketplaceHref}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#0F6E56] hover:bg-[#0c5844] text-xs font-bold text-white transition-all shadow-xs"
                 >
                   <span>Explore Marketplace</span>

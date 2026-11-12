@@ -122,7 +122,7 @@ export function GstVerificationModal({
               Business Details Required
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Please enter your GST registration number and phone number to continue with bulk ordering.
+              To purchase more than one box, please provide your GST registration number and phone number.
             </p>
           </div>
         </div>

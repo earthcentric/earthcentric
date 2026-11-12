@@ -109,8 +109,8 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
                 name: fullName,
                 role: targetRole,
                 emailVerified: new Date(),
-                buyerOnboardingCompleted: true,
-                mobileNumberSubmitted: true,
+                buyerOnboardingCompleted: targetRole === "ADMIN" || targetRole === "SELLER",
+                mobileNumberSubmitted: targetRole === "ADMIN" || targetRole === "SELLER",
               },
               select: {
                 id: true,
