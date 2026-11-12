@@ -7,6 +7,8 @@ import { OrderCancellationAction } from "@/components/orders/OrderCancellationAc
 import { verifyBuyerAuth } from "@/lib/auth-server";
 import { CheckCircle2, Package, Truck, Calendar, ShoppingBag, Leaf, HelpCircle, MapPin, Clock, XCircle, RotateCcw, AlertCircle, Zap, Loader2 } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }

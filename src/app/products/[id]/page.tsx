@@ -6,6 +6,8 @@ import { Package, ArrowLeft, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/shared";
 import { verifyBuyerAuth } from "@/lib/auth-server";
 
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }

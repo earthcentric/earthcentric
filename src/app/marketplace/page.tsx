@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import MarketplaceClient from "@/components/marketplace/MarketplaceClient";
 import { verifyBuyerAuth } from "@/lib/auth-server";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Sustainable Marketplace India | Verified Eco Products | EarthCentric",
   description:
