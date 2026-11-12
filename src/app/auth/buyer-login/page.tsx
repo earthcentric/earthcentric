@@ -11,7 +11,6 @@ import {
   submitBuyerMobileNumber,
   verifyBuyerOtpAction,
   resendBuyerOtpAction,
-  initiateBuyerGoogleEmailAuth,
   completeBuyerProfileAction,
 } from "@/actions/buyer-auth";
 import {
@@ -67,7 +66,6 @@ function BuyerLoginContent() {
   // Form states
   const [buyerEmail, setBuyerEmail] = useState("");
   const [buyerName, setBuyerName] = useState("");
-  const [inputGoogleEmail, setInputGoogleEmail] = useState("");
   const [countryCode, setCountryCode] = useState("+91");
   const [mobileNumber, setMobileNumber] = useState("");
   const [otpInput, setOtpInput] = useState(["", "", "", "", "", ""]);
@@ -103,17 +101,34 @@ function BuyerLoginContent() {
         // Fast-path: If user is signed in with Clerk, detect identity immediately
         if (isSignedIn && clerkUser) {
           const clerkEmail = clerkUser.primaryEmailAddress?.emailAddress?.trim().toLowerCase();
+          const clerkName =
+            clerkUser.fullName ||
+            [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") ||
+            clerkUser.username ||
+            "";
+
           if (clerkEmail) {
-            setInputGoogleEmail(clerkEmail);
             setBuyerEmail(clerkEmail);
-            
+            if (clerkName) {
+              setBuyerName(clerkName);
+              setDeliveryName((prev) => prev || clerkName);
+            }
+
             const state = await getBuyerAuthState();
+            if (!active) return;
+
+            if (state.role === "ADMIN") {
+              setStep("SUCCESS");
+              setTimeout(() => {
+                router.replace("/admin/dashboard");
+              }, 400);
+              return;
+            }
+
             if (state.authenticated && state.step === "COMPLETED") {
               setStep("SUCCESS");
               setTimeout(() => {
-                if (state.role === "ADMIN") {
-                  router.replace("/admin/dashboard");
-                } else if (state.role === "SELLER") {
+                if (state.role === "SELLER") {
                   router.replace("/seller/dashboard");
                 } else {
                   router.replace(redirectTarget);
@@ -121,6 +136,19 @@ function BuyerLoginContent() {
               }, 400);
               return;
             }
+
+            if (state.mobileNumber) setMobileNumber(state.mobileNumber);
+            if (state.countryCode) setCountryCode(state.countryCode);
+
+            if (state.step === "PROFILE_COMPLETION") {
+              setStep("PROFILE_COMPLETION");
+            } else if (state.step === "OTP_VERIFICATION") {
+              setStep("OTP_VERIFICATION");
+            } else {
+              setStep("MOBILE_NUMBER");
+            }
+            setLoadingState(false);
+            return;
           }
         }
 
@@ -128,9 +156,6 @@ function BuyerLoginContent() {
         if (!active) return;
 
         if (!state.authenticated) {
-          if (clerkUser?.primaryEmailAddress?.emailAddress) {
-            setInputGoogleEmail(clerkUser.primaryEmailAddress.emailAddress);
-          }
           setStep("GOOGLE_LOGIN");
           setLoadingState(false);
           return;
@@ -144,7 +169,6 @@ function BuyerLoginContent() {
 
         if (state.email) {
           setBuyerEmail(state.email);
-          setInputGoogleEmail(state.email);
         }
         if (state.name) {
           setBuyerName(state.name);
@@ -166,7 +190,7 @@ function BuyerLoginContent() {
             } else {
               router.replace(redirectTarget);
             }
-          }, 600);
+          }, 400);
         } else if (state.step === "PROFILE_COMPLETION") {
           setStep("PROFILE_COMPLETION");
         } else if (state.step === "OTP_VERIFICATION") {
@@ -190,28 +214,21 @@ function BuyerLoginContent() {
     };
   }, [isSignedIn, clerkLoaded, userLoaded, clerkUser, redirectTarget, router]);
 
-  // Step 1A: Handle Google Authentication cleanly without unhandled domain failures
+  // Step 1: Handle Google OAuth Authentication via Clerk
   const handleGoogleOAuth = async () => {
     try {
       setActionLoading(true);
       setErrorMessage(null);
 
-      // 1. If email is already typed or pre-filled from Clerk user, proceed directly
-      const emailToUse = (inputGoogleEmail || clerkUser?.primaryEmailAddress?.emailAddress || "").trim();
-      if (emailToUse && emailToUse.includes("@")) {
-        await handleGoogleSubmit();
-        return;
-      }
-
-      // 2. Standard Clerk OAuth authentication with Google
-      const ssoCallbackUrl = `${window.location.origin}/sso-callback?redirect_url=${encodeURIComponent(redirectTarget)}`;
+      const ssoCallbackUrl = "/sso-callback";
+      const redirectCompleteUrl = `/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`;
 
       if (signIn && typeof signIn.authenticateWithRedirect === "function") {
         try {
           await signIn.authenticateWithRedirect({
             strategy: "oauth_google",
             redirectUrl: ssoCallbackUrl,
-            redirectUrlComplete: redirectTarget,
+            redirectUrlComplete: redirectCompleteUrl,
           });
           return;
         } catch (oauthErr: any) {
@@ -220,72 +237,19 @@ function BuyerLoginContent() {
             await signUp.authenticateWithRedirect({
               strategy: "oauth_google",
               redirectUrl: ssoCallbackUrl,
-              redirectUrlComplete: redirectTarget,
+              redirectUrlComplete: redirectCompleteUrl,
             });
             return;
           }
+          throw oauthErr;
         }
       }
     } catch (err: any) {
       console.warn("Google OAuth handler error:", err);
-    }
-
-    setErrorMessage("Please enter your Google account email address below to continue.");
-    document.getElementById("google-email-input")?.focus();
-    setActionLoading(false);
-  };
-
-  // Step 1B: Handle Google / Gmail Email Submit
-  const handleGoogleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const emailToUse = (inputGoogleEmail || clerkUser?.primaryEmailAddress?.emailAddress || "").trim();
-    if (!emailToUse) {
-      setErrorMessage("Please enter your Google account email address to continue.");
-      const inputEl = document.getElementById("google-email-input");
-      inputEl?.focus();
-      return;
-    }
-    if (!emailToUse.includes("@") || !emailToUse.includes(".")) {
-      setErrorMessage("Please enter a valid Google account email address (e.g. name@gmail.com).");
-      return;
-    }
-
-    try {
-      setActionLoading(true);
-      setErrorMessage(null);
-      const res = await initiateBuyerGoogleEmailAuth(emailToUse);
-      if (!res.success) {
-        setErrorMessage(res.error || "Failed to authenticate with Google account.");
-        return;
-      }
-
-      if (res.email) setBuyerEmail(res.email);
-      if (res.name) {
-        setBuyerName(res.name);
-        setDeliveryName((prev) => prev || res.name || "");
-      }
-
-      if (res.step === "COMPLETED") {
-        setStep("SUCCESS");
-        setTimeout(() => {
-          if (res.role === "ADMIN") {
-            router.replace("/admin/dashboard");
-          } else if (res.role === "SELLER") {
-            router.replace("/seller/dashboard");
-          } else {
-            router.replace(redirectTarget);
-          }
-        }, 1200);
-      } else if (res.step === "PROFILE_COMPLETION") {
-        setStep("PROFILE_COMPLETION");
-      } else if (res.step === "OTP_VERIFICATION") {
-        setStep("OTP_VERIFICATION");
-      } else {
-        setStep("MOBILE_NUMBER");
-      }
-    } catch (err: any) {
-      console.error("Google authentication error:", err);
-      setErrorMessage("An unexpected error occurred. Please try again.");
+      setErrorMessage(
+        err?.message ||
+        "Could not initiate Google authentication. Please try again or check your connection."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -642,52 +606,6 @@ function BuyerLoginContent() {
                 <span>{actionLoading ? "Connecting with Google..." : "Continue with Google"}</span>
                 <ArrowRight className="h-4 w-4 text-slate-400" />
               </button>
-
-              <div className="relative my-4">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200" />
-                </div>
-                <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-400">
-                  <span className="bg-white px-3">Or sign in with Google account address</span>
-                </div>
-              </div>
-
-              {/* Direct Google Account Email form */}
-              <form onSubmit={handleGoogleSubmit} className="space-y-4 text-left">
-                <div>
-                  <label htmlFor="google-email-input" className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Google / Gmail Account Address <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
-                    <input
-                      id="google-email-input"
-                      type="email"
-                      value={inputGoogleEmail}
-                      onChange={(e) => {
-                        setInputGoogleEmail(e.target.value);
-                        if (errorMessage) setErrorMessage(null);
-                      }}
-                      placeholder="your.name@gmail.com"
-                      autoComplete="email"
-                      required
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F6E56] focus:border-transparent focus:bg-white transition-all shadow-inner"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-1.5">
-                    Your verification code will be sent to this Gmail account via SendGrid.
-                  </p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <span>{actionLoading ? "Verifying..." : "Continue with Google Email"}</span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </form>
 
               <div className="pt-2 text-center">
                 <Link

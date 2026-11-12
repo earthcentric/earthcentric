@@ -151,9 +151,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               : "/seller/verification"
           );
         } else if (isAuthLanding && currentPath !== "/") {
-          const searchParams = new URLSearchParams(window.location.search);
-          const redirectTarget = searchParams.get("redirect_url") || "/marketplace";
-          router.replace(redirectTarget);
+          // Only auto-redirect out of auth page if the buyer has completed onboarding
+          if (finalUser.role === "ADMIN" || finalUser.role === "SELLER" || finalUser.buyerOnboardingCompleted) {
+            const searchParams = new URLSearchParams(window.location.search);
+            const redirectTarget = searchParams.get("redirect_url") || "/marketplace";
+            router.replace(redirectTarget);
+          }
         }
       } catch (err) {
         if (cancelled) return;

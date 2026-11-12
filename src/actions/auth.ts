@@ -301,7 +301,7 @@ export async function syncUserInDb(userData: {
       role: user.role,
       sellerStatus: user.seller?.verificationStatus,
       buyerOnboardingCompleted: user.role === "ADMIN" || user.role === "SELLER" || isBuyerCompleted,
-      mobileNumberSubmitted: user.role === "ADMIN" || user.role === "SELLER" || !!user.mobileNumberSubmitted || true,
+      mobileNumberSubmitted: user.role === "ADMIN" || user.role === "SELLER" || !!user.mobileNumberSubmitted,
     });
 
     return { success: true as const, user: finalUser };

@@ -234,7 +234,7 @@ export async function createOrder(data: {
 
   const buyer = await db.user.findUnique({
     where: { id: auth.userId },
-    select: { id: true, email: true, name: true, phone: true, role: true, gstStatus: true, gstin: true },
+    select: { id: true, email: true, name: true, phone: true, mobileNumber: true, role: true, gstStatus: true, gstin: true },
   });
   if (!buyer) {
     return { success: false, error: "Your account could not be verified. Please sign in again." };
@@ -258,31 +258,43 @@ export async function createOrder(data: {
 
   const orderId = `ord-${randomUUID()}`;
 
-  // Requirement 2 & 6: Bulk Box & GST Validation
+  // Requirement: Bulk Box & GST Validation
+  // Single box per product is allowed without GST details.
+  // 2 or more boxes of any product requires valid GSTIN and phone number.
   const hasBulkBoxes = data.items.some((it) => Number(it.quantity) >= 2);
-  const gstinCheck = validateGSTIN(data.gstin);
-  if (!gstinCheck.isValid) {
-    return {
-      success: false,
-      error: gstinCheck.error || "GSTIN and registered mobile number are required to unlock bulk pricing. Please verify your details to view the price for additional boxes.",
-    };
-  }
-  const validatedGstin = gstinCheck.normalizedGstin!;
+  let validatedGstin: string | undefined = undefined;
 
   if (hasBulkBoxes) {
-    const isGstApproved = buyer?.role === "ADMIN" || buyer?.gstStatus === "APPROVED";
-    if (!isGstApproved) {
+    const rawGstin = data.gstin || buyer?.gstin;
+    const rawPhone = data.userPhone || buyer?.phone || buyer?.mobileNumber;
+
+    if (!rawGstin) {
       return {
         success: false,
-        error: `Commercial bulk orders of 2 or more boxes require approved GST verification by EarthCentric Super Admin. Your current status is ${buyer?.gstStatus || "PENDING"}. Please order single boxes or wait for review.`,
+        error: "GSTIN and registered phone number are required for bulk orders of 2 or more boxes.",
       };
     }
-    const phoneCheck = validateIndianMobile(data.userPhone);
+
+    const gstinCheck = validateGSTIN(rawGstin);
+    if (!gstinCheck.isValid) {
+      return {
+        success: false,
+        error: gstinCheck.error || "Valid 15-character GSTIN is required for orders of 2 or more boxes.",
+      };
+    }
+    validatedGstin = gstinCheck.normalizedGstin!;
+
+    const phoneCheck = validateIndianMobile(rawPhone);
     if (!phoneCheck.isValid) {
       return {
         success: false,
-        error: phoneCheck.error || "GSTIN and registered mobile number are required to unlock bulk pricing. Please verify your details to view the price for additional boxes.",
+        error: phoneCheck.error || "A valid 10-digit registered mobile number is required for bulk orders.",
       };
+    }
+  } else if (data.gstin || buyer?.gstin) {
+    const optionalGstinCheck = validateGSTIN(data.gstin || buyer?.gstin);
+    if (optionalGstinCheck.isValid) {
+      validatedGstin = optionalGstinCheck.normalizedGstin;
     }
   }
 

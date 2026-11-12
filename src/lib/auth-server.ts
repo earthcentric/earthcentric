@@ -138,8 +138,8 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           sellerId: user.seller?.id,
           mobileNumber: user.mobileNumber,
           mobileNumberCountryCode: user.mobileNumberCountryCode,
-          mobileNumberSubmitted: true,
-          buyerOnboardingCompleted: true,
+          mobileNumberSubmitted: Boolean(user.mobileNumberSubmitted),
+          buyerOnboardingCompleted: Boolean(user.buyerOnboardingCompleted),
         };
       }
 
@@ -148,8 +148,8 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
         authorized: true,
         userId: clerkAuth.userId,
         role: "BUYER",
-        mobileNumberSubmitted: true,
-        buyerOnboardingCompleted: true,
+        mobileNumberSubmitted: false,
+        buyerOnboardingCompleted: false,
       };
     }
 
@@ -223,7 +223,31 @@ export async function verifyBuyerAuth(): Promise<{
       };
     }
 
-    // Any authenticated user (Admin, Seller, or signed-in Buyer) has verified marketplace access
+    // Admins and Sellers are exempt from the mandatory buyer verification flow
+    if (user.role === "ADMIN" || user.role === "SELLER") {
+      return {
+        authorized: true,
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        step: "COMPLETED",
+        isVerified: true,
+      };
+    }
+
+    // For Buyers, check if onboarding is complete
+    if (!user.buyerOnboardingCompleted) {
+      return {
+        authorized: true,
+        userId: user.userId,
+        email: user.email,
+        role: "BUYER",
+        step: !user.mobileNumberSubmitted ? "MOBILE_NUMBER" : "OTP_VERIFICATION",
+        isVerified: false,
+        error: "Please complete your buyer verification and delivery details to access the marketplace.",
+      };
+    }
+
     return {
       authorized: true,
       userId: user.userId,

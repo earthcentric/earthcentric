@@ -161,10 +161,12 @@ function AnimatedCounter({ value, isDecimal = false, suffix = "" }: { value: num
 export default function Homepage() {
   const { addToCart } = useCart();
   const { user, isLoading: authLoading } = useAuth();
-  const isBuyerVerified = !authLoading && Boolean(user && user.id);
+  const isBuyerVerified =
+    !authLoading &&
+    Boolean(user && user.id && (user.role === "ADMIN" || user.role === "SELLER" || user.buyerOnboardingCompleted));
   const marketplaceHref = isBuyerVerified ? "/marketplace" : "/auth/buyer-login?redirect_url=/marketplace";
-  // Strictly enforce login completion: user must exist and have an id
-  const isLoggedIn = !authLoading && Boolean(user && user.id);
+  // Strictly enforce login and onboarding completion
+  const isLoggedIn = isBuyerVerified;
 
   const [addedItemName, setAddedItemName] = useState<string | null>(null);
   const [selectedWowItemId, setSelectedWowItemId] = useState<string | null>(null);

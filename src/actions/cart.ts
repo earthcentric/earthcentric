@@ -138,9 +138,9 @@ export async function addToDbCart(userId: string, productId: string, quantity: n
 
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { role: true, gstStatus: true },
+      select: { role: true, gstStatus: true, gstin: true },
     });
-    const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED";
+    const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED" || Boolean(user?.gstin);
 
     const cart = await db.cart.upsert({
       where: { userId },
@@ -197,9 +197,9 @@ export async function updateDbCartQuantity(userId: string, productId: string, qu
 
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { role: true, gstStatus: true },
+      select: { role: true, gstStatus: true, gstin: true },
     });
-    const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED";
+    const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED" || Boolean(user?.gstin);
     const allowedQty = (!isApprovedGst && quantity > 1) ? 1 : quantity;
 
     if (quantity <= 0) {

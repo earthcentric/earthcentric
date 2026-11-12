@@ -137,8 +137,8 @@ export default clerkMiddleware(async (auth, request) => {
       return NextResponse.next();
     }
 
-    // C. Authenticated users (via Clerk or active session) are granted access
-    if (isClerkAuthenticated || session?.buyerOnboardingCompleted === true || !!session?.id) {
+    // C. Verified buyers who completed full onboarding are granted access
+    if (session?.buyerOnboardingCompleted === true) {
       return NextResponse.next();
     }
 

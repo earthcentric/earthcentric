@@ -103,10 +103,10 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Restore GST verification session across page refreshes and user profile
   useEffect(() => {
-    if (user?.role === "ADMIN" || user?.gstStatus === "APPROVED") {
+    if (user?.role === "ADMIN" || user?.gstStatus === "APPROVED" || Boolean(user?.gstin)) {
       setIsGstVerified(true);
-      if (user.gstin) setVerifiedGstin(user.gstin || null);
-      if (user.mobileNumber || user.phone) setVerifiedPhone(user.mobileNumber || user.phone || null);
+      if (user?.gstin) setVerifiedGstin(user.gstin || null);
+      if (user?.mobileNumber || user?.phone) setVerifiedPhone(user.mobileNumber || user.phone || null);
       return;
     }
 

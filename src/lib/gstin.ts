@@ -45,6 +45,26 @@ export const GST_STATE_CODES: Record<string, string> = {
   "99": "Centre Jurisdiction",
 };
 
+export const GST_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/**
+ * Calculates the expected 15th checksum character for the first 14 characters of a GSTIN
+ * using the official Indian Luhn mod 36 algorithm.
+ */
+export function calculateGstinChecksum(gstin14: string): string {
+  if (!gstin14 || gstin14.length < 14) return "";
+  let total = 0;
+  for (let i = 0; i < 14; i++) {
+    const charIndex = GST_CHARS.indexOf(gstin14[i]);
+    if (charIndex === -1) return "";
+    const factor = i % 2 === 0 ? 1 : 2;
+    const product = charIndex * factor;
+    total += Math.floor(product / 36) + (product % 36);
+  }
+  const expectedIndex = (36 - (total % 36)) % 36;
+  return GST_CHARS[expectedIndex];
+}
+
 export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
 export interface GSTINValidationResult {
@@ -124,6 +144,20 @@ export function validateGSTIN(input?: string | null): GSTINValidationResult {
       isValid: false,
       error: "GSTIN does not match standard Indian GST format (e.g. 29ABCDE1234F1Z5).",
       normalizedGstin: gstin,
+    };
+  }
+
+  // Official Indian GSTIN Luhn mod-36 checksum validation
+  const expectedChecksum = calculateGstinChecksum(gstin.substring(0, 14));
+  const actualChecksum = gstin.charAt(14);
+  if (actualChecksum !== expectedChecksum) {
+    return {
+      isValid: false,
+      error: `Invalid GSTIN checksum digit "${actualChecksum}". Please verify your GSTIN.`,
+      normalizedGstin: gstin,
+      stateCode,
+      stateName,
+      pan: panPart,
     };
   }
 

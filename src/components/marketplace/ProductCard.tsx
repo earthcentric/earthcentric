@@ -27,7 +27,9 @@ export default function ProductCard({
 }: ProductCardProps) {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
-  const isBuyerVerified = Boolean(user && user.id);
+  const isBuyerVerified = Boolean(
+    user && user.id && (user.role === "ADMIN" || user.role === "SELLER" || user.buyerOnboardingCompleted)
+  );
   const productDetailHref = isBuyerVerified 
     ? `/products/${product.id}` 
     : `/auth/buyer-login?redirect_url=${encodeURIComponent(`/products/${product.id}`)}`;

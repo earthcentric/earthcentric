@@ -40,42 +40,46 @@ export async function verifyBuyerGstAndPhoneAction(data: {
 }
 
 /**
- * Buyer submits GSTIN & Business Name for Super Admin approval before commercial bulk pricing
+ * Saves and validates buyer GSTIN & phone number for immediate bulk ordering.
+ * NO SUPER ADMIN APPROVAL REQUIRED: Valid format, state code and Luhn checksum immediately unlock bulk ordering.
  */
-export async function submitBuyerGstVerificationAction(data: {
+export async function saveBuyerGstAndPhoneAction(data: {
   gstin: string;
-  businessName: string;
-  phone?: string;
+  phone: string;
+  businessName?: string;
 }): Promise<{
   success: boolean;
   error?: string;
   gstStatus?: string;
   gstin?: string;
+  phone?: string;
+  stateName?: string;
   message?: string;
 }> {
   try {
     const auth = await verifyAuthenticatedUser();
     if (!auth.authorized || !auth.userId) {
-      return { success: false, error: "Please sign in to submit GST details." };
+      return { success: false, error: "Please sign in to submit business details." };
     }
 
-    const gstinCheck = validateGSTIN(data.gstin);
-    if (!gstinCheck.isValid || !gstinCheck.normalizedGstin) {
-      return { success: false, error: gstinCheck.error || "Please enter a valid 15-character Indian GSTIN." };
-    }
-
-    const businessName = (data.businessName || "").trim();
-    if (!businessName || businessName.length < 2) {
-      return { success: false, error: "Please enter your registered Business / Company Name." };
+    const check = validateGstAndPhone(data.gstin, data.phone);
+    if (!check.isValid || !check.normalizedGstin || !check.normalizedPhone) {
+      return {
+        success: false,
+        error: check.error || "Please enter a valid 15-character Indian GSTIN and 10-digit mobile number.",
+      };
     }
 
     const now = new Date();
     await db.user.update({
       where: { id: auth.userId },
       data: {
-        gstin: gstinCheck.normalizedGstin,
-        gstBusinessName: businessName,
-        gstStatus: "PENDING",
+        gstin: check.normalizedGstin,
+        phone: check.normalizedPhone,
+        mobileNumber: check.normalizedPhone,
+        gstBusinessName: (data.businessName || "").trim() || `${check.stateName} Enterprise`,
+        gstStatus: "APPROVED",
+        gstVerifiedAt: now,
         gstSubmittedAt: now,
         gstRejectionReason: null,
       },
@@ -83,14 +87,39 @@ export async function submitBuyerGstVerificationAction(data: {
 
     return {
       success: true,
-      gstStatus: "PENDING",
-      gstin: gstinCheck.normalizedGstin,
-      message: "GST details submitted successfully! Your submission is pending Super Admin review. You can continue purchasing single boxes at standard pricing.",
+      gstStatus: "APPROVED",
+      gstin: check.normalizedGstin,
+      phone: check.normalizedPhone,
+      stateName: check.stateName,
+      message: "Business details saved successfully. Bulk ordering is now unlocked!",
     };
   } catch (err: any) {
-    console.error("submitBuyerGstVerificationAction error:", err);
-    return { success: false, error: "An unexpected error occurred while submitting GST verification." };
+    console.error("saveBuyerGstAndPhoneAction error:", err);
+    return { success: false, error: "An unexpected error occurred while saving business details." };
   }
+}
+
+/**
+ * Backward compatibility alias for submitBuyerGstVerificationAction
+ */
+export async function submitBuyerGstVerificationAction(data: {
+  gstin: string;
+  businessName?: string;
+  phone?: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  gstStatus?: string;
+  gstin?: string;
+  phone?: string;
+  stateName?: string;
+  message?: string;
+}> {
+  return saveBuyerGstAndPhoneAction({
+    gstin: data.gstin,
+    phone: data.phone || "",
+    businessName: data.businessName,
+  });
 }
 
 /**
