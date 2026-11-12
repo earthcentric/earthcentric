@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth as useClerkAuth, useSignIn, useSignUp, useUser, SignInButton } from "@clerk/nextjs";
+import { useAuth as useClerkAuth, useSignIn, useSignUp, useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@/context/AuthContext";
 import {
   getBuyerAuthState,
@@ -50,10 +50,9 @@ function BuyerLoginContent() {
 
   const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
   const { user: clerkUser, isLoaded: userLoaded } = useUser();
-  const clerkSignIn = useSignIn();
-  const signIn = (clerkSignIn as any)?.signIn ?? clerkSignIn;
-  const clerkSignUp = useSignUp();
-  const signUp = (clerkSignUp as any)?.signUp ?? clerkSignUp;
+  const clerk = useClerk();
+  const { signIn } = useSignIn();
+  const { signUp } = useSignUp();
   const { user: appUser, logout } = useAuth();
 
   // Wizard state: 1: GOOGLE_LOGIN, 2: MOBILE_NUMBER, 3: OTP_VERIFICATION, 4: PROFILE_COMPLETION, 5: SUCCESS
@@ -214,41 +213,110 @@ function BuyerLoginContent() {
     };
   }, [isSignedIn, clerkLoaded, userLoaded, clerkUser, redirectTarget, router]);
 
+  // Helper to resolve an active signIn resource
+  const getActiveSignIn = (): any => {
+    if (signIn && typeof (signIn as any).authenticateWithRedirect === "function") {
+      return signIn;
+    }
+    const client = clerk?.client || (typeof window !== "undefined" ? (window as any).Clerk?.client : null);
+    if (client?.signIn && typeof client.signIn.authenticateWithRedirect === "function") {
+      return client.signIn;
+    }
+    return null;
+  };
+
+  // Helper to resolve an active signUp resource
+  const getActiveSignUp = (): any => {
+    if (signUp && typeof (signUp as any).authenticateWithRedirect === "function") {
+      return signUp;
+    }
+    const client = clerk?.client || (typeof window !== "undefined" ? (window as any).Clerk?.client : null);
+    if (client?.signUp && typeof client.signUp.authenticateWithRedirect === "function") {
+      return client.signUp;
+    }
+    return null;
+  };
+
   // Step 1: Handle Google OAuth Authentication via Clerk
   const handleGoogleOAuth = async () => {
     try {
       setActionLoading(true);
       setErrorMessage(null);
 
+      // Wait up to 3 seconds for Clerk client to finish loading if clicked early
+      let activeClerk: any = clerk;
+      if (typeof window !== "undefined" && (window as any).Clerk) {
+        activeClerk = (window as any).Clerk;
+      }
+
+      let activeSignIn = getActiveSignIn();
+      let activeSignUp = getActiveSignUp();
+
+      if (!activeSignIn && !activeSignUp) {
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          activeSignIn = getActiveSignIn();
+          activeSignUp = getActiveSignUp();
+          if (activeSignIn || activeSignUp) break;
+        }
+      }
+
       const ssoCallbackUrl = "/sso-callback";
       const redirectCompleteUrl = `/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`;
 
-      if (signIn && typeof signIn.authenticateWithRedirect === "function") {
+      // 1. Primary: Try signIn.authenticateWithRedirect
+      if (activeSignIn && typeof activeSignIn.authenticateWithRedirect === "function") {
         try {
-          await signIn.authenticateWithRedirect({
+          console.log("[EarthCentric] Initiating Google OAuth via Clerk signIn.authenticateWithRedirect...");
+          await activeSignIn.authenticateWithRedirect({
             strategy: "oauth_google",
             redirectUrl: ssoCallbackUrl,
             redirectUrlComplete: redirectCompleteUrl,
           });
           return;
-        } catch (oauthErr: any) {
-          console.warn("Clerk signIn.authenticateWithRedirect error, trying signUp:", oauthErr);
-          if (signUp && typeof signUp.authenticateWithRedirect === "function") {
-            await signUp.authenticateWithRedirect({
-              strategy: "oauth_google",
-              redirectUrl: ssoCallbackUrl,
-              redirectUrlComplete: redirectCompleteUrl,
-            });
-            return;
-          }
-          throw oauthErr;
+        } catch (signInErr: any) {
+          console.warn("[EarthCentric] signIn.authenticateWithRedirect notice, falling back to signUp:", signInErr);
+          // Fall through to signUp
         }
       }
+
+      // 2. Secondary: Try signUp.authenticateWithRedirect
+      if (activeSignUp && typeof activeSignUp.authenticateWithRedirect === "function") {
+        try {
+          console.log("[EarthCentric] Initiating Google OAuth via Clerk signUp.authenticateWithRedirect...");
+          await activeSignUp.authenticateWithRedirect({
+            strategy: "oauth_google",
+            redirectUrl: ssoCallbackUrl,
+            redirectUrlComplete: redirectCompleteUrl,
+          });
+          return;
+        } catch (signUpErr: any) {
+          console.warn("[EarthCentric] signUp.authenticateWithRedirect notice:", signUpErr);
+          // Fall through to redirectToSignIn
+        }
+      }
+
+      // 3. Fallback: Clerk redirectToSignIn
+      if (activeClerk && typeof activeClerk.redirectToSignIn === "function") {
+        console.log("[EarthCentric] Redirecting via activeClerk.redirectToSignIn...");
+        await activeClerk.redirectToSignIn({
+          fallbackRedirectUrl: redirectCompleteUrl,
+          forceRedirectUrl: redirectCompleteUrl,
+          signUpFallbackRedirectUrl: redirectCompleteUrl,
+          signUpForceRedirectUrl: redirectCompleteUrl,
+        });
+        return;
+      }
+
+      // 4. Last-resort fallback: Direct navigation to Clerk sign-in URL
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      window.location.href = `${origin}/sign-in?redirect_url=${encodeURIComponent(redirectTarget)}`;
+
     } catch (err: any) {
-      console.warn("Google OAuth handler error:", err);
+      console.error("[EarthCentric] Google OAuth error:", err);
       setErrorMessage(
         err?.message ||
-        "Could not initiate Google authentication. Please try again or check your connection."
+        "Could not initiate Google authentication. Please try again or check your browser connection."
       );
     } finally {
       setActionLoading(false);
