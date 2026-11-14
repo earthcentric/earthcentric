@@ -89,19 +89,23 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
 
           if (primaryEmail) {
             const isSuperAdmin = isSuperAdminEmail(primaryEmail);
+            const isWorker = isWorkerEmail(primaryEmail);
             const isConfiguredSeller = isConfiguredSellerEmail(primaryEmail);
-            const targetRole = isSuperAdmin ? "ADMIN" : isConfiguredSeller ? "SELLER" : "BUYER";
+            const targetRole = isSuperAdmin ? "ADMIN" : isWorker ? "WORKER" : isConfiguredSeller ? "SELLER" : "BUYER";
             const fullName =
               [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
               clerkUser?.username ||
-              "EarthCentric Buyer";
+              (isWorker ? "BLUE Gamer (Worker)" : "EarthCentric Buyer");
 
             user = await db.user.upsert({
               where: { email: primaryEmail },
               update: {
                 id: clerkAuth.userId,
                 name: fullName,
+                role: targetRole,
                 emailVerified: new Date(),
+                buyerOnboardingCompleted: targetRole === "ADMIN" || targetRole === "SELLER" || targetRole === "WORKER",
+                mobileNumberSubmitted: targetRole === "ADMIN" || targetRole === "SELLER" || targetRole === "WORKER",
               },
               create: {
                 id: clerkAuth.userId,
@@ -109,8 +113,8 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
                 name: fullName,
                 role: targetRole,
                 emailVerified: new Date(),
-                buyerOnboardingCompleted: targetRole === "ADMIN" || targetRole === "SELLER",
-                mobileNumberSubmitted: targetRole === "ADMIN" || targetRole === "SELLER",
+                buyerOnboardingCompleted: targetRole === "ADMIN" || targetRole === "SELLER" || targetRole === "WORKER",
+                mobileNumberSubmitted: targetRole === "ADMIN" || targetRole === "SELLER" || targetRole === "WORKER",
               },
               select: {
                 id: true,
@@ -130,16 +134,19 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
       }
 
       if (user) {
+        const isWorker = isWorkerEmail(user.email);
+        const isSuperAdmin = isSuperAdminEmail(user.email);
+        const effectiveRole = isSuperAdmin ? "ADMIN" : isWorker ? "WORKER" : user.role;
         return {
           authorized: true,
           userId: user.id,
           email: user.email,
-          role: user.role,
+          role: effectiveRole,
           sellerId: user.seller?.id,
           mobileNumber: user.mobileNumber,
           mobileNumberCountryCode: user.mobileNumberCountryCode,
-          mobileNumberSubmitted: Boolean(user.mobileNumberSubmitted),
-          buyerOnboardingCompleted: Boolean(user.buyerOnboardingCompleted),
+          mobileNumberSubmitted: isWorker || Boolean(user.mobileNumberSubmitted),
+          buyerOnboardingCompleted: isWorker || Boolean(user.buyerOnboardingCompleted),
         };
       }
 
@@ -172,16 +179,19 @@ export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult
           },
         });
         if (user) {
+          const isWorker = isWorkerEmail(user.email);
+          const isSuperAdmin = isSuperAdminEmail(user.email);
+          const effectiveRole = isSuperAdmin ? "ADMIN" : isWorker ? "WORKER" : user.role;
           return {
             authorized: true,
             userId: user.id,
             email: user.email,
-            role: user.role,
+            role: effectiveRole,
             sellerId: user.seller?.id,
             mobileNumber: user.mobileNumber,
             mobileNumberCountryCode: user.mobileNumberCountryCode,
-            mobileNumberSubmitted: user.mobileNumberSubmitted,
-            buyerOnboardingCompleted: user.buyerOnboardingCompleted,
+            mobileNumberSubmitted: isWorker || Boolean(user.mobileNumberSubmitted),
+            buyerOnboardingCompleted: isWorker || Boolean(user.buyerOnboardingCompleted),
           };
         }
       }
@@ -223,13 +233,13 @@ export async function verifyBuyerAuth(): Promise<{
       };
     }
 
-    // Admins and Sellers are exempt from the mandatory buyer verification flow
-    if (user.role === "ADMIN" || user.role === "SELLER") {
+    // Admins, Sellers and Workers are exempt from the mandatory buyer verification flow
+    if (user.role === "ADMIN" || user.role === "SELLER" || user.role === "WORKER" || isWorkerEmail(user.email)) {
       return {
         authorized: true,
         userId: user.userId,
         email: user.email,
-        role: user.role,
+        role: user.role || "WORKER",
         step: "COMPLETED",
         isVerified: true,
       };

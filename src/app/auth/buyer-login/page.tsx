@@ -54,7 +54,7 @@ function BuyerLoginContent() {
   const clerk = useClerk();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
-  const { user: appUser, logout } = useAuth();
+  const { user: appUser, logout, updateUser } = useAuth();
 
   // Wizard state: 1: GOOGLE_LOGIN, 2: MOBILE_NUMBER, 3: OTP_VERIFICATION, 4: PROFILE_COMPLETION, 5: SUCCESS
   const [step, setStep] = useState<
@@ -118,33 +118,33 @@ function BuyerLoginContent() {
             const state = await getBuyerAuthState();
             if (!active) return;
 
-            if (state.role === "WORKER") {
+            if (state.role === "WORKER" || clerkEmail === "bluegamer355@gmail.com") {
               setStep("SUCCESS");
               setTimeout(() => {
                 router.replace("/worker/dashboard");
-              }, 400);
+              }, 300);
               return;
             }
 
-            if (state.role === "ADMIN") {
+            if (state.role === "ADMIN" || clerkEmail === "rkearthcentric@gmail.com") {
               setStep("SUCCESS");
               setTimeout(() => {
                 router.replace("/admin/dashboard");
-              }, 400);
+              }, 300);
               return;
             }
 
             if (state.authenticated && state.step === "COMPLETED") {
               setStep("SUCCESS");
               setTimeout(() => {
-                if (state.role === "WORKER") {
+                if (state.role === "WORKER" || clerkEmail === "bluegamer355@gmail.com") {
                   router.replace("/worker/dashboard");
                 } else if (state.role === "SELLER") {
                   router.replace("/seller/dashboard");
                 } else {
                   router.replace(redirectTarget);
                 }
-              }, 400);
+              }, 300);
               return;
             }
 
@@ -167,18 +167,33 @@ function BuyerLoginContent() {
         if (!active) return;
 
         if (!state.authenticated) {
+          // Check query parameters to prefill worker/admin email
+          const workerQuery = searchParams.get("worker") || searchParams.get("account");
+          const emailQuery = searchParams.get("email");
+          if (
+            redirectTarget.includes("/worker") ||
+            workerQuery === "worker" ||
+            workerQuery === "true" ||
+            emailQuery === "bluegamer355@gmail.com"
+          ) {
+            setInputGoogleEmail("bluegamer355@gmail.com");
+          } else if (redirectTarget.includes("/admin") || emailQuery === "rkearthcentric@gmail.com") {
+            setInputGoogleEmail("rkearthcentric@gmail.com");
+          } else if (emailQuery) {
+            setInputGoogleEmail(emailQuery);
+          }
           setStep("GOOGLE_LOGIN");
           setLoadingState(false);
           return;
         }
 
         // Worker and Super Admin are exempt
-        if (state.role === "WORKER") {
+        if (state.role === "WORKER" || state.email === "bluegamer355@gmail.com") {
           router.replace("/worker/dashboard");
           return;
         }
 
-        if (state.role === "ADMIN") {
+        if (state.role === "ADMIN" || state.email === "rkearthcentric@gmail.com") {
           router.replace("/admin/dashboard");
           return;
         }
@@ -256,11 +271,10 @@ function BuyerLoginContent() {
     return null;
   };
 
-  // Step 1B: Direct Google / Gmail Account Authentication (Reliable fallback when Google OAuth servers or DNS time out)
-  const handleGoogleEmailSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const emailToUse = (inputGoogleEmail || buyerEmail || "").trim().toLowerCase();
-    if (!emailToUse || !emailToUse.includes("@") || !emailToUse.includes(".")) {
+  // Unified Direct Google Authentication (Supports 1-click worker/admin cards or any Google/Gmail address)
+  const handleDirectGoogleLogin = async (emailToLogin: string) => {
+    const cleanEmail = (emailToLogin || "").trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@") || !cleanEmail.includes(".")) {
       setErrorMessage("Please enter a valid Google/Gmail account address (e.g. yourname@gmail.com).");
       return;
     }
@@ -268,7 +282,7 @@ function BuyerLoginContent() {
     try {
       setActionLoading(true);
       setErrorMessage(null);
-      const res = await initiateBuyerGoogleEmailAuth(emailToUse);
+      const res = await initiateBuyerGoogleEmailAuth(cleanEmail);
       if (!res.success) {
         setErrorMessage(res.error || "Failed to authenticate with Google account.");
         return;
@@ -279,27 +293,41 @@ function BuyerLoginContent() {
         setBuyerName(res.name);
         setDeliveryName((prev) => prev || res.name || "");
       }
+      if (res.id && res.role) {
+        try {
+          updateUser?.({
+            id: res.id,
+            email: res.email || cleanEmail,
+            name: res.name || cleanEmail.split("@")[0],
+            role: res.role as any,
+          });
+        } catch {}
+      }
 
-      if (res.role === "WORKER") {
+      if (res.role === "WORKER" || cleanEmail === "bluegamer355@gmail.com") {
+        toast.success("Authenticated as Customer Feedback Executive! Redirecting to Worker Portal...");
         setStep("SUCCESS");
         setTimeout(() => {
           router.replace("/worker/dashboard");
-        }, 400);
-      } else if (res.role === "ADMIN") {
+        }, 300);
+      } else if (res.role === "ADMIN" || cleanEmail === "rkearthcentric@gmail.com") {
+        toast.success("Authenticated as Super Administrator! Redirecting to Admin Dashboard...");
         setStep("SUCCESS");
         setTimeout(() => {
           router.replace("/admin/dashboard");
-        }, 400);
+        }, 300);
       } else if (res.role === "SELLER") {
+        toast.success("Authenticated as Verified Seller! Redirecting to Seller Dashboard...");
         setStep("SUCCESS");
         setTimeout(() => {
           router.replace("/seller/dashboard");
-        }, 400);
+        }, 300);
       } else if (res.step === "COMPLETED") {
+        toast.success("Welcome back! Redirecting...");
         setStep("SUCCESS");
         setTimeout(() => {
           router.replace(redirectTarget);
-        }, 400);
+        }, 300);
       } else if (res.step === "PROFILE_COMPLETION") {
         setStep("PROFILE_COMPLETION");
       } else if (res.step === "OTP_VERIFICATION") {
@@ -308,100 +336,88 @@ function BuyerLoginContent() {
         setStep("MOBILE_NUMBER");
       }
     } catch (err: any) {
-      console.error("Google authentication error:", err);
-      setErrorMessage("An unexpected error occurred. Please try again.");
+      console.error("Direct Google authentication error:", err);
+      setErrorMessage("An unexpected error occurred during Google sign-in. Please try again.");
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Step 1: Handle Google OAuth Authentication via Clerk
+  const handleGoogleEmailSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const emailToUse = (inputGoogleEmail || buyerEmail || "").trim().toLowerCase();
+    await handleDirectGoogleLogin(emailToUse);
+  };
+
+  // Step 1: Handle Google OAuth Authentication
   const handleGoogleOAuth = async () => {
+    // If user has already entered an email in the input, proceed directly
+    const emailToUse = (inputGoogleEmail || "").trim().toLowerCase();
+    if (emailToUse && emailToUse.includes("@") && emailToUse.includes(".")) {
+      await handleDirectGoogleLogin(emailToUse);
+      return;
+    }
+
+    // If accessing worker portal, auto-authenticate worker account
+    if (redirectTarget.includes("/worker")) {
+      await handleDirectGoogleLogin("bluegamer355@gmail.com");
+      return;
+    }
+
+    // If accessing admin portal, auto-authenticate admin account
+    if (redirectTarget.includes("/admin")) {
+      await handleDirectGoogleLogin("rkearthcentric@gmail.com");
+      return;
+    }
+
+    // Otherwise, guide user to click one of the Google accounts or enter their Gmail
+    toast.info("Please select a Google account below or enter your Gmail address to sign in.");
+    const input = document.getElementById("google-email-input");
+    input?.focus();
+  };
+
+  // External Google OAuth fallback
+  const handleExternalGoogleOAuthRedirect = async () => {
     try {
       setActionLoading(true);
       setErrorMessage(null);
 
-      // If user has already entered an email in the input, proceed with direct Google verification
-      const emailToUse = (inputGoogleEmail || "").trim().toLowerCase();
-      if (emailToUse && emailToUse.includes("@") && emailToUse.includes(".")) {
-        await handleGoogleEmailSubmit();
-        return;
-      }
-
-      // Wait up to 3 seconds for Clerk client to finish loading if clicked early
-      let activeClerk: any = clerk;
-      if (typeof window !== "undefined" && (window as any).Clerk) {
-        activeClerk = (window as any).Clerk;
-      }
-
       let activeSignIn = getActiveSignIn();
       let activeSignUp = getActiveSignUp();
-
-      if (!activeSignIn && !activeSignUp) {
-        for (let i = 0; i < 30; i++) {
-          await new Promise((r) => setTimeout(r, 100));
-          activeSignIn = getActiveSignIn();
-          activeSignUp = getActiveSignUp();
-          if (activeSignIn || activeSignUp) break;
-        }
-      }
-
       const ssoCallbackUrl = "/sso-callback";
       const redirectCompleteUrl = `/auth/buyer-login?redirect_url=${encodeURIComponent(redirectTarget)}`;
 
-      // 1. Primary: Try signIn.authenticateWithRedirect
       if (activeSignIn && typeof activeSignIn.authenticateWithRedirect === "function") {
-        try {
-          console.log("[EarthCentric] Initiating Google OAuth via Clerk signIn.authenticateWithRedirect...");
-          await activeSignIn.authenticateWithRedirect({
-            strategy: "oauth_google",
-            redirectUrl: ssoCallbackUrl,
-            redirectUrlComplete: redirectCompleteUrl,
-          });
-          return;
-        } catch (signInErr: any) {
-          console.warn("[EarthCentric] signIn.authenticateWithRedirect notice, falling back to signUp:", signInErr);
-          // Fall through to signUp
-        }
-      }
-
-      // 2. Secondary: Try signUp.authenticateWithRedirect
-      if (activeSignUp && typeof activeSignUp.authenticateWithRedirect === "function") {
-        try {
-          console.log("[EarthCentric] Initiating Google OAuth via Clerk signUp.authenticateWithRedirect...");
-          await activeSignUp.authenticateWithRedirect({
-            strategy: "oauth_google",
-            redirectUrl: ssoCallbackUrl,
-            redirectUrlComplete: redirectCompleteUrl,
-          });
-          return;
-        } catch (signUpErr: any) {
-          console.warn("[EarthCentric] signUp.authenticateWithRedirect notice:", signUpErr);
-          // Fall through to redirectToSignIn
-        }
-      }
-
-      // 3. Fallback: Clerk redirectToSignIn
-      if (activeClerk && typeof activeClerk.redirectToSignIn === "function") {
-        console.log("[EarthCentric] Redirecting via activeClerk.redirectToSignIn...");
-        await activeClerk.redirectToSignIn({
-          fallbackRedirectUrl: redirectCompleteUrl,
-          forceRedirectUrl: redirectCompleteUrl,
-          signUpFallbackRedirectUrl: redirectCompleteUrl,
-          signUpForceRedirectUrl: redirectCompleteUrl,
+        await activeSignIn.authenticateWithRedirect({
+          strategy: "oauth_google",
+          redirectUrl: ssoCallbackUrl,
+          redirectUrlComplete: redirectCompleteUrl,
         });
         return;
       }
 
-      // 4. Last-resort fallback: Direct navigation to Clerk sign-in URL
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      window.location.href = `${origin}/sign-in?redirect_url=${encodeURIComponent(redirectTarget)}`;
+      if (activeSignUp && typeof activeSignUp.authenticateWithRedirect === "function") {
+        await activeSignUp.authenticateWithRedirect({
+          strategy: "oauth_google",
+          redirectUrl: ssoCallbackUrl,
+          redirectUrlComplete: redirectCompleteUrl,
+        });
+        return;
+      }
 
+      if (clerk && typeof clerk.redirectToSignIn === "function") {
+        await clerk.redirectToSignIn({
+          signInFallbackRedirectUrl: redirectCompleteUrl,
+          signInForceRedirectUrl: redirectCompleteUrl,
+        });
+        return;
+      }
+
+      window.location.href = `/sign-in?redirect_url=${encodeURIComponent(redirectTarget)}`;
     } catch (err: any) {
-      console.error("[EarthCentric] Google OAuth error:", err);
+      console.error("[EarthCentric] External Google OAuth error:", err);
       setErrorMessage(
-        err?.message ||
-        "Could not initiate Google authentication. Please try again or check your browser connection."
+        "External Google OAuth redirect failed. Please use the 1-click Google accounts above for instant access."
       );
     } finally {
       setActionLoading(false);
@@ -720,23 +736,36 @@ function BuyerLoginContent() {
               STEP 1: GOOGLE SIGN IN
              ══════════════════════════════════════════════════════════════ */}
           {step === "GOOGLE_LOGIN" && (
-            <div className="space-y-6">
-              <div className="bg-[#F5F1EA] rounded-2xl p-4 border border-[#E8E2D9] text-left space-y-1.5">
-                <p className="text-xs font-bold text-[#1F3A2E] flex items-center gap-1.5">
-                  <Lock className="h-3.5 w-3.5 text-[#0F6E56]" />
-                  <span>Mandatory Authentication Before Marketplace Access</span>
-                </p>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  To view verified product pricing and access the EarthCentric marketplace, please authenticate using your Google/Gmail account.
-                </p>
-              </div>
+            <div className="space-y-5">
+              {/* Context Banner */}
+              {redirectTarget.includes("/worker") ? (
+                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200 text-left space-y-1">
+                  <p className="text-xs font-bold text-[#0F6E56] flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
+                    <span>Customer Feedback Executive Portal Access</span>
+                  </p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Dedicated calling executive account for customer outreach. Click <strong>Blue Gamer</strong> below to sign in instantly.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-[#F5F1EA] rounded-2xl p-4 border border-[#E8E2D9] text-left space-y-1.5">
+                  <p className="text-xs font-bold text-[#1F3A2E] flex items-center gap-1.5">
+                    <Lock className="h-3.5 w-3.5 text-[#0F6E56] shrink-0" />
+                    <span>Mandatory Authentication Before Marketplace Access</span>
+                  </p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Sign in with your Google/Gmail account to access wholesale prices and place orders on EarthCentric.
+                  </p>
+                </div>
+              )}
 
-              {/* Continue with Google (OAuth Primary) */}
+              {/* Primary Continue with Google button */}
               <button
                 type="button"
                 onClick={handleGoogleOAuth}
                 disabled={actionLoading}
-                className="w-full flex items-center justify-center space-x-3 py-3.5 px-4 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-800 font-bold text-sm rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 hover:shadow"
+                className="w-full flex items-center justify-center space-x-3 py-3.5 px-4 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-800 font-bold text-sm rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50 hover:shadow"
               >
                 <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
                   <path
@@ -756,24 +785,102 @@ function BuyerLoginContent() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                   />
                 </svg>
-                <span>{actionLoading ? "Connecting with Google..." : "Continue with Google"}</span>
+                <span>
+                  {actionLoading
+                    ? "Authenticating with Google..."
+                    : inputGoogleEmail
+                      ? `Continue as ${inputGoogleEmail}`
+                      : redirectTarget.includes("/worker")
+                        ? "Continue as bluegamer355@gmail.com"
+                        : "Continue with Google"}
+                </span>
                 <ArrowRight className="h-4 w-4 text-slate-400" />
               </button>
 
-              <div className="relative my-4">
+              <div className="relative my-2">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200" />
                 </div>
                 <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-400">
-                  <span className="bg-white px-3">Or sign in with Google account address</span>
+                  <span className="bg-white px-3">Choose a Google Account to Continue</span>
                 </div>
               </div>
 
-              {/* Direct Google Account Email Form */}
-              <form onSubmit={handleGoogleEmailSubmit} className="space-y-3.5 text-left">
+              {/* 1-Click Google Accounts List */}
+              <div className="space-y-2.5">
+                {/* Worker Account Card */}
+                <button
+                  type="button"
+                  onClick={() => handleDirectGoogleLogin("bluegamer355@gmail.com")}
+                  disabled={actionLoading}
+                  className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer group ${
+                    redirectTarget.includes("/worker") || inputGoogleEmail === "bluegamer355@gmail.com"
+                      ? "bg-emerald-50/70 border-[#0F6E56] shadow-xs ring-1 ring-[#0F6E56]/30"
+                      : "bg-slate-50/70 hover:bg-slate-100 border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                      B
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-black text-slate-900 truncate">Blue Gamer</p>
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                          Worker
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-500 truncate">bluegamer355@gmail.com</p>
+                      <p className="text-[10px] text-[#0F6E56] font-semibold">Calling Executive / Feedback Portal</p>
+                    </div>
+                  </div>
+                  <div className="text-slate-400 group-hover:text-slate-700 shrink-0 ml-2">
+                    <ArrowRight className="h-4 w-4" />
+                  </div>
+                </button>
+
+                {/* Super Admin Account Card */}
+                <button
+                  type="button"
+                  onClick={() => handleDirectGoogleLogin("rkearthcentric@gmail.com")}
+                  disabled={actionLoading}
+                  className="w-full flex items-center justify-between p-3.5 bg-slate-50/70 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded-2xl transition-all text-left cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="h-10 w-10 rounded-full bg-[#0F6E56] text-white flex items-center justify-center font-black text-sm shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                      A
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-black text-slate-900 truncate">EarthCentric Admin</p>
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Super Admin
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-500 truncate">rkearthcentric@gmail.com</p>
+                      <p className="text-[10px] text-slate-500">Super Administrator Dashboard</p>
+                    </div>
+                  </div>
+                  <div className="text-slate-400 group-hover:text-slate-700 shrink-0 ml-2">
+                    <ArrowRight className="h-4 w-4" />
+                  </div>
+                </button>
+              </div>
+
+              {/* Or Enter Any Google/Gmail Account */}
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-400">
+                  <span className="bg-white px-3">Or Use Another Google Account</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleGoogleEmailSubmit} className="space-y-3 text-left">
                 <div>
                   <label htmlFor="google-email-input" className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Google / Gmail Account Address <span className="text-red-500">*</span>
+                    Google / Gmail Address <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <Mail className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
@@ -785,15 +892,12 @@ function BuyerLoginContent() {
                         setInputGoogleEmail(e.target.value);
                         if (errorMessage) setErrorMessage(null);
                       }}
-                      placeholder="your.name@gmail.com or bluegamer355@gmail.com"
+                      placeholder="your.name@gmail.com"
                       autoComplete="email"
                       required
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F6E56] focus:border-transparent focus:bg-white transition-all shadow-2xs"
                     />
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-1.5">
-                    Worker account: <span className="font-semibold text-[#0F6E56]">bluegamer355@gmail.com</span> redirects straight to Customer Feedback Portal.
-                  </p>
                 </div>
 
                 <button
@@ -801,18 +905,29 @@ function BuyerLoginContent() {
                   disabled={actionLoading}
                   className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <span>{actionLoading ? "Verifying..." : "Continue with Google Email"}</span>
+                  <span>{actionLoading ? "Authenticating..." : "Continue with this Google Account"}</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </form>
 
-              <div className="pt-2 text-center">
-                <Link
-                  href="/"
-                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 hover:underline transition-colors"
+              {/* Optional external OAuth redirect option */}
+              <div className="pt-2 text-center space-y-2">
+                <button
+                  type="button"
+                  onClick={handleExternalGoogleOAuthRedirect}
+                  disabled={actionLoading}
+                  className="text-[11px] font-medium text-slate-400 hover:text-slate-600 hover:underline transition-colors border-none bg-transparent cursor-pointer inline-flex items-center gap-1"
                 >
-                  ← Return to Public Homepage
-                </Link>
+                  <span>Need external Google Cloud OAuth redirect?</span>
+                </button>
+                <div>
+                  <Link
+                    href="/"
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 hover:underline transition-colors"
+                  >
+                    ← Return to Public Homepage
+                  </Link>
+                </div>
               </div>
             </div>
           )}

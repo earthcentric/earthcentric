@@ -78,12 +78,13 @@ export async function getBuyerAuthState(): Promise<{
     }
 
     // Admins, Sellers and Workers are exempt from the mandatory buyer verification flow
-    if (authUser.role === "ADMIN" || authUser.role === "SELLER" || authUser.role === "WORKER") {
+    const isWorker = isWorkerEmail(authUser.email);
+    if (authUser.role === "ADMIN" || authUser.role === "SELLER" || authUser.role === "WORKER" || isWorker) {
       return {
         authenticated: true,
         step: "COMPLETED",
         isVerified: true,
-        role: authUser.role,
+        role: isWorker ? "WORKER" : authUser.role,
         email: authUser.email,
       };
     }
@@ -117,7 +118,21 @@ export async function getBuyerAuthState(): Promise<{
     const countryCode = user.mobileNumberCountryCode || "+91";
 
     const isSuperAdmin = isSuperAdminEmail(user.email);
-    const effectiveRole = isSuperAdmin ? "ADMIN" : user.role;
+    const isDbWorker = isWorkerEmail(user.email) || user.role === "WORKER";
+    const effectiveRole = isSuperAdmin ? "ADMIN" : isDbWorker ? "WORKER" : user.role;
+
+    if (isDbWorker) {
+      return {
+        authenticated: true,
+        step: "COMPLETED",
+        isVerified: true,
+        role: "WORKER",
+        email: user.email,
+        name: user.name || "",
+        mobileNumber: user.mobileNumber,
+        countryCode,
+      };
+    }
 
     // 1. If buyer/seller already completed onboarding:
     if (user.buyerOnboardingCompleted) {
@@ -192,6 +207,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
   success: boolean;
   error?: string;
   step?: "MOBILE_NUMBER" | "OTP_VERIFICATION" | "PROFILE_COMPLETION" | "COMPLETED";
+  id?: string;
   email?: string;
   name?: string;
   role?: string;
@@ -227,10 +243,14 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
           where: { id: user.id },
           data: { role: "ADMIN" },
         });
-      } else if (isWorker && user.role !== "WORKER") {
+      } else if (isWorker) {
         user = await db.user.update({
           where: { id: user.id },
-          data: { role: "WORKER" },
+          data: {
+            role: "WORKER",
+            mobileNumberSubmitted: true,
+            buyerOnboardingCompleted: true,
+          },
         });
       } else if (isConfiguredSeller && user.role !== "SELLER" && user.role !== "ADMIN") {
         user = await db.user.update({
@@ -251,6 +271,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
       return {
         success: true,
         step: "COMPLETED",
+        id: user.id,
         email: user.email,
         name: user.name || "",
         role: "WORKER",
@@ -268,6 +289,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
       return {
         success: true,
         step: "COMPLETED",
+        id: user.id,
         email: user.email,
         name: user.name || "",
         role: "ADMIN",
@@ -285,6 +307,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
       return {
         success: true,
         step: "COMPLETED",
+        id: user.id,
         email: user.email,
         name: user.name || "",
         role: "SELLER",
@@ -303,6 +326,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
       return {
         success: true,
         step: "COMPLETED",
+        id: user.id,
         email: user.email,
         name: user.name || "",
         role: user.role,
@@ -314,6 +338,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
         return {
           success: true,
           step: "PROFILE_COMPLETION",
+          id: user.id,
           email: user.email,
           name: user.name || "",
           role: user.role,
@@ -322,6 +347,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
       return {
         success: true,
         step: "OTP_VERIFICATION",
+        id: user.id,
         email: user.email,
         name: user.name || "",
         role: user.role,
@@ -331,6 +357,7 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
     return {
       success: true,
       step: "MOBILE_NUMBER",
+      id: user.id,
       email: user.email,
       name: user.name || "",
       role: user.role,
