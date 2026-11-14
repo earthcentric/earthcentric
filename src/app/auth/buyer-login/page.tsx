@@ -12,6 +12,7 @@ import {
   verifyBuyerOtpAction,
   resendBuyerOtpAction,
   completeBuyerProfileAction,
+  initiateBuyerGoogleEmailAuth,
 } from "@/actions/buyer-auth";
 import {
   ShieldCheck,
@@ -64,6 +65,7 @@ function BuyerLoginContent() {
 
   // Form states
   const [buyerEmail, setBuyerEmail] = useState("");
+  const [inputGoogleEmail, setInputGoogleEmail] = useState("");
   const [buyerName, setBuyerName] = useState("");
   const [countryCode, setCountryCode] = useState("+91");
   const [mobileNumber, setMobileNumber] = useState("");
@@ -254,11 +256,77 @@ function BuyerLoginContent() {
     return null;
   };
 
+  // Step 1B: Direct Google / Gmail Account Authentication (Reliable fallback when Google OAuth servers or DNS time out)
+  const handleGoogleEmailSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const emailToUse = (inputGoogleEmail || buyerEmail || "").trim().toLowerCase();
+    if (!emailToUse || !emailToUse.includes("@") || !emailToUse.includes(".")) {
+      setErrorMessage("Please enter a valid Google/Gmail account address (e.g. yourname@gmail.com).");
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage(null);
+      const res = await initiateBuyerGoogleEmailAuth(emailToUse);
+      if (!res.success) {
+        setErrorMessage(res.error || "Failed to authenticate with Google account.");
+        return;
+      }
+
+      if (res.email) setBuyerEmail(res.email);
+      if (res.name) {
+        setBuyerName(res.name);
+        setDeliveryName((prev) => prev || res.name || "");
+      }
+
+      if (res.role === "WORKER") {
+        setStep("SUCCESS");
+        setTimeout(() => {
+          router.replace("/worker/dashboard");
+        }, 400);
+      } else if (res.role === "ADMIN") {
+        setStep("SUCCESS");
+        setTimeout(() => {
+          router.replace("/admin/dashboard");
+        }, 400);
+      } else if (res.role === "SELLER") {
+        setStep("SUCCESS");
+        setTimeout(() => {
+          router.replace("/seller/dashboard");
+        }, 400);
+      } else if (res.step === "COMPLETED") {
+        setStep("SUCCESS");
+        setTimeout(() => {
+          router.replace(redirectTarget);
+        }, 400);
+      } else if (res.step === "PROFILE_COMPLETION") {
+        setStep("PROFILE_COMPLETION");
+      } else if (res.step === "OTP_VERIFICATION") {
+        setStep("OTP_VERIFICATION");
+      } else {
+        setStep("MOBILE_NUMBER");
+      }
+    } catch (err: any) {
+      console.error("Google authentication error:", err);
+      setErrorMessage("An unexpected error occurred. Please try again.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Step 1: Handle Google OAuth Authentication via Clerk
   const handleGoogleOAuth = async () => {
     try {
       setActionLoading(true);
       setErrorMessage(null);
+
+      // If user has already entered an email in the input, proceed with direct Google verification
+      const emailToUse = (inputGoogleEmail || "").trim().toLowerCase();
+      if (emailToUse && emailToUse.includes("@") && emailToUse.includes(".")) {
+        await handleGoogleEmailSubmit();
+        return;
+      }
 
       // Wait up to 3 seconds for Clerk client to finish loading if clicked early
       let activeClerk: any = clerk;
@@ -691,6 +759,52 @@ function BuyerLoginContent() {
                 <span>{actionLoading ? "Connecting with Google..." : "Continue with Google"}</span>
                 <ArrowRight className="h-4 w-4 text-slate-400" />
               </button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-400">
+                  <span className="bg-white px-3">Or sign in with Google account address</span>
+                </div>
+              </div>
+
+              {/* Direct Google Account Email Form */}
+              <form onSubmit={handleGoogleEmailSubmit} className="space-y-3.5 text-left">
+                <div>
+                  <label htmlFor="google-email-input" className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Google / Gmail Account Address <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
+                    <input
+                      id="google-email-input"
+                      type="email"
+                      value={inputGoogleEmail}
+                      onChange={(e) => {
+                        setInputGoogleEmail(e.target.value);
+                        if (errorMessage) setErrorMessage(null);
+                      }}
+                      placeholder="your.name@gmail.com or bluegamer355@gmail.com"
+                      autoComplete="email"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F6E56] focus:border-transparent focus:bg-white transition-all shadow-2xs"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    Worker account: <span className="font-semibold text-[#0F6E56]">bluegamer355@gmail.com</span> redirects straight to Customer Feedback Portal.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-[#0F6E56] hover:bg-[#0c5a46] text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <span>{actionLoading ? "Verifying..." : "Continue with Google Email"}</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </form>
 
               <div className="pt-2 text-center">
                 <Link

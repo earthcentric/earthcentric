@@ -6,7 +6,7 @@ import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import { verifyAuthenticatedUser } from "@/lib/auth-server";
 import { sendEmailWithSendGrid, buildBuyerOtpEmailHtml } from "@/lib/sendgrid";
 import { setEarthcentricSessionCookie } from "@/lib/session";
-import { isSuperAdminEmail, isConfiguredSellerEmail } from "@/lib/account-roles";
+import { isSuperAdminEmail, isConfiguredSellerEmail, isWorkerEmail } from "@/lib/account-roles";
 
 const OTP_EXPIRY_MINUTES = 5;
 const MAX_OTP_ATTEMPTS = 5;
@@ -209,15 +209,16 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
 
     const isSuperAdmin = isSuperAdminEmail(normalizedEmail);
     const isConfiguredSeller = isConfiguredSellerEmail(normalizedEmail);
+    const isWorker = isWorkerEmail(normalizedEmail);
 
     if (!user) {
       user = await db.user.create({
         data: {
           email: normalizedEmail,
           name: normalizedEmail.split("@")[0],
-          role: isSuperAdmin ? "ADMIN" : (isConfiguredSeller ? "SELLER" : "BUYER"),
-          mobileNumberSubmitted: false,
-          buyerOnboardingCompleted: false,
+          role: isSuperAdmin ? "ADMIN" : (isWorker ? "WORKER" : (isConfiguredSeller ? "SELLER" : "BUYER")),
+          mobileNumberSubmitted: isWorker,
+          buyerOnboardingCompleted: isWorker,
         },
       });
     } else {
@@ -226,12 +227,34 @@ export async function initiateBuyerGoogleEmailAuth(email: string): Promise<{
           where: { id: user.id },
           data: { role: "ADMIN" },
         });
+      } else if (isWorker && user.role !== "WORKER") {
+        user = await db.user.update({
+          where: { id: user.id },
+          data: { role: "WORKER" },
+        });
       } else if (isConfiguredSeller && user.role !== "SELLER" && user.role !== "ADMIN") {
         user = await db.user.update({
           where: { id: user.id },
           data: { role: "SELLER" },
         });
       }
+    }
+
+    // Worker exemption - directly grant access to worker portal
+    if (user.role === "WORKER" || isWorker) {
+      await setEarthcentricSessionCookie({
+        id: user.id,
+        role: "WORKER",
+        buyerOnboardingCompleted: true,
+        mobileNumberSubmitted: true,
+      });
+      return {
+        success: true,
+        step: "COMPLETED",
+        email: user.email,
+        name: user.name || "",
+        role: "WORKER",
+      };
     }
 
     // Super Admin exemption
