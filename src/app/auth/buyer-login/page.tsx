@@ -116,6 +116,14 @@ function BuyerLoginContent() {
             const state = await getBuyerAuthState();
             if (!active) return;
 
+            if (state.role === "WORKER") {
+              setStep("SUCCESS");
+              setTimeout(() => {
+                router.replace("/worker/dashboard");
+              }, 400);
+              return;
+            }
+
             if (state.role === "ADMIN") {
               setStep("SUCCESS");
               setTimeout(() => {
@@ -127,7 +135,9 @@ function BuyerLoginContent() {
             if (state.authenticated && state.step === "COMPLETED") {
               setStep("SUCCESS");
               setTimeout(() => {
-                if (state.role === "SELLER") {
+                if (state.role === "WORKER") {
+                  router.replace("/worker/dashboard");
+                } else if (state.role === "SELLER") {
                   router.replace("/seller/dashboard");
                 } else {
                   router.replace(redirectTarget);
@@ -160,7 +170,12 @@ function BuyerLoginContent() {
           return;
         }
 
-        // Super Admin is exempt
+        // Worker and Super Admin are exempt
+        if (state.role === "WORKER") {
+          router.replace("/worker/dashboard");
+          return;
+        }
+
         if (state.role === "ADMIN") {
           router.replace("/admin/dashboard");
           return;
@@ -184,7 +199,9 @@ function BuyerLoginContent() {
         } else if (state.step === "COMPLETED") {
           setStep("SUCCESS");
           setTimeout(() => {
-            if (state.role === "SELLER") {
+            if (state.role === "WORKER") {
+              router.replace("/worker/dashboard");
+            } else if (state.role === "SELLER") {
               router.replace("/seller/dashboard");
             } else {
               router.replace(redirectTarget);

@@ -2,7 +2,7 @@ import db from "@/lib/db";
 import { cookies } from "next/headers";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
-import { isConfiguredSellerEmail, isSuperAdminEmail } from "@/lib/account-roles";
+import { isConfiguredSellerEmail, isSuperAdminEmail, isWorkerEmail } from "@/lib/account-roles";
 import { verifyEarthcentricSession } from "@/lib/session-token";
 
 const MOCK_SELLER_ID = "cmvcbbtm80001txgw8dd0r3lk";
@@ -563,5 +563,48 @@ export async function verifySellerAuth(
   } catch (e: any) {
     console.error("verifySellerAuth error:", e);
     return { authorized: false, error: e?.message || "Internal authorization error." };
+  }
+}
+
+/**
+ * Verifies that the current request is made by an authorized Worker (or Super Admin).
+ * Checks the custom session cookie and Clerk authentication.
+ * Workers can view buyer/seller data and record feedback, but cannot perform admin actions.
+ */
+export async function verifyWorkerAuth(): Promise<{ authorized: boolean; userId?: string; email?: string; error?: string }> {
+  try {
+    // 1. Check custom session cookie first
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("earthcentric_session")?.value;
+
+    if (sessionCookie) {
+      const session = await verifyEarthcentricSession(sessionCookie);
+      if (session?.id) {
+        const user = await db.user.findUnique({
+          where: { id: session.id },
+          select: { id: true, email: true, role: true },
+        });
+        if (user && (user.role === "WORKER" || user.role === "ADMIN" || isWorkerEmail(user.email) || isSuperAdminEmail(user.email))) {
+          return { authorized: true, userId: user.id, email: user.email };
+        }
+      }
+    }
+
+    // 2. Fallback: Clerk authentication
+    const clerkAuth = await auth();
+    if (clerkAuth?.userId) {
+      const user = await db.user.findUnique({
+        where: { id: clerkAuth.userId },
+        select: { id: true, email: true, role: true },
+      });
+      if (user && (user.role === "WORKER" || user.role === "ADMIN" || isWorkerEmail(user.email) || isSuperAdminEmail(user.email))) {
+        return { authorized: true, userId: user.id, email: user.email };
+      }
+    }
+
+    return { authorized: false, error: "Unauthorized: Worker credentials required." };
+  } catch (error) {
+    console.error("verifyWorkerAuth error:", error);
+    return { authorized: false, error: "Internal authorization error." };
   }
 }

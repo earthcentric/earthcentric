@@ -113,7 +113,7 @@ export async function verifyEarthcentricSession(token: string): Promise<Earthcen
   if (
     typeof session.id !== "string" ||
     !session.id ||
-    (session.role !== "BUYER" && session.role !== "SELLER" && session.role !== "ADMIN") ||
+    (session.role !== "BUYER" && session.role !== "SELLER" && session.role !== "ADMIN" && session.role !== "WORKER") ||
     typeof session.issuedAt !== "number" ||
     typeof session.expiresAt !== "number" ||
     session.issuedAt > now + 60 ||

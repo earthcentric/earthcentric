@@ -11,6 +11,7 @@ enum Role {
   BUYER
   SELLER
   ADMIN
+  WORKER
 }
 
 enum VerificationStatus {
@@ -93,6 +94,7 @@ model User {
   complaints       Complaint[]
   sentMessages     Message[]      @relation("SentMessages")
   receivedMessages Message[]      @relation("ReceivedMessages")
+  abandonedCheckouts AbandonedCheckout[]
 }
 
 // Temporary OTP storage for buyer email verification during registration
@@ -726,4 +728,53 @@ model DiscountApprovalRequest {
   @@index([sellerId])
   @@index([productId])
   @@index([status])
+}
+
+// Worker Portal: tracks call outcomes for buyers and sellers
+model CustomerFeedback {
+  id               String    @id @default(cuid())
+  customerId       String
+  customerType     String    // "BUYER" | "SELLER"
+  callStatus       String    @default("PENDING") // PENDING | CALLED | NOT_ANSWERED | UNREACHABLE | CALLBACK_REQUESTED | FEEDBACK_RECEIVED
+  feedbackNotes    String?
+  workerNotes      String?
+  nextFollowUpDate DateTime?
+  lastContactedAt  DateTime?
+  workerId         String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([workerId])
+  @@index([customerType, callStatus])
+}
+
+// Worker Portal: tracks checkout sessions that were initiated but not completed
+model AbandonedCheckout {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cartSnapshot        Json     // Array of { productId, name, quantity, price, imageUrl, sellerId }
+  totalAmount         Float
+  checkoutStartedAt   DateTime @default(now())
+  paymentStatus       String   @default("PENDING") // PENDING | COMPLETED | FAILED
+  checkoutRequestId   String?  @unique
+  attemptCount        Int      @default(1)
+  lastAttemptAt       DateTime @default(now())
+  isAbandoned         Boolean  @default(false)
+  resolvedAt          DateTime?
+
+  // Worker feedback fields
+  feedbackCallStatus    String?
+  feedbackNotes         String?
+  abandonmentReason     String? // PAYMENT_ISSUE | PRODUCT_PRICE | DELIVERY_CHARGES | TECHNICAL | CHANGED_MIND | OTHER
+  workerId              String?
+  lastWorkerContactAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isAbandoned, paymentStatus])
+  @@index([checkoutStartedAt])
 }

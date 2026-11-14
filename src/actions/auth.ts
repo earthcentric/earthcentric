@@ -3,7 +3,7 @@
 import db from "@/lib/db";
 import { sendWelcomeEmail } from "@/lib/email";
 import { uploadImage, deleteImage, getPublicIdFromDb } from "@/lib/cloudinary";
-import { isConfiguredSellerEmail, isSuperAdminEmail } from "@/lib/account-roles";
+import { isConfiguredSellerEmail, isSuperAdminEmail, isWorkerEmail } from "@/lib/account-roles";
 import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import crypto from "crypto";
 import { cookies } from "next/headers";
@@ -235,15 +235,18 @@ export async function syncUserInDb(userData: {
 
     const isSuperAdmin = isSuperAdminEmail(normalizedEmail);
     const isConfiguredSeller = isConfiguredSellerEmail(normalizedEmail);
+    const isWorker = isWorkerEmail(normalizedEmail);
     const targetRole = isSuperAdmin
       ? "ADMIN"
       : existingUser?.role === "ADMIN"
         ? "ADMIN"
-        : existingUser?.seller
-          ? "SELLER"
-          : isConfiguredSeller
+        : existingUser?.role === "WORKER" || isWorker
+          ? "WORKER"
+          : existingUser?.seller
             ? "SELLER"
-            : existingUser?.role || "BUYER";
+            : isConfiguredSeller
+              ? "SELLER"
+              : existingUser?.role || "BUYER";
 
     // Upsert the User record in database
     const user = await db.user.upsert({
@@ -300,8 +303,8 @@ export async function syncUserInDb(userData: {
       id: user.id,
       role: user.role,
       sellerStatus: user.seller?.verificationStatus,
-      buyerOnboardingCompleted: user.role === "ADMIN" || user.role === "SELLER" || isBuyerCompleted,
-      mobileNumberSubmitted: user.role === "ADMIN" || user.role === "SELLER" || !!user.mobileNumberSubmitted,
+      buyerOnboardingCompleted: user.role === "ADMIN" || user.role === "SELLER" || user.role === "WORKER" || isBuyerCompleted,
+      mobileNumberSubmitted: user.role === "ADMIN" || user.role === "SELLER" || user.role === "WORKER" || !!user.mobileNumberSubmitted,
     });
 
     return { success: true as const, user: finalUser };

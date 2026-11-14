@@ -6,7 +6,7 @@ import { syncUserInDb, loginUser, signupUser, logoutUser, setSellerSessionCookie
 import { toast } from "sonner";
 import { useUser, useAuth as useClerkAuth } from "@clerk/nextjs";
 
-export type Role = "BUYER" | "SELLER" | "ADMIN";
+export type Role = "BUYER" | "SELLER" | "ADMIN" | "WORKER";
 
 export interface User {
   id: string;
@@ -63,6 +63,12 @@ const DEMO_USERS: Record<Role, User> = {
     name: "EarthCentric Admin",
     email: "admin@earthcentric.com",
     role: "ADMIN",
+  },
+  WORKER: {
+    id: "worker-1",
+    name: "Customer Feedback Executive",
+    email: "bluegamer355@gmail.com",
+    role: "WORKER",
   },
 };
 
@@ -142,7 +148,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           currentPath.startsWith("/sign-in") ||
           currentPath.startsWith("/sign-up");
 
-        if (finalUser.role === "ADMIN" && isAuthLanding) {
+        if (finalUser.role === "WORKER" && isAuthLanding) {
+          router.replace("/worker/dashboard");
+        } else if (finalUser.role === "ADMIN" && isAuthLanding) {
           router.replace("/admin/dashboard");
         } else if (finalUser.role === "SELLER" && isAuthLanding) {
           router.replace(
@@ -151,8 +159,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               : "/seller/verification"
           );
         } else if (isAuthLanding && currentPath !== "/") {
-          // Only auto-redirect out of auth page if the buyer has completed onboarding
-          if (finalUser.role === "ADMIN" || finalUser.role === "SELLER" || finalUser.buyerOnboardingCompleted) {
+          // Only auto-redirect out of auth page if worker or buyer has completed onboarding
+          if (finalUser.role === "WORKER") {
+            router.replace("/worker/dashboard");
+          } else if (finalUser.role === "ADMIN" || finalUser.role === "SELLER" || finalUser.buyerOnboardingCompleted) {
             const searchParams = new URLSearchParams(window.location.search);
             const redirectTarget = searchParams.get("redirect_url") || "/marketplace";
             router.replace(redirectTarget);
@@ -197,7 +207,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     toast.success("Successfully logged in!");
 
     // Redirect based on role
-    if (finalUser.role === "ADMIN") {
+    if (finalUser.role === "WORKER") {
+      router.push("/worker/dashboard");
+    } else if (finalUser.role === "ADMIN") {
       router.push("/admin/dashboard");
     } else if (finalUser.role === "SELLER") {
       if (finalUser.sellerStatus === "APPROVED") {

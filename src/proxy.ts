@@ -49,6 +49,7 @@ export default clerkMiddleware(async (auth, request) => {
     request.nextUrl.searchParams.get("tab") !== "seller";
   const isAdminRoute = pathname.startsWith("/admin");
   const isSellerRoute = pathname.startsWith("/seller");
+  const isWorkerRoute = pathname.startsWith("/worker");
 
   // Combined buyer-protected routes
   const isBuyerProtectedRoute =
@@ -70,6 +71,25 @@ export default clerkMiddleware(async (auth, request) => {
   const isClerkAuthenticated = !!clerkAuth?.userId;
   const isAuthenticated = isClerkAuthenticated || !!session?.id;
 
+  // 3.5 Handle Worker routes — must come before seller/admin checks
+  if (isWorkerRoute) {
+    if (!isAuthenticated) {
+      const loginUrl = new URL("/auth/buyer-login", request.url);
+      loginUrl.searchParams.set("redirect_url", fullPath);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Only WORKER or ADMIN can access worker routes
+    if (session?.role && session.role !== "WORKER" && session.role !== "ADMIN") {
+      // Redirect non-workers to their respective dashboards
+      if (session.role === "SELLER") return NextResponse.redirect(new URL("/seller/dashboard", request.url));
+      if (session.role === "BUYER") return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    return NextResponse.next();
+  }
+
   // 4. Handle Seller routes
   if (isSellerRoute) {
     if (!isAuthenticated) {
@@ -86,6 +106,9 @@ export default clerkMiddleware(async (auth, request) => {
     }
 
     if (session?.role && session.role !== "SELLER" && session.role !== "ADMIN") {
+      if (session.role === "WORKER") {
+        return NextResponse.redirect(new URL("/worker/dashboard", request.url));
+      }
       return NextResponse.redirect(new URL("/account?tab=seller", request.url));
     }
 
@@ -113,6 +136,9 @@ export default clerkMiddleware(async (auth, request) => {
       return NextResponse.redirect(loginUrl);
     }
     if (session?.role && session.role !== "ADMIN") {
+      if (session.role === "WORKER") {
+        return NextResponse.redirect(new URL("/worker/dashboard", request.url));
+      }
       return NextResponse.redirect(new URL("/", request.url));
     }
     return NextResponse.next();
@@ -132,12 +158,17 @@ export default clerkMiddleware(async (auth, request) => {
       return NextResponse.redirect(buyerLoginUrl);
     }
 
-    // B. Super Admin & Sellers are completely exempt
+    // B. Workers cannot access the buyer marketplace without a customer profile -> redirect to worker dashboard
+    if (session?.role === "WORKER") {
+      return NextResponse.redirect(new URL("/worker/dashboard", request.url));
+    }
+
+    // C. Super Admin & Sellers are completely exempt
     if (session?.role === "ADMIN" || session?.role === "SELLER") {
       return NextResponse.next();
     }
 
-    // C. Verified buyers who completed full onboarding are granted access
+    // D. Verified buyers who completed full onboarding are granted access
     if (session?.buyerOnboardingCompleted === true) {
       return NextResponse.next();
     }

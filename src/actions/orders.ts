@@ -33,6 +33,7 @@ import {
 import { validateGSTIN, validateIndianMobile, validateGstAndPhone } from "@/lib/gstin";
 import { quoteSellerShipments } from "@/lib/shipping";
 import { calculateCheckoutLine } from "@/lib/checkout-pricing";
+import { trackCheckoutInitiated, resolveAbandonedCheckout } from "@/actions/checkout-tracking";
 
 const CANCELLATION_WINDOW_HOURS = 72; // 3 days (72 hours) duration cancellation policy
 
@@ -537,6 +538,21 @@ export async function createOrder(data: {
       index++;
     }
 
+    // Track checkout initiation for Customer Feedback executive portal
+    await trackCheckoutInitiated({
+      userId: buyer.id,
+      checkoutRequestId: data.checkoutRequestId,
+      totalAmount: payableTotal,
+      items: verifiedItems.map((v) => ({
+        productId: v.productId,
+        name: v.name,
+        price: v.price,
+        quantity: v.quantity,
+        imageUrl: v.image,
+        sellerId: v.sellerId,
+      })),
+    }).catch((err) => console.error("trackCheckoutInitiated warning:", err));
+
     const firstOrder = createdOrders[0];
     const formattedOrder: OrderDetail = {
       id: firstOrder.id,
@@ -712,6 +728,11 @@ export async function confirmOrderPayment(
         },
       });
     }
+
+    // Mark checkout as resolved (exclude from abandoned checkouts)
+    await resolveAbandonedCheckout(orderId).catch((err) =>
+      console.error("resolveAbandonedCheckout warning:", err)
+    );
 
     const dbOrder = await db.order.findUnique({
       where: { id: orderId },

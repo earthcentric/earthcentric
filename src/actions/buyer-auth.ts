@@ -77,8 +77,8 @@ export async function getBuyerAuthState(): Promise<{
       };
     }
 
-    // Admins and Sellers are exempt from the mandatory buyer verification flow
-    if (authUser.role === "ADMIN" || authUser.role === "SELLER") {
+    // Admins, Sellers and Workers are exempt from the mandatory buyer verification flow
+    if (authUser.role === "ADMIN" || authUser.role === "SELLER" || authUser.role === "WORKER") {
       return {
         authenticated: true,
         step: "COMPLETED",
