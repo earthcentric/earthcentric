@@ -47,7 +47,7 @@ export interface AuthenticatedUserResult {
 
 export async function verifyAuthenticatedUser(): Promise<AuthenticatedUserResult> {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"))) {
       const user = await getMockAuthenticatedUser();
       return user
         ? {
@@ -284,7 +284,7 @@ export async function verifyBuyerAuth(): Promise<{
  */
 export async function verifyAdminAuth(): Promise<AdminAuthResult> {
   try {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"))) {
       const user = await getMockAuthenticatedUser();
       if (user && (user.role === "ADMIN" || isSuperAdminEmail(user.email))) {
         return { authorized: true, email: user.email, userId: user.id };
@@ -367,7 +367,7 @@ export async function checkSellerActivation(sellerIdOrUserId: string): Promise<{
   error?: string;
 }> {
   try {
-    const isMock = !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock");
+    const isMock = process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"));
     if (isMock) {
       return { active: true, sellerApproved: true, feeRequired: false, feePaid: true, status: "ACTIVE" };
     }
@@ -455,7 +455,7 @@ export async function verifySellerAuth(
 }> {
   try {
     const shouldRequireActive = options?.requireActive !== false;
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"))) {
       const user = await getMockAuthenticatedUser();
       if (!user || (user.role !== "SELLER" && user.role !== "ADMIN")) {
         return { authorized: false, error: "Seller or Admin role required." };

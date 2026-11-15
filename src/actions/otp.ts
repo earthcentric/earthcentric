@@ -20,8 +20,8 @@ function hashOtp(otp: string): string {
 }
 
 function generateOtp(): string {
-  // 6-digit numeric OTP
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // 6-digit numeric cryptographically secure OTP
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 /**

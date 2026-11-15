@@ -3,6 +3,7 @@
 import db from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { sendEmail } from "@/lib/email";
 import { verifyAuthenticatedUser } from "@/lib/auth-server";
 import { reverseGeocode } from "@/lib/location-services";
@@ -43,12 +44,20 @@ const changePasswordOtpStore = new Map<
   }
 >();
 
+const changePasswordTokenStore = new Map<
+  string,
+  {
+    token: string;
+    expiresAt: number;
+  }
+>();
+
 function hashValue(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
 function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 async function validateAddressPayload(
@@ -394,7 +403,15 @@ export async function sendChangePasswordOtp(
   email: string
 ): Promise<{ success: boolean; isMock?: boolean; otp?: string; error?: string }> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Please log in to change your password." };
+    }
+
     const normalizedEmail = email.toLowerCase().trim();
+    if (auth.email && auth.email.toLowerCase().trim() !== normalizedEmail) {
+      return { success: false, error: "Unauthorized: You can only request OTP for your own account." };
+    }
 
     const existing = changePasswordOtpStore.get(normalizedEmail);
     if (existing && existing.blockedUntil && Date.now() < existing.blockedUntil) {
@@ -467,8 +484,17 @@ export async function sendChangePasswordOtp(
 export async function verifyChangePasswordOtp(
   email: string,
   otp: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; token?: string; error?: string }> {
+  const auth = await verifyAuthenticatedUser();
+  if (!auth.authorized || !auth.userId) {
+    return { success: false, error: "Please log in to verify password change." };
+  }
+
   const normalizedEmail = email.toLowerCase().trim();
+  if (auth.email && auth.email.toLowerCase().trim() !== normalizedEmail) {
+    return { success: false, error: "Unauthorized verification request." };
+  }
+
   const stored = changePasswordOtpStore.get(normalizedEmail);
 
   if (!stored) return { success: false, error: "No OTP found. Please request a new one." };
@@ -504,21 +530,64 @@ export async function verifyChangePasswordOtp(
     };
   }
 
-  // Mark as verified by removing from store (consumed)
+  // Mark OTP as consumed and generate a single-use password change token
   changePasswordOtpStore.delete(normalizedEmail);
-  return { success: true };
+  const token = crypto.randomBytes(32).toString("hex");
+  changePasswordTokenStore.set(normalizedEmail, {
+    token,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+
+  return { success: true, token };
 }
 
 export async function changePassword(
   userId: string,
-  newPassword: string
+  newPassword: string,
+  token?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, error: "Unauthorized: Please log in to change your password." };
+    }
+
+    // Force operations to act exclusively on authenticated session ID
+    const targetUserId = auth.userId;
+
+    if (!token) {
+      return { success: false, error: "Verification token missing. Please verify OTP first." };
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true },
+    });
+
+    if (!user || !user.email) {
+      return { success: false, error: "User account not found." };
+    }
+
+    const normalizedEmail = user.email.toLowerCase().trim();
+    const stored = changePasswordTokenStore.get(normalizedEmail);
+
+    if (!stored || stored.token !== token || Date.now() > stored.expiresAt) {
+      changePasswordTokenStore.delete(normalizedEmail);
+      return {
+        success: false,
+        error: "Invalid or expired verification session. Please verify OTP again.",
+      };
+    }
+
+    // Consume token atomically to ensure single-use
+    changePasswordTokenStore.delete(normalizedEmail);
+
     if (newPassword.length < 6) {
       return { success: false, error: "Password must be at least 6 characters." };
     }
-    const hashed = hashValue(newPassword);
-    await db.user.update({ where: { id: userId }, data: { password: hashed } });
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await db.user.update({ where: { id: targetUserId }, data: { password: hashed } });
     return { success: true };
   } catch (e) {
     console.error("changePassword failed:", e);

@@ -73,18 +73,10 @@ export default clerkMiddleware(async (auth, request) => {
 
   // 3.5 Handle Worker routes — must come before seller/admin checks
   if (isWorkerRoute) {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || (session?.role !== "WORKER" && session?.role !== "ADMIN")) {
       const loginUrl = new URL("/auth/buyer-login", request.url);
       loginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(loginUrl);
-    }
-
-    // Only WORKER or ADMIN can access worker routes
-    if (session?.role && session.role !== "WORKER" && session.role !== "ADMIN") {
-      // Redirect non-workers to their respective dashboards
-      if (session.role === "SELLER") return NextResponse.redirect(new URL("/seller/dashboard", request.url));
-      if (session.role === "BUYER") return NextResponse.redirect(new URL("/", request.url));
-      return NextResponse.redirect(new URL("/", request.url));
     }
 
     return NextResponse.next();
@@ -92,7 +84,7 @@ export default clerkMiddleware(async (auth, request) => {
 
   // 4. Handle Seller routes
   if (isSellerRoute) {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || (session?.role !== "SELLER" && session?.role !== "ADMIN")) {
       const loginUrl = new URL("/auth/buyer-login", request.url);
       loginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(loginUrl);
@@ -103,13 +95,6 @@ export default clerkMiddleware(async (auth, request) => {
       const loginUrl = new URL("/auth/buyer-login", request.url);
       loginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(loginUrl);
-    }
-
-    if (session?.role && session.role !== "SELLER" && session.role !== "ADMIN") {
-      if (session.role === "WORKER") {
-        return NextResponse.redirect(new URL("/worker/dashboard", request.url));
-      }
-      return NextResponse.redirect(new URL("/account?tab=seller", request.url));
     }
 
     const isVerificationRoute = pathname === "/seller/verification";
@@ -130,16 +115,10 @@ export default clerkMiddleware(async (auth, request) => {
 
   // 5. Handle Admin routes
   if (isAdminRoute) {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || session?.role !== "ADMIN") {
       const loginUrl = new URL("/auth/buyer-login", request.url);
       loginUrl.searchParams.set("redirect_url", fullPath);
       return NextResponse.redirect(loginUrl);
-    }
-    if (session?.role && session.role !== "ADMIN") {
-      if (session.role === "WORKER") {
-        return NextResponse.redirect(new URL("/worker/dashboard", request.url));
-      }
-      return NextResponse.redirect(new URL("/", request.url));
     }
     return NextResponse.next();
   }

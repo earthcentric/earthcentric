@@ -6,12 +6,19 @@ const PREFIX = "enc:v1:";
 
 /**
  * Derives a 32-byte key from environment secret.
+ * Fails closed if no secure environment key (at least 32 characters) is configured.
  */
 function getEncryptionKey(): Buffer {
   const secret =
     process.env.ENCRYPTION_KEY ||
     process.env.NEXTAUTH_SECRET ||
-    "earthcentric-secure-storage-secret-key-32b!";
+    process.env.SESSION_SECRET;
+
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      "Missing required encryption secret. Set ENCRYPTION_KEY or NEXTAUTH_SECRET (at least 32 characters) in environment."
+    );
+  }
   return crypto.createHash("sha256").update(secret).digest();
 }
 

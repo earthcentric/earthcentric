@@ -1,7 +1,7 @@
 "use server";
 
 import db from "@/lib/db";
-import { verifyBuyerAuth } from "@/lib/auth-server";
+import { verifyAuthenticatedUser, verifyBuyerAuth } from "@/lib/auth-server";
 import { getProductById, BuyXGetYOffer, IndividualDiscount, TierDiscount } from "./products";
 
 export interface CartItem {
@@ -24,14 +24,20 @@ export interface CartItem {
  * Retrieves the database cart items for a user.
  * Creates a Cart record if none exists.
  */
-export async function getDbCart(userId: string): Promise<CartItem[]> {
+export async function getDbCart(userId?: string): Promise<CartItem[]> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return [];
+    }
+    const targetUserId = auth.userId;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return [];
     }
 
     const userExists = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: targetUserId },
       select: { id: true },
     });
     if (!userExists) {
@@ -39,13 +45,13 @@ export async function getDbCart(userId: string): Promise<CartItem[]> {
     }
 
     let cart = await db.cart.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
       include: { items: true },
     });
 
     if (!cart) {
       cart = await db.cart.create({
-        data: { userId },
+        data: { userId: targetUserId },
         include: { items: true },
       });
     }
@@ -117,9 +123,10 @@ export async function refreshCartItemOffers(cartItems: CartItem[]): Promise<Cart
 export async function addToDbCart(userId: string, productId: string, quantity: number): Promise<boolean> {
   try {
     const buyerAuth = await verifyBuyerAuth();
-    if (!buyerAuth.isVerified) {
+    if (!buyerAuth.isVerified || !buyerAuth.userId) {
       return false;
     }
+    const targetUserId = buyerAuth.userId;
 
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return false;
@@ -137,15 +144,15 @@ export async function addToDbCart(userId: string, productId: string, quantity: n
     }
 
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: targetUserId },
       select: { role: true, gstStatus: true, gstin: true },
     });
     const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED" || Boolean(user?.gstin);
 
     const cart = await db.cart.upsert({
-      where: { userId },
+      where: { userId: targetUserId },
       update: {},
-      create: { userId },
+      create: { userId: targetUserId },
     });
 
     const existingItem = await db.cartItem.findUnique({
@@ -185,18 +192,24 @@ export async function addToDbCart(userId: string, productId: string, quantity: n
  */
 export async function updateDbCartQuantity(userId: string, productId: string, quantity: number): Promise<boolean> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return false;
+    }
+    const targetUserId = auth.userId;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return false;
     }
 
     const cart = await db.cart.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
     });
 
     if (!cart) return false;
 
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: targetUserId },
       select: { role: true, gstStatus: true, gstin: true },
     });
     const isApprovedGst = user?.role === "ADMIN" || user?.gstStatus === "APPROVED" || Boolean(user?.gstin);
@@ -238,12 +251,18 @@ export async function updateDbCartQuantity(userId: string, productId: string, qu
  */
 export async function removeFromDbCart(userId: string, productId: string): Promise<boolean> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return false;
+    }
+    const targetUserId = auth.userId;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return false;
     }
 
     const cart = await db.cart.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
     });
 
     if (!cart) return false;
@@ -267,12 +286,18 @@ export async function removeFromDbCart(userId: string, productId: string): Promi
  */
 export async function clearDbCart(userId: string): Promise<boolean> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return false;
+    }
+    const targetUserId = auth.userId;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return false;
     }
 
     const cart = await db.cart.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
     });
 
     if (!cart) return false;
@@ -293,14 +318,20 @@ export async function clearDbCart(userId: string): Promise<boolean> {
  */
 export async function syncLocalCartToDb(userId: string, localItems: { id: string; quantity: number }[]): Promise<CartItem[]> {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return [];
+    }
+    const targetUserId = auth.userId;
+
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
       return [];
     }
 
     const cart = await db.cart.upsert({
-      where: { userId },
+      where: { userId: targetUserId },
       update: {},
-      create: { userId },
+      create: { userId: targetUserId },
     });
 
     for (const item of localItems) {
@@ -322,9 +353,9 @@ export async function syncLocalCartToDb(userId: string, localItems: { id: string
       });
     }
 
-    return await getDbCart(userId);
+    return await getDbCart(targetUserId);
   } catch (error) {
     console.error("Failed to sync local cart to database:", error);
-    return await getDbCart(userId);
+    return [];
   }
 }

@@ -3,6 +3,7 @@
 import db from "@/lib/db";
 import { getProductById, ProductItem } from "./products";
 import { revalidatePath } from "next/cache";
+import { verifyAuthenticatedUser } from "@/lib/auth-server";
 
 function safeRevalidatePath(path: string) {
   try {
@@ -23,12 +24,14 @@ export interface WishlistItemData {
  * Fetch full wishlist item data for an authenticated user.
  * Runs product lookups in parallel for fast response times.
  */
-export async function getWishlist(userId: string): Promise<WishlistItemData[]> {
+export async function getWishlist(userId?: string): Promise<WishlistItemData[]> {
   try {
-    if (!userId) return [];
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) return [];
+    const targetUserId = auth.userId;
 
     const wishlist = await db.wishlist.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
       include: {
         items: {
           orderBy: { createdAt: "desc" },
@@ -101,12 +104,14 @@ export async function getWishlistProductsByIds(productIds: string[]): Promise<Wi
 /**
  * Fetch just the wishlisted product IDs for an authenticated user.
  */
-export async function getWishlistIds(userId: string): Promise<string[]> {
+export async function getWishlistIds(userId?: string): Promise<string[]> {
   try {
-    if (!userId) return [];
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) return [];
+    const targetUserId = auth.userId;
 
     const wishlist = await db.wishlist.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
       include: {
         items: true,
       },
@@ -129,14 +134,20 @@ export async function toggleWishlist(
   productId: string
 ): Promise<{ success: boolean; isWishlisted: boolean }> {
   try {
-    if (!userId || !productId) {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return { success: false, isWishlisted: false };
+    }
+    const targetUserId = auth.userId;
+
+    if (!productId) {
       return { success: false, isWishlisted: false };
     }
 
     // Verify user exists in database to prevent foreign key violation
-    const userExists = await db.user.findUnique({ where: { id: userId } });
+    const userExists = await db.user.findUnique({ where: { id: targetUserId } });
     if (!userExists) {
-      console.warn(`toggleWishlist: user ${userId} does not exist in DB yet.`);
+      console.warn(`toggleWishlist: user ${targetUserId} does not exist in DB yet.`);
       return { success: false, isWishlisted: false };
     }
 
@@ -149,9 +160,9 @@ export async function toggleWishlist(
 
     // Ensure wishlist container exists for user
     const wishlist = await db.wishlist.upsert({
-      where: { userId },
+      where: { userId: targetUserId },
       update: {},
-      create: { userId },
+      create: { userId: targetUserId },
     });
 
     const existingItem = await db.wishlistItem.findUnique({
@@ -195,19 +206,25 @@ export async function syncGuestWishlistToDb(
   productIds: string[]
 ): Promise<string[]> {
   try {
-    if (!userId || !productIds || productIds.length === 0) {
-      return getWishlistIds(userId);
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return [];
+    }
+    const targetUserId = auth.userId;
+
+    if (!productIds || productIds.length === 0) {
+      return getWishlistIds(targetUserId);
     }
 
-    const userExists = await db.user.findUnique({ where: { id: userId } });
+    const userExists = await db.user.findUnique({ where: { id: targetUserId } });
     if (!userExists) {
       return [];
     }
 
     const wishlist = await db.wishlist.upsert({
-      where: { userId },
+      where: { userId: targetUserId },
       update: {},
-      create: { userId },
+      create: { userId: targetUserId },
     });
 
     for (const productId of productIds) {
@@ -230,22 +247,26 @@ export async function syncGuestWishlistToDb(
     }
 
     safeRevalidatePath("/wishlist");
-    return getWishlistIds(userId);
+    return getWishlistIds(targetUserId);
   } catch (error) {
     console.error("Error syncing guest wishlist to DB:", error);
-    return getWishlistIds(userId);
+    return [];
   }
 }
 
 /**
  * Clear all items from a user's wishlist in DB.
  */
-export async function clearUserWishlist(userId: string): Promise<boolean> {
+export async function clearUserWishlist(userId?: string): Promise<boolean> {
   try {
-    if (!userId) return false;
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return false;
+    }
+    const targetUserId = auth.userId;
 
     const wishlist = await db.wishlist.findUnique({
-      where: { userId },
+      where: { userId: targetUserId },
     });
 
     if (!wishlist) return true;

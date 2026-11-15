@@ -305,13 +305,25 @@ export async function getApprovedProductPricingAction(data: {
   const oneBoxPrice = product.price || 2.0;
   const unitsPerBox = product.unitsPerBox || 100;
 
-  // Check if GSTIN and Phone are verified
+  // Verify buyer has an authenticated session and verified/approved GST status in DB
   let isVerified = false;
-  if (data.gstin && data.phone) {
-    const check = validateGstAndPhone(data.gstin, data.phone);
-    if (check.isValid) {
-      isVerified = true;
+  try {
+    const auth = await verifyAuthenticatedUser();
+    if (auth.authorized && auth.userId) {
+      if (auth.role === "ADMIN") {
+        isVerified = true;
+      } else {
+        const user = await db.user.findUnique({
+          where: { id: auth.userId },
+          select: { gstStatus: true, gstin: true },
+        });
+        if (user && user.gstStatus === "APPROVED") {
+          isVerified = true;
+        }
+      }
     }
+  } catch (authErr) {
+    console.warn("Could not verify auth for bulk pricing check:", authErr);
   }
 
   if (!isVerified) {

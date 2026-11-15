@@ -3,6 +3,7 @@
 import { sendForgotPasswordOTPEmail } from "@/lib/email";
 import db from "@/lib/db";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
 // ─── In-memory OTP store (for both mock and DB modes) ──────────────
 // In production, you'd use Redis or a database table for OTPs.
@@ -18,8 +19,17 @@ const otpStore = new Map<
   }
 >();
 
+// Single-use, time-limited reset tokens issued upon successful OTP verification
+const resetTokenStore = new Map<
+  string,
+  {
+    token: string;
+    expiresAt: number;
+  }
+>();
+
 function generateOTP(): string {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+  return crypto.randomInt(1000, 10000).toString();
 }
 
 // ─── Request Password Reset (send OTP) ────────────────────────────
@@ -101,6 +111,7 @@ export async function verifyPasswordResetOTP(
   otpCode: string
 ): Promise<{
   success: boolean;
+  resetToken?: string;
   error?: string;
 }> {
   if (!email || !otpCode) {
@@ -146,11 +157,16 @@ export async function verifyPasswordResetOTP(
     };
   }
 
-  // OTP verified successfully — clean up
+  // OTP verified successfully — clean up OTP and issue single-use reset token
   otpStore.delete(normalizedEmail);
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  resetTokenStore.set(normalizedEmail, {
+    token: resetToken,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
 
   console.log(`[OTP] Verified successfully for ${normalizedEmail}`);
-  return { success: true };
+  return { success: true, resetToken };
 }
 
 // ─── Resend OTP ────────────────────────────────────────────────────
@@ -166,7 +182,8 @@ export async function resendPasswordResetOTP(email: string): Promise<{
 // ─── Reset Password ────────────────────────────────────────────────
 export async function resetPassword(
   email: string,
-  newPassword: string
+  newPassword: string,
+  resetToken?: string
 ): Promise<{
   success: boolean;
   error?: string;
@@ -175,9 +192,32 @@ export async function resetPassword(
     return { success: false, error: "Email and new password are required." };
   }
 
+  if (!resetToken) {
+    return {
+      success: false,
+      error: "Reset session expired or token missing. Please verify your OTP again.",
+    };
+  }
+
   const normalizedEmail = email.toLowerCase().trim();
+  const storedReset = resetTokenStore.get(normalizedEmail);
+
+  if (!storedReset || storedReset.token !== resetToken || Date.now() > storedReset.expiresAt) {
+    resetTokenStore.delete(normalizedEmail);
+    return {
+      success: false,
+      error: "Invalid or expired reset token. Please verify your OTP again.",
+    };
+  }
+
+  // Atomically consume reset token to guarantee single-use
+  resetTokenStore.delete(normalizedEmail);
 
   try {
+    if (newPassword.length < 6) {
+      return { success: false, error: "Password must be at least 6 characters long." };
+    }
+
     if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("mock")) {
       const user = await db.user.findUnique({
         where: { email: normalizedEmail },
@@ -187,10 +227,10 @@ export async function resetPassword(
         return { success: false, error: "User not found." };
       }
 
-      const hashedPassword = crypto.createHash("sha256").update(newPassword).digest("hex");
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
       await db.user.update({
         where: { email: normalizedEmail },
-        data: { password: hashedPassword }
+        data: { password: hashedPassword },
       });
     }
 

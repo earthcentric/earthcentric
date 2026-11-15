@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 import { getCredential } from "@/lib/credentials";
+import { verifyAuthenticatedUser } from "@/lib/auth-server";
 
 // Configure Cloudinary helper
 async function configureCloudinary() {
@@ -19,12 +20,35 @@ async function configureCloudinary() {
   });
 }
 
+const ALLOWED_FOLDERS = [
+  "documents/verification",
+  "seller/verification",
+  "products",
+  "profiles",
+  "avatars",
+];
+
 export async function POST(req: NextRequest) {
   try {
+    const auth = await verifyAuthenticatedUser();
+    if (!auth.authorized || !auth.userId) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized: Please log in to upload files." },
+        { status: 401 }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
-    const folderType = (formData.get("folder") as string) || "documents/verification";
-    const docType = (formData.get("docType") as string) || "DOCUMENT";
+    const rawFolder = ((formData.get("folder") as string) || "documents/verification").trim();
+    const docType = ((formData.get("docType") as string) || "DOCUMENT").trim();
+
+    // Sanitize and whitelist folder destination
+    const cleanFolder = rawFolder.replace(/[^a-zA-Z0-9_\-\/]/g, "").replace(/\.\./g, "");
+    const isAllowedFolder = ALLOWED_FOLDERS.some(
+      (allowed) => cleanFolder === allowed || cleanFolder.startsWith(`${allowed}/`)
+    );
+    const folderType = isAllowedFolder ? `earthcentric/${cleanFolder}` : "earthcentric/documents/verification";
 
     if (!file) {
       return NextResponse.json({ success: false, error: "No file was provided." }, { status: 400 });

@@ -13,6 +13,7 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState(defaultEmail || "");
   const [step, setStep] = useState<"email" | "otp" | "reset" | "success">("email");
+  const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +84,8 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
     const result = await verifyPasswordResetOTP(email, otpCode);
 
     setIsLoading(false);
-    if (result.success) {
+    if (result.success && result.resetToken) {
+      setResetToken(result.resetToken);
       setStep("reset");
     } else {
       setError(result.error || "Verification failed.");
@@ -110,7 +112,7 @@ export function OTPVerification({ defaultEmail }: OTPVerificationProps) {
     setIsLoading(true);
     setError(null);
 
-    const result = await resetPassword(email, newPassword);
+    const result = await resetPassword(email, newPassword, resetToken);
 
     setIsLoading(false);
     if (result.success) {

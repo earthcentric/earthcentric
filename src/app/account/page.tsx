@@ -598,6 +598,7 @@ function AddressesTab({ userId }: { userId: string }) {
 function PasswordTab({ userId, email }: { userId: string; email: string }) {
   const [step, setStep] = useState<"send" | "verify" | "reset" | "done">("send");
   const [otp, setOtp] = useState("");
+  const [changePasswordToken, setChangePasswordToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNew, setShowNew] = useState(false);
@@ -636,7 +637,8 @@ function PasswordTab({ userId, email }: { userId: string; email: string }) {
     setError(null);
     const res = await verifyChangePasswordOtp(email, otp);
     setIsLoading(false);
-    if (!res.success) { setError(res.error || "Invalid OTP."); return; }
+    if (!res.success || !res.token) { setError(res.error || "Invalid OTP."); return; }
+    setChangePasswordToken(res.token);
     setStep("reset");
   };
 
@@ -646,7 +648,7 @@ function PasswordTab({ userId, email }: { userId: string; email: string }) {
     if (newPassword.length < 6) { setError("Password must be at least 6 characters."); return; }
     setIsLoading(true);
     setError(null);
-    const res = await changePassword(userId, newPassword);
+    const res = await changePassword(userId, newPassword, changePasswordToken);
     setIsLoading(false);
     if (!res.success) { setError(res.error || "Failed to change password."); return; }
     setStep("done");

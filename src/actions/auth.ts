@@ -6,6 +6,7 @@ import { uploadImage, deleteImage, getPublicIdFromDb } from "@/lib/cloudinary";
 import { isConfiguredSellerEmail, isSuperAdminEmail, isWorkerEmail } from "@/lib/account-roles";
 import { getVerifiedClerkIdentity } from "@/lib/clerk-identity";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { setEarthcentricSessionCookie } from "@/lib/session";
 import { verifyAdminAuth, verifyAuthenticatedUser } from "@/lib/auth-server";
@@ -30,8 +31,33 @@ export async function loginUser(email: string, password?: string): Promise<{ suc
     }
 
     if (user.password) {
-      const hashedInput = hashPassword(password);
-      if (user.password !== hashedInput) {
+      const isBcrypt =
+        user.password.startsWith("$2a$") ||
+        user.password.startsWith("$2b$") ||
+        user.password.startsWith("$2y$");
+      let passwordMatches = false;
+
+      if (isBcrypt) {
+        passwordMatches = await bcrypt.compare(password, user.password);
+      } else {
+        // Legacy SHA-256 comparison
+        const legacyHash = hashPassword(password);
+        if (user.password === legacyHash) {
+          passwordMatches = true;
+          // Transparently upgrade to salted bcrypt hash
+          try {
+            const upgradedHash = await bcrypt.hash(password, 12);
+            await db.user.update({
+              where: { id: user.id },
+              data: { password: upgradedHash },
+            });
+          } catch (upgradeErr) {
+            console.warn("Failed to transparently upgrade password to bcrypt:", upgradeErr);
+          }
+        }
+      }
+
+      if (!passwordMatches) {
         return { success: false, error: "Invalid email or password" };
       }
     } else {
@@ -81,17 +107,15 @@ export async function signupUser(
       return { success: false, error: "Choose a valid account type." };
     }
 
-    // --- Guard: For BUYER registrations, ensure email was OTP-verified ---
-    if (role === "BUYER") {
-      const otpRecord = await db.otpVerification.findUnique({
-        where: { email: normalizedEmail },
-      });
-      if (!otpRecord || !otpRecord.verified) {
-        return {
-          success: false,
-          error: "Email not verified. Please complete OTP verification first.",
-        };
-      }
+    // --- Guard: Ensure email was OTP-verified before account creation ---
+    const otpRecord = await db.otpVerification.findUnique({
+      where: { email: normalizedEmail },
+    });
+    if (!otpRecord || !otpRecord.verified) {
+      return {
+        success: false,
+        error: "Email not verified. Please complete OTP verification first.",
+      };
     }
 
     const existing = await db.user.findUnique({
@@ -102,8 +126,8 @@ export async function signupUser(
       return { success: false, error: "User with this email already exists" };
     }
 
-    const userId = `u-${Math.random().toString(36).substring(2, 10)}`;
-    const hashedPassword = password ? hashPassword(password) : null;
+    const userId = crypto.randomUUID();
+    const hashedPassword = password ? await bcrypt.hash(password, 12) : null;
 
     const user = await db.user.create({
       data: {
@@ -113,17 +137,15 @@ export async function signupUser(
         password: hashedPassword,
         phone: phone || null,
         role,
-        // Mark emailVerified since we confirmed via OTP
-        emailVerified: role === "BUYER" ? new Date() : null,
+        // Mark emailVerified since confirmed via OTP
+        emailVerified: new Date(),
       }
     });
 
     // Clean up OtpVerification row after successful account creation
-    if (role === "BUYER") {
-      await db.otpVerification.delete({ where: { email: normalizedEmail } }).catch(() => {
-        // Non-fatal — ignore if already deleted
-      });
-    }
+    await db.otpVerification.delete({ where: { email: normalizedEmail } }).catch(() => {
+      // Non-fatal — ignore if already deleted
+    });
 
     // Create Welcome Notification for new buyer
     if (role === "BUYER") {
@@ -201,7 +223,7 @@ export async function syncUserInDb(userData: {
   const isSuperAdminFallback = isSuperAdminEmail(identity.email);
   const isConfiguredSellerFallback = isConfiguredSellerEmail(identity.email);
 
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+  if (process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"))) {
     const role = isSuperAdminFallback ? "ADMIN" : (isConfiguredSellerFallback ? "SELLER" : "BUYER");
     const fallbackUser = {
       id: identity.id,
@@ -372,7 +394,7 @@ export async function setSellerSessionCookie(
       !identity.sellerId
     ) return { success: false };
 
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+    if (process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"))) {
       await setEarthcentricSessionCookie({
         id: identity.userId,
         role: "SELLER",
@@ -426,7 +448,7 @@ export async function updateUserProfilePicture(_userId: string, base64Image: str
   }
   const resultJson = await uploadImage(base64Image, "buyer-profile");
   
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock")) {
+  if (process.env.NODE_ENV !== "production" && (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("mock"))) {
     return resultJson;
   }
   
